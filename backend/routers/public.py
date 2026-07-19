@@ -23,12 +23,18 @@ async def list_gear():
 
 @router.get("/products", response_model=List[DigitalProduct])
 async def list_products():
-    return await db.products.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return await db.products.find(
+        {"$or": [{"status": "published"}, {"status": {"$exists": False}}]},
+        {"_id": 0},
+    ).sort("created_at", -1).to_list(500)
 
 
 @router.get("/products/{product_id}", response_model=DigitalProduct)
 async def get_product(product_id: str):
-    item = await db.products.find_one({"id": product_id}, {"_id": 0})
+    item = await db.products.find_one(
+        {"id": product_id, "$or": [{"status": "published"}, {"status": {"$exists": False}}]},
+        {"_id": 0},
+    )
     if not item:
         raise HTTPException(404, "Product not found")
     return item
