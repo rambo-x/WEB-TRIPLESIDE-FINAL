@@ -80,7 +80,7 @@ def _require_stripe_config() -> None:
 
 @router.post("/checkout/apply-coupon")
 async def apply_coupon(body: ApplyCouponRequest):
-    product = await db.products.find_one({"id": body.product_id}, {"_id": 0})
+    product = await db.products.find_one({"id": body.product_id, "$or": [{"status": "published"}, {"status": {"$exists": False}}]}, {"_id": 0})
     if not product:
         raise HTTPException(404, "Product not found")
     amount = float(product["price"])
@@ -99,7 +99,7 @@ async def apply_coupon(body: ApplyCouponRequest):
 @router.post("/free-claim/{product_id}")
 async def free_claim(product_id: str, customer_id: str = Depends(verify_customer)):
     """Claim a free product — creates a paid transaction immediately, no Stripe."""
-    product = await db.products.find_one({"id": product_id}, {"_id": 0})
+    product = await db.products.find_one({"id": product_id, "$or": [{"status": "published"}, {"status": {"$exists": False}}]}, {"_id": 0})
     if not product:
         raise HTTPException(404, "Product not found")
     if not product.get("is_free") and float(product.get("price", 0)) > 0:
@@ -148,7 +148,7 @@ async def create_checkout(
     request: Request,
     customer_id: Optional[str] = Depends(optional_customer),
 ):
-    product = await db.products.find_one({"id": body.product_id}, {"_id": 0})
+    product = await db.products.find_one({"id": body.product_id, "$or": [{"status": "published"}, {"status": {"$exists": False}}]}, {"_id": 0})
     if not product:
         raise HTTPException(404, "Product not found")
 
@@ -301,7 +301,7 @@ async def create_midtrans_session(
     if not midtrans_service.is_configured():
         raise HTTPException(503, "Midtrans belum dikonfigurasi. Hubungi admin.")
 
-    product = await db.products.find_one({"id": body.product_id}, {"_id": 0})
+    product = await db.products.find_one({"id": body.product_id, "$or": [{"status": "published"}, {"status": {"$exists": False}}]}, {"_id": 0})
     if not product:
         raise HTTPException(404, "Product not found")
     if product.get("is_free"):
