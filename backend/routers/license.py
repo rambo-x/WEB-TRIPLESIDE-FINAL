@@ -1,0 +1,282 @@
+"""VST plugin license endpoints: full licenses, multi-device activation and trials."""
+import json
+from datetime import datetime, timezone, timedelta
+from urllib.parse import parse_qs
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+
+from core import db, verify_customer, verify_admin, now_iso, logger
+from services.license_service import build_signed_license_file, get_public_key_pem, generate_license_key
+from services.email_service import send_email, trial_license_html
+
+router = APIRouter()
+
+
+def _utc_now():
+    return datetime.now(timezone.utc)
+
+
+def _parse_dt(value):
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+async def _read_payload(request: Request) -> dict:
+    raw = (await request.body()).decode("utf-8", errors="ignore")
+    ct = request.headers.get("content-type", "").lower()
+    if "application/json" in ct:
+        try:
+            return json.loads(raw or "{}")
+        except Exception:
+            return {}
+    try:
+        parsed = parse_qs(raw, keep_blank_values=True)
+        if parsed:
+            return {k: (v[0] if isinstance(v, list) and v else "") for k, v in parsed.items()}
+    except Exception:
+        pass
+    try:
+        return json.loads(raw or "{}")
+    except Exception:
+        return {}
+
+
+def _normalized_activations(lic: dict) -> list:
+    activations = list(lic.get("activations") or [])
+    # Backward compatibility with old one-device records.
+    if not activations and lic.get("hardware_id"):
+        activations.append({
+            "hardware_id": lic.get("hardware_id", ""),
+            "machine_name": lic.get("machine_name", ""),
+            "activated_at": lic.get("activated_at") or lic.get("created_at") or now_iso(),
+        })
+    return activations
+
+
+def _license_expired(lic: dict) -> bool:
+    expires = _parse_dt(lic.get("expires_at"))
+    return bool(expires and expires <= _utc_now())
+
+
+def _signed_bundle(lic: dict, hardware_id: str, activated_at: str) -> dict:
+    return build_signed_license_file(
+        license_key=lic["license_key"],
+        product_id=lic["product_id"],
+        product_name=lic.get("product_name", ""),
+        customer_id=lic.get("customer_id", ""),
+        customer_name=lic.get("customer_name", ""),
+        hardware_id=hardware_id,
+        activated_at=activated_at,
+        expires_at=lic.get("expires_at"),
+        license_type=lic.get("license_type", "full"),
+    )
+
+
+@router.get("/license/public-key")
+async def get_public_key():
+    return {"algorithm": "RSA-PSS-SHA256", "public_key_pem": get_public_key_pem()}
+
+
+@router.post("/license/activate")
+@router.post("/license/activate/")
+async def activate_license(request: Request):
+    data = await _read_payload(request)
+    key = str(data.get("license_key", "")).strip().upper()
+    hw = str(data.get("hardware_id", "")).strip()
+    machine_name = str(data.get("machine_name", "") or "")
+    if not key or not hw:
+        raise HTTPException(400, "license_key and hardware_id are required")
+
+    lic = await db.licenses.find_one({"license_key": key}, {"_id": 0})
+    if not lic:
+        raise HTTPException(404, "Invalid license key")
+    if lic.get("status") == "revoked":
+        raise HTTPException(403, "License has been revoked. Please contact support.")
+    if _license_expired(lic):
+        await db.licenses.update_one({"id": lic["id"]}, {"$set": {"status": "expired"}})
+        raise HTTPException(403, "Trial license has expired.")
+
+    activations = _normalized_activations(lic)
+    existing = next((a for a in activations if a.get("hardware_id") == hw), None)
+    if existing:
+        return {
+            "already_activated": True,
+            "activation_count": len(activations),
+            "max_activations": int(lic.get("max_activations", 1)),
+            "license": _signed_bundle(lic, hw, existing.get("activated_at") or now_iso()),
+        }
+
+    limit = max(1, min(3, int(lic.get("max_activations", 1))))
+    if len(activations) >= limit:
+        raise HTTPException(409, f"Activation limit reached ({limit} computers). Deactivate a device first.")
+
+    activated_at = now_iso()
+    activations.append({"hardware_id": hw, "machine_name": machine_name, "activated_at": activated_at})
+    await db.licenses.update_one(
+        {"id": lic["id"]},
+        {"$set": {
+            "activations": activations,
+            "hardware_id": activations[0].get("hardware_id", ""),
+            "machine_name": activations[0].get("machine_name", ""),
+            "activated_at": activations[0].get("activated_at"),
+            "status": "active",
+        }},
+    )
+    logger.info("License %s activated on device %s", key, hw[:16])
+    lic["activations"] = activations
+    return {
+        "already_activated": False,
+        "activation_count": len(activations),
+        "max_activations": limit,
+        "license": _signed_bundle(lic, hw, activated_at),
+    }
+
+
+@router.post("/license/verify")
+@router.post("/license/verify/")
+async def verify_license(request: Request):
+    data = await _read_payload(request)
+    key = str(data.get("license_key", "")).strip().upper()
+    hw = str(data.get("hardware_id", "")).strip()
+    lic = await db.licenses.find_one({"license_key": key}, {"_id": 0})
+    if not lic:
+        return {"valid": False, "reason": "not_found"}
+    if lic.get("status") == "revoked":
+        return {"valid": False, "reason": "revoked"}
+    if _license_expired(lic):
+        return {"valid": False, "reason": "expired", "expires_at": lic.get("expires_at")}
+    activations = _normalized_activations(lic)
+    match = next((a for a in activations if a.get("hardware_id") == hw), None)
+    if not match:
+        return {"valid": False, "reason": "hardware_mismatch" if activations else "not_activated"}
+    return {
+        "valid": True,
+        "activated_at": match.get("activated_at"),
+        "expires_at": lic.get("expires_at"),
+        "license_type": lic.get("license_type", "full"),
+    }
+
+
+@router.get("/customer/licenses")
+async def customer_licenses(customer_id: str = Depends(verify_customer)):
+    items = await db.licenses.find({"customer_id": customer_id}, {"_id": 0, "notes": 0}).sort("created_at", -1).to_list(200)
+    for lic in items:
+        lic["activations"] = _normalized_activations(lic)
+        lic["activation_count"] = len(lic["activations"])
+        if _license_expired(lic):
+            lic["status"] = "expired"
+    return items
+
+
+@router.post("/customer/trials/{product_id}")
+async def create_trial(product_id: str, customer_id: str = Depends(verify_customer)):
+    product = await db.products.find_one({"id": product_id}, {"_id": 0})
+    if not product:
+        raise HTTPException(404, "Product not found")
+    if not product.get("requires_license") or not product.get("trial_enabled", True):
+        raise HTTPException(400, "Trial is not available for this product")
+
+    existing = await db.licenses.find_one({
+        "customer_id": customer_id,
+        "product_id": product_id,
+        "license_type": "trial",
+    }, {"_id": 0})
+    if existing:
+        return {"already_created": True, "license": existing}
+
+    customer = await db.customers.find_one({"id": customer_id}, {"_id": 0}) or {}
+    days = max(1, min(365, int(product.get("trial_days", 7))))
+    expires_at = (_utc_now() + timedelta(days=days)).isoformat()
+    prefix = "TRL"
+    lic = {
+        "id": str(uuid.uuid4()),
+        "license_key": generate_license_key(prefix),
+        "product_id": product["id"],
+        "product_name": product.get("name", ""),
+        "customer_id": customer_id,
+        "customer_name": customer.get("name", ""),
+        "customer_email": customer.get("email", ""),
+        "transaction_id": "",
+        "hardware_id": "",
+        "machine_name": "",
+        "activated_at": None,
+        "activations": [],
+        "max_activations": 1,
+        "license_type": "trial",
+        "trial_days": days,
+        "expires_at": expires_at,
+        "status": "unactivated",
+        "notes": "Auto-generated trial",
+        "created_at": now_iso(),
+    }
+    await db.licenses.insert_one(lic)
+    if lic.get("customer_email"):
+        await send_email(
+            to=lic["customer_email"],
+            subject=f"Trial {days} hari — {lic['product_name']}",
+            html=trial_license_html(lic.get("customer_name") or "Customer", lic["product_name"], lic["license_key"], days, expires_at),
+        )
+    return {"already_created": False, "license": lic}
+
+
+@router.delete("/customer/licenses/{license_id}/devices/{hardware_id}")
+async def customer_deactivate_device(license_id: str, hardware_id: str, customer_id: str = Depends(verify_customer)):
+    lic = await db.licenses.find_one({"id": license_id, "customer_id": customer_id}, {"_id": 0})
+    if not lic:
+        raise HTTPException(404, "License not found")
+    activations = [a for a in _normalized_activations(lic) if a.get("hardware_id") != hardware_id]
+    status = "active" if activations else "unactivated"
+    await db.licenses.update_one({"id": license_id}, {"$set": {
+        "activations": activations,
+        "hardware_id": activations[0].get("hardware_id", "") if activations else "",
+        "machine_name": activations[0].get("machine_name", "") if activations else "",
+        "activated_at": activations[0].get("activated_at") if activations else None,
+        "status": status,
+    }})
+    return {"ok": True, "activation_count": len(activations)}
+
+
+admin_router = APIRouter(dependencies=[Depends(verify_admin)])
+
+
+@admin_router.get("/licenses")
+async def admin_list_licenses():
+    items = await db.licenses.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    for lic in items:
+        lic["activations"] = _normalized_activations(lic)
+        lic["activation_count"] = len(lic["activations"])
+        if _license_expired(lic):
+            lic["status"] = "expired"
+    return items
+
+
+@admin_router.post("/licenses/{license_id}/reset")
+async def admin_reset_license(license_id: str):
+    r = await db.licenses.update_one({"id": license_id}, {"$set": {
+        "hardware_id": "", "machine_name": "", "activated_at": None,
+        "activations": [], "status": "unactivated",
+    }})
+    if r.matched_count == 0:
+        raise HTTPException(404, "License not found")
+    return {"ok": True}
+
+
+@admin_router.post("/licenses/{license_id}/revoke")
+async def admin_revoke_license(license_id: str):
+    r = await db.licenses.update_one({"id": license_id}, {"$set": {"status": "revoked"}})
+    if r.matched_count == 0:
+        raise HTTPException(404, "License not found")
+    return {"ok": True}
+
+
+@admin_router.delete("/licenses/{license_id}")
+async def admin_delete_license(license_id: str):
+    r = await db.licenses.delete_one({"id": license_id})
+    if r.deleted_count == 0:
+        raise HTTPException(404, "License not found")
+    return {"ok": True}

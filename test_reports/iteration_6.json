@@ -1,0 +1,35 @@
+{
+  "summary": "Iteration 6 - Verified FORM-ENCODED (application/x-www-form-urlencoded) contract for HISE VST license endpoints against public URL. 11/11 new tests pass covering: public-key, form activate happy path (binds HW-PC-1), form idempotent re-activate, form hardware conflict 409 (HW-PC-2), form invalid key 404, trailing-slash /api/license/activate/ handled DIRECTLY without 307 redirect (both 200 idempotent and 404 invalid, allow_redirects=False, r.history==[]), form verify valid, form verify hardware_mismatch, admin revoke then form verify returns valid:false reason='revoked', and JSON regression (verify after revoke still parses body -> reason='revoked' not 'not_found'). Combined with iteration_5 JSON suite = 20/20 passing.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_license_form_contract.py",
+    "/app/backend/tests/test_license_contract.py",
+    "/app/test_reports/pytest/iteration6_license_form.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "routers/license.py::_read_payload correctly handles urlencoded WITHOUT python-multipart by using urllib.parse.parse_qs, and also falls back to JSON. Good, no dependency creep.",
+    "Both /license/activate and /license/activate/ (and /verify + /verify/) use @router.post twice, which is why trailing-slash requests are handled directly and don't trigger FastAPI's default 307 redirect (which would have stripped the POST body). Confirmed via allow_redirects=False - r.history is empty and status is 200/404 directly.",
+    "activate() and verify() normalize license_key with .strip().upper() and hardware_id with .strip() when reading; on first bind however activate stores hardware_id verbatim (line 98 uses `hw` which is already stripped, so this is actually fine - previous iteration 5 note about inconsistency no longer applies). Confirmed: the FORM tests with HW-PC-1/HW-PC-2 pass idempotency + mismatch + revoke round-trip.",
+    "admin_revoke_license only sets status=revoked; it does NOT clear hardware_id. That's intentional for audit but means a subsequent admin_reset_license is needed if the customer is issued a new key. Not a bug.",
+    "No CSRF/HMAC on the public activation endpoint - only license_key (which is bearer-like). This is standard for hardware-locked license servers but worth noting; the RSA-PSS signature on the returned license file is what the plugin should trust, not the HTTP response envelope. Not blocking."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_license_form_contract.py (new, 11 tests)"
+  ],
+  "success_rate": {"backend": "100% (11/11 new, 20/20 combined with iteration_5)", "frontend": "not tested (backend only per request)"},
+  "test_credentials": "Admin: admin@tripleside.studio / tripleside2025. Customer created per-run TEST_licform_<uuid>@example.com / secret123.",
+  "seed_data_creation": "Per-run: 1 TEST_ customer + 1 TEST_ free VST product (deleted in teardown) + 1 auto-generated license (revoked at end of run; identifiable by TEST_ prefix on product name and customer email).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Two license test files now exist: test_license_contract.py (JSON contract, iteration 5) and test_license_form_contract.py (FORM contract + trailing-slash + revoke, iteration 6). Run both via: cd /app/backend && pytest tests/test_license_contract.py tests/test_license_form_contract.py -v. Fixtures are module-scoped because activate() mutates state; test ORDER must be preserved (happy path -> idempotent -> conflict -> ... -> revoke last). The FORM suite ends by revoking its own license so it does NOT interfere with the JSON suite (different license row). The trailing-slash tests use allow_redirects=False and assert r.history==[] to prove no 307/308 redirect strips the POST body - critical for HISE Server.callWithPOST compatibility.",
+  "rca of the issue": "N/A - no bugs found. The backend correctly supports form-encoded HISE Server.callWithPOST bodies via the _read_payload helper that tries urlencoded before JSON, and trailing-slash routes are declared with dual @router.post decorators so FastAPI does not emit a 307 redirect that would drop the POST body."
+}

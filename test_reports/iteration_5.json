@@ -1,0 +1,33 @@
+{
+  "summary": "Iteration 5 — HISE plugin license backend contract verified end-to-end against the public URL. 9/9 tests pass covering all cases from the review request (public-key, free-claim license auto-creation, activate happy path, idempotent re-activation, hardware conflict 409, invalid key 404, verify valid, verify hardware_mismatch, verify not_found). Test data (TEST_ customer + TEST_ product) is created per-run and product is torn down. Frontend testing was explicitly skipped per request (testing_type: 'backend only').",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_license_contract.py",
+    "/app/test_reports/pytest/iteration5_license.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "routers/license.py — activate() normalizes license_key with .strip().upper() (good, matches how generate_license_key stores it), but verify() also normalizes with .upper() while the hardware_id compare uses raw body.hardware_id.strip() and does NOT strip trailing whitespace when *storing* on first activation (line 68 stores body.hardware_id verbatim; only compared with .strip() on subsequent verify). Low-risk but inconsistent — recommend hw = body.hardware_id.strip() at the top and use hw everywhere. Not blocking.",
+    "routers/checkout.py::_on_payment_succeeded — license auto-creation is called from free-claim inside a try/except that only logs a warning. If license insert silently fails, customer sees success but has no license row. Consider surfacing a hard error for the requires_license=true case, or add a background retry / admin alert.",
+    "routers/license.py::activate_license does not enforce max_activations (the License model has max_activations:int=1). Currently 'already_activated' relies solely on hardware_id presence — matches spec for a single-machine lifetime license, but if max_activations>1 is ever set, the endpoint will silently ignore it.",
+    "signed_license file returned by activate() is opaque to this test; not decoded/verified with the RSA public key here. Could add an end-to-end signature-round-trip test in a future iteration (fetch public-key, verify signature over the license payload)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_license_contract.py (new)"
+  ],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "not tested (skipped per request)"},
+  "test_credentials": "Admin: admin@tripleside.studio / tripleside2025. Customer created per-run with TEST_lic_<uuid>@example.com / secret123.",
+  "seed_data_creation": "Each run creates 1 TEST_ customer + 1 TEST_ product + 1 auto-generated license + 1 free-claim transaction. Product is deleted in fixture teardown; customer/license/transaction rows remain in DB (identifiable by TEST_ prefix on email/product name).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "License contract test file lives at /app/backend/tests/test_license_contract.py. Run: cd /app/backend && pytest tests/test_license_contract.py -v. All fixtures scope=module so one product+customer+license is reused across the 9 tests (needed because activate() mutates state — 'happy path' → 'idempotent' → 'different-machine 409' must run in that order, and pytest default order within a class matches file order). The conftest.py XFF rate-limit bypass is compatible. Public URL used: REACT_APP_BACKEND_URL from /app/frontend/.env.",
+  "rca of the issue": "N/A — this was a HISE-side script bug that the main agent already fixed in the markdown guide. Backend license contract is intact and unchanged by that fix. Nothing to reproduce here; the backend contract the HISE script depends on works correctly."
+}

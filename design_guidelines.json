@@ -1,0 +1,150 @@
+{
+  "project_name": "TripleSide Studio",
+  "theme": "dark",
+  "archetype": "5 (Jewel & Luxury) with elements of 4 (Swiss & High-Contrast)",
+  "emotional_tone": "Cinematic, Professional, Moody, Immersive, Premium",
+  "description": "A high-end modern music studio website serving as a marketing portfolio, song/gear catalog, and an e-commerce platform for digital audio products.",
+  "colors": {
+    "background": {
+      "base": "#050505",
+      "surface": "#0A0A0C",
+      "elevated": "#121214",
+      "glass": "rgba(10, 10, 12, 0.6)"
+    },
+    "text": {
+      "primary": "#FFFFFF",
+      "secondary": "#A1A1AA",
+      "muted": "#52525B"
+    },
+    "primary": {
+      "DEFAULT": "#E11D48",
+      "hover": "#BE123C",
+      "foreground": "#FFFFFF",
+      "glow": "rgba(225, 29, 72, 0.4)"
+    },
+    "accent": {
+      "DEFAULT": "#4361EE",
+      "hover": "#3B52D9",
+      "muted": "rgba(67, 97, 238, 0.1)"
+    },
+    "border": {
+      "default": "rgba(255, 255, 255, 0.08)",
+      "highlight": "rgba(255, 255, 255, 0.15)",
+      "active": "rgba(225, 29, 72, 0.5)"
+    }
+  },
+  "typography": {
+    "fonts": {
+      "heading": "Outfit, sans-serif",
+      "body": "Manrope, sans-serif",
+      "mono": "JetBrains Mono, monospace"
+    },
+    "hierarchy": {
+      "h1": "text-5xl md:text-6xl+ font-black tracking-tighter leading-none text-white",
+      "h2": "text-3xl md:text-4xl font-bold tracking-tight text-white",
+      "h3": "text-xl md:text-2xl font-semibold tracking-tight text-white",
+      "body": "text-base font-medium leading-relaxed text-[#A1A1AA]",
+      "label": "text-xs font-bold uppercase tracking-[0.2em] text-[#52525B]"
+    }
+  },
+  "spacing_and_layout": {
+    "container": "max-w-7xl mx-auto px-6 md:px-12",
+    "section_padding": "py-24 md:py-32",
+    "grid_bento": "grid grid-cols-1 md:grid-cols-12 gap-6 md:gap-8",
+    "grid_cards": "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"
+  },
+  "surface_styles": {
+    "glass_header": "backdrop-blur-xl bg-black/60 border-b border-white/10 saturate-150",
+    "card_default": "bg-[#0A0A0C] border border-white/10 rounded-2xl overflow-hidden transition-all duration-300",
+    "card_hover": "hover:-translate-y-1 hover:border-white/20 hover:shadow-[0_8px_32px_rgba(225,29,72,0.15)]",
+    "input_field": "bg-[#050505] border border-white/10 text-white focus:border-[#E11D48] focus:ring-1 focus:ring-[#E11D48] rounded-lg"
+  },
+  "components": {
+    "navigation": {
+      "type": "Fixed Glass Header",
+      "rules": "Must remain sticky at the top with z-50. Include Logo on the left, centered links (Home, Songs, Gear, Shop), and a primary CTA (Login/Cart) on the right. Never transparent."
+    },
+    "buttons": {
+      "primary": "bg-[#E11D48] text-white font-semibold rounded-full px-6 py-3 hover:bg-[#BE123C] transition-colors",
+      "secondary": "bg-transparent border border-white/20 text-white font-semibold rounded-full px-6 py-3 hover:bg-white/5 transition-colors",
+      "play_button": "w-12 h-12 rounded-full bg-[#E11D48] flex items-center justify-center hover:scale-105 transition-transform"
+    },
+    "audio_player": {
+      "style": "Floating bottom bar or inline card player.",
+      "visuals": "Dark surface (#121214) with a vivid primary (#E11D48) progress bar. Include Play/Pause, Track Title, Artist, and Time."
+    },
+    "digital_product_card": {
+      "style": "High-contrast card. Large image area (1:1 ratio). Bold typography for title and price. Primary 'Add to Cart' or 'Buy Now' button.",
+      "hover_effect": "Image slightly zooms, border highlights."
+    }
+  },
+  "pages": {
+    "home": {
+      "hero": "Full-height (min-h-[90vh]) section. Dark overlay (bg-black/50) over the studio hero image. H1 should be dramatic and left-aligned or perfectly centered with an asymmetric accent element. Include 'Explore Catalog' primary button.",
+      "featured_sections": "Use The Tetris Grid (Bento) for showcasing Top Songs and Featured Gear."
+    },
+    "songs_catalog": {
+      "layout": "List-based or dense grid. Each row/card has a Play button. Active track gets a subtle #E11D48 left border highlight.",
+      "interactions": "Clicking play updates the global audio player state."
+    },
+    "gear_catalog": {
+      "layout": "Asymmetric Bento Grid (grid-cols-1 md:grid-cols-8 lg:grid-cols-12). Images should be close-ups or deeply contrasted.",
+      "card_style": "Minimal text, let the gear image dominate. Reveal specs on hover."
+    },
+    "digital_products": {
+      "layout": "Clean 3-column grid. E-commerce focus.",
+      "details_page": "Split layout: 50% Sticky Image on the left, 50% scrolling content on the right. Include price, description, 'Buy via Stripe' button, and an audio preview if it's a sample pack."
+    },
+    "admin_dashboard": {
+      "layout": "Sidebar navigation (bg-[#050505]) + Main content area (bg-[#0A0A0C]). Strict grid hierarchy, tight spacing (p-6).",
+      "tables": "Shadcn Table with minimalist borders. Use high contrast for active/inactive badges."
+    }
+  },
+  "animations": {
+    "page_load": "Fade up with Framer Motion (y: 20, opacity: 0).",
+    "hover": "Smooth 300ms transitions on all interactives.",
+    "scroll": "Use Lenis for smooth momentum scrolling. Parallax effect on the hero background image."
+  },
+  "libraries": {
+    "icons": "@phosphor-icons/react",
+    "styling": "Tailwind CSS, clsx, tailwind-merge",
+    "components": "Shadcn UI (highly customized for dark mode)",
+    "animation": "framer-motion, lenis"
+  },
+  "image_urls": {
+    "hero_background": {
+      "url": "https://images.pexels.com/photos/10933686/pexels-photo-10933686.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "description": "Sleek modern music studio setup featuring computer monitors and audio equipment in a dark setting.",
+      "usage": "Main landing page hero section background."
+    },
+    "about_studio": {
+      "url": "https://images.pexels.com/photos/10854605/pexels-photo-10854605.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "description": "Close-up of a studio microphone with pop filter and ring light.",
+      "usage": "About us section or studio booking section."
+    },
+    "gear_synthesizer_1": {
+      "url": "https://images.unsplash.com/photo-1771851975026-3137d37eae93?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTZ8MHwxfHNlYXJjaHwzfHxhdWRpbyUyMGdlYXIlMjBzeW50aGVzaXplcnxlbnwwfHx8fDE3Nzg1ODAxODV8MA&ixlib=rb-4.1.0&q=85",
+      "description": "Black electronic music synthesizer with knobs and jacks",
+      "usage": "Gear catalog grid item 1"
+    },
+    "gear_synthesizer_2": {
+      "url": "https://images.unsplash.com/photo-1771851975052-69ab5908ce39?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTZ8MHwxfHNlYXJjaHwyfHxhdWRpbyUyMGdlYXIlMjBzeW50aGVzaXplcnxlbnwwfHx8fDE3Nzg1ODAxODV8MA&ixlib=rb-4.1.0&q=85",
+      "description": "Black modular synthesizer with colorful stickers",
+      "usage": "Gear catalog grid item 2"
+    },
+    "product_sample_pack_placeholder": {
+      "url": "https://images.unsplash.com/photo-1763630054060-de7d28d3ba82?crop=entropy&cs=srgb&fm=jpg&ixid=M3w7NDQ2NDF8MHwxfHNlYXJjaHwyfHxkaiUyMG11c2ljJTIwcGVyZm9ybWFuY2UlMjBsaXZlfGVufDB8fHx8MTc3ODU4MDE4NXww&ixlib=rb-4.1.0&q=85",
+      "description": "DJ in mask performing for crowd (abstract mood image)",
+      "usage": "Placeholder for digital product / sample pack cover"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Install and use @phosphor-icons/react for all icons. Avoid mixing icon libraries.",
+    "Implement the 'Outfit' font for headings and 'Manrope' for body text via Next.js next/font or standard Google Fonts import in index.css.",
+    "Do NOT use 'Inter' for headings anywhere.",
+    "Ensure the Global Audio Player context is implemented so users can navigate the site while music continues to play.",
+    "The e-commerce portion requires Stripe integration. Ensure product detail pages have a clear, high-contrast 'Buy via Stripe' button.",
+    "Implement CRUD in the Admin dashboard with Shadcn Table and Dialog components. Use tight spacing (p-4/p-6) in the admin UI.",
+    "All interactive elements must have `data-testid` attributes (e.g., `data-testid=\"play-song-btn\"`)."
+  ]
+}

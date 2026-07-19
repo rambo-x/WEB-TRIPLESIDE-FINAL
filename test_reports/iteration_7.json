@@ -1,0 +1,35 @@
+{
+  "summary": "Iteration 7 — Verified Midtrans (unconfigured) + Stripe IDR + free-claim, both backend and frontend. 7/7 pytest tests pass (Stripe IDR happy path, Stripe tiny-amount 400 with Indonesian message, Midtrans /session 503 with 'Midtrans belum dikonfigurasi. Hubungi admin.', Midtrans webhook invalid signature 401, Midtrans webhook valid signature over empty server key -> 200 {ok:true}, Midtrans status unknown order 404, and free-claim auto-creates a license retrievable via /customer/licenses). Frontend: product page renders Rp price format via fmtPrice (id-ID/IDR), both pay-midtrans-btn and pay-stripe-btn are visible, labels match spec logged-out ('Masuk untuk Membeli' / 'Bayar dengan Kartu (Stripe)') and logged-in ('Bayar dengan Midtrans' / 'Bayar dengan Kartu (Stripe)'). Clicking pay-midtrans-btn while Midtrans is unconfigured produces a toast 'Midtrans belum dikonfigurasi. Hubungi admin.' and the page does NOT crash. /payment/success?order_id=ORD-FAKE123 renders the payment-success-page with 'Confirming payment...' state, polls /api/checkout/midtrans/status/ORD-FAKE123 (backend returns 404, frontend continues polling then transitions to failed after 10 attempts) — no white screen.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration7_midtrans.py",
+    "/app/test_reports/pytest/iteration7_midtrans.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "checkout.py::create_checkout switches Stripe currency to 'idr' unconditionally and catches min-amount errors returning 400 with an Indonesian message. Note the substring match uses 'at least'/'minimum' in the exception text — this depends on emergentintegrations' error phrasing; if that lib ever localizes/changes wording, tiny-amount will fall through to 502. Consider adding an explicit pre-flight guard (e.g. amount < 7500 IDR ~= $0.50) so the behavior is deterministic regardless of upstream error text.",
+    "checkout.py::_on_payment_succeeded and free_claim currency: free_claim still writes currency='usd' on the transaction while all paid flows now use 'idr'. Cosmetic (only shown on invoice/PDF for paid txns) but inconsistent with the IDR migration.",
+    "midtrans_service.verify_signature: when server key is empty, sha512(order_id+status_code+gross_amount+'') is still a valid computable hash so anyone who knows those three fields can forge a webhook. This is unavoidable while keys are unset; explicitly document / gate the webhook behind is_configured() once real keys are set (or return 503 for webhook too when unconfigured, to avoid accidentally 'accepting' events during pre-launch).",
+    "PaymentSuccess.jsx line 4 has an import + export on the same line ('...from \"lucide-react\";export default function PaymentSuccess() {') — parses fine but a stray newline was clearly lost; harmless but ugly.",
+    "ProductDetail.payMidtrans calls loadSnap after the 503 error path? No — 503 throws before loadSnap. Verified: on 503 the catch shows the toast and does NOT call loadSnap or window.snap. Good.",
+    "Admin DELETE /admin/products/{id} works both with and without trailing slash but the request WITH trailing slash 307-redirects (verified). Frontend should always use no-trailing-slash (as the review notes)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration7_midtrans.py (new, 7 tests)"
+  ],
+  "success_rate": {"backend": "100% (7/7)", "frontend": "100% (product page, buttons, midtrans-click graceful, /payment/success non-crash)"},
+  "test_credentials": "Admin: admin@tripleside.studio / tripleside2025. Customer: fresh TEST_it7_<uuid>@example.com / secret123 per run.",
+  "seed_data_creation": "Per-run: 1 TEST_ paid product (150000 IDR) and 1 TEST_ tiny-amount product (50 IDR) — both deleted in test teardown. 1 TEST_ free-with-license product — deleted in teardown. 2 fresh TEST_ customers registered (retained in DB; identifiable by TEST_it7_ / TEST_it7free_ prefix).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run: cd /app/backend && pytest tests/test_iteration7_midtrans.py -v. All 7 tests are self-cleaning for products. Midtrans server key is intentionally empty in /app/backend/.env — do not treat as a bug. Stripe was migrated USD->IDR: legacy products in the DB still have small numeric prices (e.g. Rp 50) so Stripe checkout on the legacy 'Analog Warmth VST' product would return 400 (tiny amount); always create your own product with price>=150000 to exercise Stripe success. Admin product DELETE must be WITHOUT trailing slash to avoid 307 redirect. When exercising Midtrans webhook with empty server key, signature = sha512(order_id+status_code+gross_amount+'') hexdigest.",
+  "rca of the issue": "N/A — no bugs. All specified behaviors match the review request. The 404-poll pattern on PaymentSuccess with a fake order_id is by design and is handled gracefully (10 retries then failed state)."
+}

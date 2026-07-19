@@ -1,0 +1,39 @@
+{
+  "summary": "Iteration 3 testing complete. 21/21 backend pytest tests pass (forgot/reset password full flow, coupon CRUD, apply-coupon valid/invalid/inactive/expired, checkout with coupon stores discount + coupon_code, /admin/upload returns 503 as expected, invoice 401/403 access control, download now requires customer auth and rejects other customer's transaction). Frontend smoke verified: /forgot-password renders + submit shows success, /reset-password?token=... renders password form, /login has 'Forgot password?' link, ProductDetail coupon input applies WELCOME10 and shows $34.99 -> $31.49 with 'Saved $3.50 with WELCOME10', Admin Dashboard Coupons tab lists WELCOME10 + 'Add new' button + Active badge. Customer Invoice button cannot be visually verified because budi@test.com has no paid orders ('No purchases yet'); backend access control for /api/customer/invoice is correct.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration3.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/iteration3_results.xml"
+  ],
+  "action_items": [
+    "(Optional) Add data-testid='invoice-button-{transaction_id}' and 'download-button-{transaction_id}' on CustomerDashboard order rows to enable deterministic E2E testing of Invoice/Download buttons (currently they only render conditionally for paid orders; budi seed customer has no paid orders so visual coverage is gated).",
+    "(Optional) Add data-testid='admin-tab-coupons' on the Coupons sidebar link to avoid text-based selectors.",
+    "(Reminder) /api/admin/upload is intentionally returning 503 until CLOUDINARY_API_SECRET is provided - this is expected per the iteration 3 spec, not a bug."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now ~1000 lines and starting to mix concerns (auth, products, coupons, checkout, email, invoice). Consider splitting into routers/coupons.py, routers/customer_auth.py, routers/checkout.py for maintainability before iteration 4.",
+    "_validate_coupon swallows ValueError on bad ISO expires_at - silently treats invalid date as no-expiry. Better: log + reject. Low impact since admin UI controls input.",
+    "forgot_password always returns ok message even if Resend send_email fails; that's the documented design (don't leak existence). However send_email errors should still be logged - email_service should log at ERROR level on non-2xx Resend responses.",
+    "GET /api/customer/invoice/{id} requires txn.customer_id == customer_id but legacy txns created before customer auth was added have customer_id == '' - those will 403 for everyone, which is intentional but undocumented. Add a note in README.",
+    "verify_customer raises 403 ('Customer only') for missing token but verify_admin->decode_token raises 401. Inconsistent. Consider: missing token always 401, wrong-role 403."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration3.py (new)"
+  ],
+  "success_rate": {"backend": "100% (21/21)", "frontend": "100% of testable flows (Invoice button gated by needing a paid order)"},
+  "test_credentials": "Admin: admin@tripleside.studio / tripleside2025. Customer: budi@test.com / secret123 (has no paid orders). New TEST_it3_* customers are created per test run for forgot/reset flow.",
+  "seed_data_creation": "Per-test-run TEST_it3_<uuid>@example.com customers created and a TEST<uuid>/INA<uuid>/EXP<uuid> coupon created+deleted in lifecycle test (cleaned up). Some leftover TEST_it3 customers persisted (safe due to prefix).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run: MONGO_URL='mongodb://localhost:27017' DB_NAME='test_database' pytest /app/backend/tests/test_iteration3.py -v. The reset-password full-flow test requires direct DB access to read the reset token (no API exposes it); MONGO_URL/DB_NAME env must be exported. Frontend selectors confirmed working: input[type='email']/input[type='password']/button:has-text('Sign In') for both /login and /admin/login. Admin Coupons sidebar item is a regular button with text 'Coupons' (no data-testid yet). To test invoice button end-to-end, you'd need to seed a paid transaction with customer_id matching the logged-in user; current Stripe sessions stay 'pending'.",
+  "rca of the issue": "N/A - no bugs found this iteration. All 21 backend tests pass and frontend flows render correctly. Cloudinary 503 and Resend test-mode email-to-verified-only limitation are documented expected behaviors per the iteration 3 spec."
+}
