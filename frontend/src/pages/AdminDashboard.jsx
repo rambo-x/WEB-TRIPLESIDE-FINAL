@@ -2,13 +2,13 @@ import React, { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { api, fmtPrice } from "../lib/api";
-import { Music2, Sliders, ShoppingBag, LogOut, Plus, Pencil, Trash2, Receipt, X, Users, Tag, Upload, Loader2, BookOpen, KeyRound, RotateCcw, Ban } from "lucide-react";
+import { Music2, Sliders, ShoppingBag, LogOut, Plus, Pencil, Trash2, Receipt, X, Users, Tag, Upload, Loader2, BookOpen, KeyRound, RotateCcw, Ban, Eye, EyeOff, Copy } from "lucide-react";
 import { toast } from "sonner";
 
 const TABS = [
   { id: "songs", label: "Songs", icon: Music2, endpoint: "/songs", admin: "/admin/songs" },
   { id: "gear", label: "Gear", icon: Sliders, endpoint: "/gear", admin: "/admin/gear" },
-  { id: "products", label: "Products", icon: ShoppingBag, endpoint: "/products", admin: "/admin/products" },
+  { id: "products", label: "Products", icon: ShoppingBag, endpoint: "/admin/products", admin: "/admin/products" },
   { id: "blog", label: "Blog", icon: BookOpen, endpoint: "/admin/blog", admin: "/admin/blog" },
   { id: "coupons", label: "Coupons", icon: Tag, endpoint: "/admin/coupons", admin: "/admin/coupons" },
   { id: "licenses", label: "Licenses", icon: KeyRound, endpoint: "/admin/licenses" },
@@ -50,6 +50,7 @@ const SCHEMAS = {
     { key: "price", label: "Price (USD) — ignored if Free is checked", type: "number", step: "0.01", required: true },
     { key: "preview_audio_url", label: "Preview Audio URL (optional)" },
     { key: "download_url", label: "Download URL (Cloudinary or any public link)", required: true, type: "file_or_url" },
+    { key: "status", label: "Publication Status", type: "select", options: ["draft", "published"], required: true, help: "Draft products are hidden from the public shop until you publish them." },
   ],
   blog: [
     { key: "title", label: "Title", required: true },
@@ -100,7 +101,7 @@ export default function AdminDashboard() {
   if (!isAdmin) return <Navigate to="/admin/login" replace />;
 
   const openCreate = () => {
-    setForm(tab === "products" ? { requires_license: true, max_activations: "1", trial_enabled: true, trial_days: 7 } : {});
+    setForm(tab === "products" ? { requires_license: true, max_activations: "1", trial_enabled: true, trial_days: 7, status: "draft" } : {});
     setModal({ mode: "create" });
   };
   const openEdit = (item) => {
@@ -170,6 +171,31 @@ export default function AdminDashboard() {
       load();
     } catch {
       toast.error("Delete failed");
+    }
+  };
+
+
+  const setProductPublication = async (product, publish) => {
+    const action = publish ? "publish" : "unpublish";
+    const message = publish
+      ? `Publish ${product.name}? It will become visible in the public shop.`
+      : `Move ${product.name} back to Draft? It will disappear from the public shop.`;
+    if (!window.confirm(message)) return;
+    try {
+      await api.post(`/admin/products/${product.id}/${action}`);
+      toast.success(publish ? "Product published" : "Product moved to draft");
+      load();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Status update failed");
+    }
+  };
+
+  const copyProductId = async (product) => {
+    try {
+      await navigator.clipboard.writeText(product.id);
+      toast.success("Product ID copied");
+    } catch {
+      toast.error("Could not copy Product ID");
     }
   };
 
@@ -448,9 +474,31 @@ export default function AdminDashboard() {
                         <td className="py-3 px-3 text-xs text-zinc-400">
                           {tab === "songs" && `${it.artist} · ${it.genre}`}
                           {tab === "gear" && `${it.brand} · ${it.category}`}
-                          {tab === "products" && `${it.category} · ${fmtPrice(it.price)} · ${it.requires_license ? `${it.max_activations || 1} PC · Trial ${it.trial_enabled !== false ? `${it.trial_days || 7}d` : "Off"}` : "No license"}` }
+                          {tab === "products" && (
+                            <div className="space-y-1">
+                              <div>{`${it.category} · ${fmtPrice(it.price)} · ${it.requires_license ? `${it.max_activations || 1} PC · Trial ${it.trial_enabled !== false ? `${it.trial_days || 7}d` : "Off"}` : "No license"}`}</div>
+                              <div className="flex items-center gap-2">
+                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase ${
+                                  (it.status || "published") === "published"
+                                    ? "bg-emerald-500/15 text-emerald-400"
+                                    : "bg-amber-500/15 text-amber-400"
+                                }`}>
+                                  {it.status || "published"}
+                                </span>
+                                <button type="button" onClick={() => copyProductId(it)} className="inline-flex items-center gap-1 font-mono text-[10px] text-zinc-500 hover:text-white" title="Copy Product ID">
+                                  <Copy className="w-3 h-3" /> {it.id}
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </td>
                         <td className="py-3 px-3 text-right">
+                          {tab === "products" && (it.status || "published") === "published" && (
+                            <button data-testid={`unpublish-${it.id}`} onClick={() => setProductPublication(it, false)} title="Move to Draft" className="p-2 rounded hover:bg-white/5 mr-1 text-amber-400"><EyeOff className="w-3.5 h-3.5" /></button>
+                          )}
+                          {tab === "products" && (it.status || "published") !== "published" && (
+                            <button data-testid={`publish-${it.id}`} onClick={() => setProductPublication(it, true)} title="Publish product" className="p-2 rounded hover:bg-white/5 mr-1 text-emerald-400"><Eye className="w-3.5 h-3.5" /></button>
+                          )}
                           <button data-testid={`edit-${it.id}`} onClick={() => openEdit(it)} className="p-2 rounded hover:bg-white/5 mr-1"><Pencil className="w-3.5 h-3.5" /></button>
                           <button data-testid={`delete-${it.id}`} onClick={() => remove(it)} className="p-2 rounded hover:bg-white/5 text-red-400"><Trash2 className="w-3.5 h-3.5" /></button>
                         </td>
