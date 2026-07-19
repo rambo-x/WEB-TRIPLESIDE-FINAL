@@ -86,17 +86,67 @@ async def delete_gear(gear_id: str):
 
 
 # ---- Products ----
+def _product_status(value: str) -> str:
+    return "published" if value == "published" else "draft"
+
+
+@router.get("/products", response_model=List[DigitalProduct])
+async def admin_list_products():
+    # Admin sees drafts and published products. Existing products without a status
+    # are treated as published so the live catalog is not disrupted.
+    items = await db.products.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    for item in items:
+        item.setdefault("status", "published")
+        item.setdefault("updated_at", item.get("created_at", now_iso()))
+    return items
+
+
 @router.post("/products", response_model=DigitalProduct)
 async def create_product(body: ProductInput):
-    product = DigitalProduct(**body.model_dump())
+    data = body.model_dump()
+    data["status"] = _product_status(data.get("status"))
+    data["published_at"] = now_iso() if data["status"] == "published" else None
+    product = DigitalProduct(**data)
     await db.products.insert_one(product.model_dump())
     return product
 
 
 @router.put("/products/{product_id}", response_model=DigitalProduct)
 async def update_product(product_id: str, body: ProductInput):
+    existing = await db.products.find_one({"id": product_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(404, "Product not found")
+    updates = body.model_dump()
+    updates["status"] = _product_status(updates.get("status"))
+    updates["updated_at"] = now_iso()
+    if updates["status"] == "published" and not existing.get("published_at"):
+        updates["published_at"] = now_iso()
     updated = await db.products.find_one_and_update(
-        {"id": product_id}, {"$set": body.model_dump()}, return_document=True, projection={"_id": 0}
+        {"id": product_id}, {"$set": updates}, return_document=True, projection={"_id": 0}
+    )
+    return updated
+
+
+@router.post("/products/{product_id}/publish", response_model=DigitalProduct)
+async def publish_product(product_id: str):
+    updated = await db.products.find_one_and_update(
+        {"id": product_id},
+        {"$set": {"status": "published", "published_at": now_iso(), "updated_at": now_iso()}},
+        return_document=True,
+        projection={"_id": 0},
+    )
+    if not updated:
+        raise HTTPException(404, "Product not found")
+    return updated
+
+
+@router.post("/products/{product_id}/unpublish", response_model=DigitalProduct)
+async def unpublish_product(product_id: str):
+    updated = await db.products.find_one_and_update(
+        {"id": product_id},
+        {"$set": {"status": "draft", "updated_at": now_iso()}},
+        return_document=True,
+        projection={"_id": 0},
     )
     if not updated:
         raise HTTPException(404, "Product not found")
