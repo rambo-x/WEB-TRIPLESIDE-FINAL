@@ -174,6 +174,9 @@ class DigitalProduct(BaseModel):
     trial_days: int = Field(default=7, ge=1, le=365)
     preview_audio_url: Optional[str] = ""
     download_url: str
+    status: str = "published"  # legacy products without status remain public
+    published_at: Optional[str] = None
+    updated_at: str = Field(default_factory=now_iso)
     created_at: str = Field(default_factory=now_iso)
 
 
@@ -190,6 +193,7 @@ class ProductInput(BaseModel):
     trial_days: int = Field(default=7, ge=1, le=365)
     preview_audio_url: Optional[str] = ""
     download_url: str
+    status: str = "draft"  # new products are saved as draft by default
 
 
 class License(BaseModel):
