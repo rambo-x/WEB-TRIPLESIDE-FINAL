@@ -275,7 +275,7 @@ async def create_trial(product_id: str, customer_id: str = Depends(verify_custom
         "license_type": "trial",
     }, {"_id": 0})
     if existing:
-        return {"already_created": True, "license": existing}
+        return {"already_created": True, "license": existing, "download_url": product.get("download_url", "")}
 
     customer = await db.customers.find_one({"id": customer_id}, {"_id": 0}) or {}
     days = max(1, min(365, int(product.get("trial_days", 7))))
@@ -309,7 +309,7 @@ async def create_trial(product_id: str, customer_id: str = Depends(verify_custom
             subject=f"Trial {days} hari — {lic['product_name']}",
             html=trial_license_html(lic.get("customer_name") or "Customer", lic["product_name"], lic["license_key"], days, expires_at),
         )
-    return {"already_created": False, "license": lic}
+    return {"already_created": False, "license": lic, "download_url": product.get("download_url", "")}
 
 
 @router.delete("/customer/licenses/{license_id}/devices/{hardware_id}")
