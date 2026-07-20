@@ -97,14 +97,27 @@ export default function ProductDetail() {
   setTrialLoading(true);
 
   try {
-    let res;
+    const token = localStorage.getItem("ts_token");
 
+    // 🔥 REQUEST PERTAMA (PAKSA BAWA TOKEN)
+    let res;
     try {
-      // 🔥 normal request
-      res = await api.post(`/customer/trials/${id}`);
+      res = await api.post(`/customer/trials/${id}`, {}, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
     } catch (err) {
-      // 🔥 paksa ambil response walaupun error
-      if (err?.response) {
+      // 🔥 JIKA 401 → RETRY SEKALI (INI KUNCI FIX KLIK 2x)
+      if (err?.response?.status === 401) {
+        console.warn("Retry trial after 401...");
+
+        res = await api.post(`/customer/trials/${id}`, {}, {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("ts_token")}`,
+          },
+        });
+      } else if (err?.response) {
         res = err.response;
       } else {
         throw err;
@@ -114,15 +127,16 @@ export default function ProductDetail() {
     const downloadUrl = res?.data?.download_url;
 
     if (!downloadUrl) {
+      console.error("TRIAL RESPONSE:", res?.data);
       toast.error("Download URL tidak ditemukan");
       return;
     }
 
-    // 🔥 HARD REDIRECT (lebih stabil dari href)
+    // ✅ LANGSUNG DOWNLOAD
     window.location.replace(downloadUrl);
 
   } catch (e) {
-    console.error("TRIAL FINAL ERROR:", e);
+    console.error("TRIAL ERROR:", e);
 
     toast.error(
       e?.response?.data?.detail ||
