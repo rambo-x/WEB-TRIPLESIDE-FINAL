@@ -266,24 +266,36 @@ async def create_trial(product_id: str, customer_id: str = Depends(verify_custom
     )
     if not product:
         raise HTTPException(404, "Product not found")
+
     if not product.get("requires_license") or not product.get("trial_enabled", True):
         raise HTTPException(400, "Trial is not available for this product")
+
+    # 🔥 FIX: pastikan download_url ada
+    download_url = (product.get("download_url") or "").strip()
+    if not download_url:
+        raise HTTPException(500, "Download URL not configured for this product")
 
     existing = await db.licenses.find_one({
         "customer_id": customer_id,
         "product_id": product_id,
         "license_type": "trial",
     }, {"_id": 0})
+
     if existing:
-        return {"already_created": True, "license": existing, "download_url": product.get("download_url", "")}
+        return {
+            "already_created": True,
+            "license": existing,
+            "download_url": download_url  # 🔥 selalu pakai variable
+        }
 
     customer = await db.customers.find_one({"id": customer_id}, {"_id": 0}) or {}
+
     days = max(1, min(365, int(product.get("trial_days", 7))))
     expires_at = (_utc_now() + timedelta(days=days)).isoformat()
-    prefix = "TRL"
+
     lic = {
         "id": str(uuid.uuid4()),
-        "license_key": generate_license_key(prefix),
+        "license_key": generate_license_key("TRL"),
         "product_id": product["id"],
         "product_name": product.get("name", ""),
         "customer_id": customer_id,
@@ -302,14 +314,27 @@ async def create_trial(product_id: str, customer_id: str = Depends(verify_custom
         "notes": "Auto-generated trial",
         "created_at": now_iso(),
     }
+
     await db.licenses.insert_one(lic)
+
     if lic.get("customer_email"):
         await send_email(
             to=lic["customer_email"],
             subject=f"Trial {days} hari — {lic['product_name']}",
-            html=trial_license_html(lic.get("customer_name") or "Customer", lic["product_name"], lic["license_key"], days, expires_at),
+            html=trial_license_html(
+                lic.get("customer_name") or "Customer",
+                lic["product_name"],
+                lic["license_key"],
+                days,
+                expires_at
+            ),
         )
-    return {"already_created": False, "license": lic, "download_url": product.get("download_url", "")}
+
+    return {
+        "already_created": False,
+        "license": lic,
+        "download_url": download_url  # 🔥 FIX UTAMA
+    }
 
 
 @router.delete("/customer/licenses/{license_id}/devices/{hardware_id}")
