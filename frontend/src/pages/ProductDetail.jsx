@@ -99,17 +99,14 @@ export default function ProductDetail() {
 
   try {
     const r = await api.post(`/customer/trials/${id}`);
-
     downloadUrl = r?.data?.download_url;
     alreadyCreated = r?.data?.already_created;
-
   } catch (e) {
-    // 🔥 Ambil data bahkan dari error response
+    // 🔥 ambil data walaupun dianggap error oleh axios
     downloadUrl = e?.response?.data?.download_url;
     alreadyCreated = e?.response?.data?.already_created;
   }
 
-  // ✅ HANDLE SETELAH TRY-CATCH (ANTI GAGAL)
   if (downloadUrl) {
     toast.success(
       alreadyCreated
@@ -117,7 +114,7 @@ export default function ProductDetail() {
         : "Trial created successfully"
     );
 
-    window.location.href = downloadUrl;
+    window.location.href = downloadUrl; // ✅ LANGSUNG DOWNLOAD
   } else {
     toast.error("Failed to create trial");
   }
