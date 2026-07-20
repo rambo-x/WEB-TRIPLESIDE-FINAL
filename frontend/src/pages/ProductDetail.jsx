@@ -94,31 +94,31 @@ export default function ProductDetail() {
 
   setTrialLoading(true);
 
-  let res;
-
   try {
-    res = await api.post(`/customer/trials/${id}`);
-  } catch (e) {
-    // 🔥 fallback kalau masih dilempar
-    res = e?.response;
-  }
+    const r = await api.post(`/customer/trials/${id}`);
 
-  const downloadUrl = res?.data?.download_url;
-  const alreadyCreated = res?.data?.already_created;
+    const downloadUrl = r?.data?.download_url;
 
-  if (downloadUrl) {
-    toast.success(
-      alreadyCreated
-        ? "Trial already exists"
-        : "Trial created successfully"
-    );
+    if (downloadUrl) {
+      window.location.href = downloadUrl;
+      return;
+    }
 
-    window.location.href = downloadUrl;
-  } else {
     toast.error("Failed to create trial");
-  }
 
-  setTrialLoading(false);
+  } catch (e) {
+    // 🔥 ambil response walaupun error
+    const downloadUrl = e?.response?.data?.download_url;
+
+    if (downloadUrl) {
+      window.location.href = downloadUrl;
+      return;
+    }
+
+    toast.error("Failed to create trial");
+  } finally {
+    setTrialLoading(false);
+  }
 };
 
   const loadSnap = (clientKey, isProduction) =>
