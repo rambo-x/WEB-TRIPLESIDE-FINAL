@@ -85,7 +85,7 @@ export default function ProductDetail() {
   };
 
 
-  const startTrial = async () => {
+ const startTrial = async () => {
   if (!isCustomer) {
     toast.info("Please sign in to start your trial");
     nav("/login", { state: { from: `/shop/${id}` } });
@@ -94,41 +94,35 @@ export default function ProductDetail() {
 
   setTrialLoading(true);
 
+  let downloadUrl = null;
+  let alreadyCreated = false;
+
   try {
     const r = await api.post(`/customer/trials/${id}`);
 
-    const downloadUrl = r?.data?.download_url;
+    downloadUrl = r?.data?.download_url;
+    alreadyCreated = r?.data?.already_created;
 
+  } catch (e) {
+    // 🔥 Ambil data bahkan dari error response
+    downloadUrl = e?.response?.data?.download_url;
+    alreadyCreated = e?.response?.data?.already_created;
+  }
+
+  // ✅ HANDLE SETELAH TRY-CATCH (ANTI GAGAL)
+  if (downloadUrl) {
     toast.success(
-      r?.data?.already_created
+      alreadyCreated
         ? "Trial already exists"
         : "Trial created successfully"
     );
 
-    if (downloadUrl) {
-      window.location.href = downloadUrl;
-      return;
-    }
-
-    nav("/dashboard");
-
-  } catch (e) {
-    // 🔥 FIX: kalau backend sebenarnya sukses tapi masuk catch
-    const downloadUrl = e?.response?.data?.download_url;
-
-    if (downloadUrl) {
-      window.location.href = downloadUrl;
-      return;
-    }
-
-    toast.error(
-      e?.response?.data?.detail ||
-      e?.response?.data?.message ||
-      "Failed to create trial"
-    );
-  } finally {
-    setTrialLoading(false);
+    window.location.href = downloadUrl;
+  } else {
+    toast.error("Failed to create trial");
   }
+
+  setTrialLoading(false);
 };
 
   const loadSnap = (clientKey, isProduction) =>
