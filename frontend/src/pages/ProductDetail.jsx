@@ -86,22 +86,37 @@ export default function ProductDetail() {
 
 
   const startTrial = async () => {
-    if (!isCustomer) {
-      toast.info("Please sign in to start your trial");
-      nav("/login", { state: { from: `/shop/${id}` } });
-      return;
-    }
-    setTrialLoading(true);
-    try {
-      const r = await api.post(`/customer/trials/${id}`);
-      toast.success(r.data.already_created ? "Your trial already exists in Dashboard" : "Trial serial created and emailed");
+  if (!isCustomer) {
+    toast.info("Please sign in to start your trial");
+    nav("/login", { state: { from: `/shop/${id}` } });
+    return;
+  }
+
+  setTrialLoading(true);
+  try {
+    const r = await api.post(`/customer/trials/${id}`);
+
+    const downloadUrl = r?.data?.download_url;
+
+    toast.success(
+      r.data.already_created
+        ? "Trial already exists"
+        : "Trial created successfully"
+    );
+
+    // ✅ FIX: direct ke download seperti paid/free
+    if (downloadUrl) {
+      window.location.href = downloadUrl;
+    } else {
       nav("/dashboard");
-    } catch (e) {
-      toast.error(e?.response?.data?.detail || "Failed to create trial");
-    } finally {
-      setTrialLoading(false);
     }
-  };
+
+  } catch (e) {
+    toast.error(e?.response?.data?.detail || "Failed to create trial");
+  } finally {
+    setTrialLoading(false);
+  }
+};
 
   const loadSnap = (clientKey, isProduction) =>
     new Promise((resolve, reject) => {
