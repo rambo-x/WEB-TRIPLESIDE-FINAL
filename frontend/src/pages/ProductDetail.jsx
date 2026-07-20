@@ -93,26 +93,39 @@ export default function ProductDetail() {
   }
 
   setTrialLoading(true);
+
   try {
     const r = await api.post(`/customer/trials/${id}`);
 
     const downloadUrl = r?.data?.download_url;
 
     toast.success(
-      r.data.already_created
+      r?.data?.already_created
         ? "Trial already exists"
         : "Trial created successfully"
     );
 
-    // ✅ FIX: direct ke download seperti paid/free
     if (downloadUrl) {
       window.location.href = downloadUrl;
-    } else {
-      nav("/dashboard");
+      return;
     }
 
+    nav("/dashboard");
+
   } catch (e) {
-    toast.error(e?.response?.data?.detail || "Failed to create trial");
+    // 🔥 FIX: kalau backend sebenarnya sukses tapi masuk catch
+    const downloadUrl = e?.response?.data?.download_url;
+
+    if (downloadUrl) {
+      window.location.href = downloadUrl;
+      return;
+    }
+
+    toast.error(
+      e?.response?.data?.detail ||
+      e?.response?.data?.message ||
+      "Failed to create trial"
+    );
   } finally {
     setTrialLoading(false);
   }
