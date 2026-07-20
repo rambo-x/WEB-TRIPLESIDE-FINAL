@@ -86,7 +86,6 @@ export default function ProductDetail() {
 
 
  const startTrial = async () => {
-  // 🔥 BLOCK DOUBLE CLICK
   if (trialLoading) return;
 
   if (!isCustomer) {
@@ -98,22 +97,35 @@ export default function ProductDetail() {
   setTrialLoading(true);
 
   try {
-    const res = await api.post(`/customer/trials/${id}`);
+    let res;
+
+    try {
+      // 🔥 normal request
+      res = await api.post(`/customer/trials/${id}`);
+    } catch (err) {
+      // 🔥 paksa ambil response walaupun error
+      if (err?.response) {
+        res = err.response;
+      } else {
+        throw err;
+      }
+    }
 
     const downloadUrl = res?.data?.download_url;
 
     if (!downloadUrl) {
-      throw new Error("NO_URL");
+      toast.error("Download URL tidak ditemukan");
+      return;
     }
 
-    // 🔥 LANGSUNG REDIRECT (NO STATE DELAY)
-    window.location.href = downloadUrl;
+    // 🔥 HARD REDIRECT (lebih stabil dari href)
+    window.location.replace(downloadUrl);
 
-  } catch (err) {
-    console.error("TRIAL ERROR:", err);
+  } catch (e) {
+    console.error("TRIAL FINAL ERROR:", e);
 
     toast.error(
-      err?.response?.data?.detail ||
+      e?.response?.data?.detail ||
       "Failed to create trial"
     );
   } finally {
