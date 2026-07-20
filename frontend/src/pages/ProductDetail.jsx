@@ -104,10 +104,12 @@ export default function ProductDetail() {
       return;
     }
 
-    toast.error("Failed to create trial");
+    // fallback kalau backend tidak kirim URL
+    toast.success("Trial created");
+    nav("/dashboard");
 
   } catch (e) {
-    // 🔥 ambil response walaupun error
+    // 🔥 ambil URL walaupun dianggap error
     const downloadUrl = e?.response?.data?.download_url;
 
     if (downloadUrl) {
@@ -115,7 +117,10 @@ export default function ProductDetail() {
       return;
     }
 
-    toast.error("Failed to create trial");
+    toast.error(
+      e?.response?.data?.detail ||
+      "Failed to create trial"
+    );
   } finally {
     setTrialLoading(false);
   }
