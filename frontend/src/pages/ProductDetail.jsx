@@ -86,6 +86,9 @@ export default function ProductDetail() {
 
 
  const startTrial = async () => {
+  // 🔥 BLOCK DOUBLE CLICK
+  if (trialLoading) return;
+
   if (!isCustomer) {
     toast.info("Please sign in to start your trial");
     nav("/login", { state: { from: `/shop/${id}` } });
@@ -95,37 +98,28 @@ export default function ProductDetail() {
   setTrialLoading(true);
 
   try {
-    const r = await api.post(`/customer/trials/${id}`);
+    const res = await api.post(`/customer/trials/${id}`);
 
-    const downloadUrl = r?.data?.download_url;
+    const downloadUrl = res?.data?.download_url;
 
-    if (downloadUrl) {
-      window.location.href = downloadUrl;
-      return;
+    if (!downloadUrl) {
+      throw new Error("NO_URL");
     }
 
-    // fallback kalau backend tidak kirim URL
-    toast.success("Trial created");
-    nav("/dashboard");
+    // 🔥 LANGSUNG REDIRECT (NO STATE DELAY)
+    window.location.href = downloadUrl;
 
-  } catch (e) {
-    // 🔥 ambil URL walaupun dianggap error
-    const downloadUrl = e?.response?.data?.download_url;
-
-    if (downloadUrl) {
-      window.location.href = downloadUrl;
-      return;
-    }
+  } catch (err) {
+    console.error("TRIAL ERROR:", err);
 
     toast.error(
-      e?.response?.data?.detail ||
+      err?.response?.data?.detail ||
       "Failed to create trial"
     );
   } finally {
     setTrialLoading(false);
   }
 };
-
   const loadSnap = (clientKey, isProduction) =>
     new Promise((resolve, reject) => {
       if (window.snap) return resolve();
