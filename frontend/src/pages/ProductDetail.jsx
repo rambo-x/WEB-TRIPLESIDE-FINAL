@@ -94,18 +94,17 @@ export default function ProductDetail() {
 
   setTrialLoading(true);
 
-  let downloadUrl = null;
-  let alreadyCreated = false;
+  let res;
 
   try {
-    const r = await api.post(`/customer/trials/${id}`);
-    downloadUrl = r?.data?.download_url;
-    alreadyCreated = r?.data?.already_created;
+    res = await api.post(`/customer/trials/${id}`);
   } catch (e) {
-    // 🔥 ambil data walaupun dianggap error oleh axios
-    downloadUrl = e?.response?.data?.download_url;
-    alreadyCreated = e?.response?.data?.already_created;
+    // 🔥 fallback kalau masih dilempar
+    res = e?.response;
   }
+
+  const downloadUrl = res?.data?.download_url;
+  const alreadyCreated = res?.data?.already_created;
 
   if (downloadUrl) {
     toast.success(
@@ -114,7 +113,7 @@ export default function ProductDetail() {
         : "Trial created successfully"
     );
 
-    window.location.href = downloadUrl; // ✅ LANGSUNG DOWNLOAD
+    window.location.href = downloadUrl;
   } else {
     toast.error("Failed to create trial");
   }
