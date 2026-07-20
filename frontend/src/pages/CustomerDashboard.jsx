@@ -376,10 +376,11 @@ export default function CustomerDashboard() {
                             </div>
                             <button
                               onClick={() => deactivateDevice(l.id, device.hardware_id)}
-                              className="p-2 rounded-full text-zinc-400 hover:text-red-400 hover:bg-red-500/10"
+                              className="flex flex-col items-center p-2 text-zinc-400 hover:text-red-400"
                               title="Deactivate computer"
                             >
                               <MonitorOff className="w-3.5 h-3.5" />
+                              <span className="mt-1 text-[9px] leading-none">Reset Device</span>
                             </button>
                           </div>
                         ))}
