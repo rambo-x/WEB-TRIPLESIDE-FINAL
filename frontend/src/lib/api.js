@@ -12,22 +12,29 @@ export const api = axios.create({
   timeout: 20000,
 });
 
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem("ts_token");
-  if (token) config.headers.Authorization = `Bearer ${token}`;
-  return config;
-});
-
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+
+    // 🔥 PRIORITAS: HANDLE TRIAL DULU (SEBELUM APAPUN)
+    if (
+      error?.config?.url?.includes("/customer/trials/") &&
+      error?.response?.data
+    ) {
+      return Promise.resolve(error.response);
+    }
+
+    // ❌ BARU HANDLE ERROR NORMAL
     if (!error.response) {
       error.userMessage = "Server tidak dapat dihubungi. Silakan coba lagi.";
     } else if (error.response.status === 404) {
       error.userMessage = "Data atau endpoint yang diminta tidak ditemukan.";
     } else {
-      error.userMessage = error.response?.data?.detail || "Permintaan gagal. Silakan coba lagi.";
+      error.userMessage =
+        error.response?.data?.detail ||
+        "Permintaan gagal. Silakan coba lagi.";
     }
+
     return Promise.reject(error);
   }
 );
