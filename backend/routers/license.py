@@ -270,10 +270,18 @@ async def create_trial(product_id: str, customer_id: str = Depends(verify_custom
     if not product.get("requires_license") or not product.get("trial_enabled", True):
         raise HTTPException(400, "Trial is not available for this product")
 
-    # 🔥 FIX: pastikan download_url ada
+    # 🔥 FIX: pastikan download_url valid
     download_url = (product.get("download_url") or "").strip()
+
     if not download_url:
-        raise HTTPException(500, "Download URL not configured for this product")
+        product_retry = await db.products.find_one(
+            {"id": product_id},
+            {"_id": 0},
+        )
+        download_url = (product_retry.get("download_url") or "").strip() if product_retry else ""
+
+    if not download_url:
+        raise HTTPException(500, "Download URL not found in product")
 
     existing = await db.licenses.find_one({
         "customer_id": customer_id,
@@ -285,7 +293,7 @@ async def create_trial(product_id: str, customer_id: str = Depends(verify_custom
         return {
             "already_created": True,
             "license": existing,
-            "download_url": download_url  # 🔥 selalu pakai variable
+            "download_url": download_url
         }
 
     customer = await db.customers.find_one({"id": customer_id}, {"_id": 0}) or {}
@@ -293,9 +301,11 @@ async def create_trial(product_id: str, customer_id: str = Depends(verify_custom
     days = max(1, min(365, int(product.get("trial_days", 7))))
     expires_at = (_utc_now() + timedelta(days=days)).isoformat()
 
+    prefix = "TRL"
+
     lic = {
         "id": str(uuid.uuid4()),
-        "license_key": generate_license_key("TRL"),
+        "license_key": generate_license_key(prefix),
         "product_id": product["id"],
         "product_name": product.get("name", ""),
         "customer_id": customer_id,
@@ -326,14 +336,14 @@ async def create_trial(product_id: str, customer_id: str = Depends(verify_custom
                 lic["product_name"],
                 lic["license_key"],
                 days,
-                expires_at
+                expires_at,
             ),
         )
 
     return {
         "already_created": False,
         "license": lic,
-        "download_url": download_url  # 🔥 FIX UTAMA
+        "download_url": download_url
     }
 
 
