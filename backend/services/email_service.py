@@ -60,7 +60,7 @@ def purchase_confirmation_html(customer_name: str, product_name: str, amount: fl
       <tr><td style="color:#71717a;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;padding-bottom:4px;">Produk</td></tr>
       <tr><td style="color:#fff;font-weight:600;font-size:17px;padding-bottom:12px;">{product_name}</td></tr>
       <tr><td style="color:#71717a;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;padding-bottom:4px;">Total Bayar</td></tr>
-      <tr><td style="color:#e11d48;font-weight:700;font-size:22px;">{currency.upper()} {amount:.2f}</td></tr>
+      <tr><td style="color:#e11d48;font-weight:700;font-size:22px;">{"Rp"} {"{:,.0f}".format(amount).replace(",", ".")}</td></tr>
     </table>
     {f'<div style="background:#151518;border:1px solid #e11d48;border-radius:12px;padding:20px;margin-bottom:24px;"><div style="color:#a1a1aa;font-size:11px;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;">Serial Number RSA</div><div style="color:#fff;font-family:monospace;font-size:17px;font-weight:700;word-break:break-all;">{license_key}</div><div style="color:#a1a1aa;font-size:12px;margin-top:8px;">Dapat diaktifkan pada maksimal {max_activations} komputer.</div></div>' if license_key else ''}
     <p style="color:#a1a1aa;margin:0 0 24px 0;">File digital Anda sekarang tersedia di dashboard. Klik tombol di bawah untuk men-download.</p>
