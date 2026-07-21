@@ -209,17 +209,17 @@ async def verify_license(request: Request):
     if lic.get("status") == "revoked":
         return {"valid": False, "reason": "revoked"}
     if _license_expired(lic):
-    if lic.get("status") != "expired":
-        await db.licenses.update_one(
-            {"id": lic["id"]},
-            {"$set": {"status": "expired"}}
-        )
+        if lic.get("status") != "expired":
+            await db.licenses.update_one(
+                {"id": lic["id"]},
+                {"$set": {"status": "expired"}}
+            )
 
-    return {
-        "valid": False,
-        "reason": "expired",
-        "expires_at": lic.get("expires_at")
-    }
+        return {
+            "valid": False,
+            "reason": "expired",
+            "expires_at": lic.get("expires_at")
+        }
 
     activations = _normalized_activations(lic)
     match = next((a for a in activations if a.get("hardware_id") == hw), None)
