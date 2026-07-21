@@ -325,7 +325,8 @@ async def create_trial(product_id: str, customer_id: str = Depends(verify_custom
         "created_at": now_iso(),
     }
 
-    await db.licenses.insert_one(lic)
+    result = await db.licenses.insert_one(lic)
+    lic["_id"] = str(result.inserted_id)
 
     if lic.get("customer_email"):
         await send_email(
