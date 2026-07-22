@@ -437,7 +437,7 @@ className="border border-white/10 rounded-xl overflow-hidden"
 
 <button
 onClick={() => toggleLicenseGroup(product)}
-className="w-full flex items-center justify-between px-5 py-4 bg-white/5 hover:bg-white/10 transition"
+className="w-full flex items-center justify-between px-5 py-4 bg-[#e11d48] hover:bg-[#be123c] transition text-white"
 >
 
 <div>
@@ -448,10 +448,10 @@ className="w-full flex items-center justify-between px-5 py-4 bg-white/5 hover:b
 
 </h3>
 
-<p className="text-xs text-zinc-500">
-
+<p className="text-xs text-white/80">
+  
 {licenses.length} License
-
+  
 </p>
 
 </div>
