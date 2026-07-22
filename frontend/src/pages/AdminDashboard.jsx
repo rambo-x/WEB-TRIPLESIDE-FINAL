@@ -437,7 +437,7 @@ className="border border-white/10 rounded-xl overflow-hidden"
 
 <button
 onClick={() => toggleLicenseGroup(product)}
-className="w-full flex items-center justify-between px-5 py-4 bg-[#e11d48] hover:bg-[#be123c] transition text-white"
+className="w-full flex items-center justify-between px-5 py-4 bg-[#e11d48] hover:bg-[#be123c] text-white rounded-t-xl shadow-lg transition"
 >
 
 <div>
