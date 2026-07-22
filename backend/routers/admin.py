@@ -21,6 +21,7 @@ from core import (
     BlogPostInput,
 )
 from services.storage_service import upload_file, CLOUDINARY_CONFIGURED
+from services.email_service import send_campaign_email
 
 router = APIRouter(dependencies=[Depends(verify_admin)])
 
@@ -304,3 +305,144 @@ async def admin_delete_blog(post_id: str):
     if r.deleted_count == 0:
         raise HTTPException(404, "Post not found")
     return {"ok": True}
+
+
+
+# ==========================================================
+# EMAIL CAMPAIGN
+# ==========================================================
+
+@router.post("/email-campaign/send")
+async def send_email_campaign(body: dict):
+    """
+    Body:
+    {
+        "subject": "...",
+        "message": "...",
+        "target":"all"
+    }
+
+    target:
+        all
+        paid
+        full
+        trial
+    """
+
+    subject = body.get("subject", "").strip()
+    message = body.get("message", "").strip()
+    target = body.get("target", "all")
+
+    if not subject:
+        raise HTTPException(400, "Subject required")
+
+    if not message:
+        raise HTTPException(400, "Message required")
+
+    emails = []
+
+    # -------------------------------------
+    # ALL CUSTOMERS
+    # -------------------------------------
+
+    if target == "all":
+
+        customers = await db.customers.find(
+            {},
+            {
+                "_id": 0,
+                "email": 1,
+            },
+        ).to_list(5000)
+
+        emails = [
+            c["email"]
+            for c in customers
+            if c.get("email")
+        ]
+
+    # -------------------------------------
+    # PAID CUSTOMER
+    # -------------------------------------
+
+    elif target == "paid":
+
+        trx = await db.payment_transactions.find(
+            {
+                "payment_status": "paid"
+            },
+            {
+                "_id": 0,
+                "customer_email": 1,
+            },
+        ).to_list(5000)
+
+        emails = list(
+            {
+                t["customer_email"]
+                for t in trx
+                if t.get("customer_email")
+            }
+        )
+
+    # -------------------------------------
+    # FULL LICENSE
+    # -------------------------------------
+
+    elif target == "full":
+
+        licenses = await db.licenses.find(
+            {
+                "license_type": "full"
+            },
+            {
+                "_id": 0,
+                "customer_email": 1,
+            },
+        ).to_list(5000)
+
+        emails = list(
+            {
+                l["customer_email"]
+                for l in licenses
+                if l.get("customer_email")
+            }
+        )
+
+    # -------------------------------------
+    # TRIAL LICENSE
+    # -------------------------------------
+
+    elif target == "trial":
+
+        licenses = await db.licenses.find(
+            {
+                "license_type": "trial"
+            },
+            {
+                "_id": 0,
+                "customer_email": 1,
+            },
+        ).to_list(5000)
+
+        emails = list(
+            {
+                l["customer_email"]
+                for l in licenses
+                if l.get("customer_email")
+            }
+        )
+
+    else:
+        raise HTTPException(400, "Unknown target")
+
+    if len(emails) == 0:
+        raise HTTPException(404, "No recipient found")
+
+    result = await send_campaign_email(
+        recipients=emails,
+        subject=subject,
+        message=message,
+    )
+
+    return result
