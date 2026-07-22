@@ -85,6 +85,7 @@ export default function AdminDashboard() {
   const [broadcastSubject, setBroadcastSubject] = useState("");
   const [broadcastMessage, setBroadcastMessage] = useState("");
   const [sendingBroadcast, setSendingBroadcast] = useState(false);
+  const [broadcastTarget, setBroadcastTarget] = useState("all");
 
   // ===============================
 // GROUP LICENSES BY PRODUCT
@@ -265,16 +266,19 @@ const groupedLicenses =
     return;
   }
 
-  if (!window.confirm("Send this email to ALL customers?"))
-    return;
+  if (!window.confirm(
+  `Send this email to ${broadcastTarget} recipients?`
+  ))
+  return;
 
   try {
 
     setSendingBroadcast(true);
 
-    const res = await api.post("/admin/broadcast-email", {
-      subject: broadcastSubject,
-      message: broadcastMessage
+  const res = await api.post("/admin/broadcast-email", {
+  target: broadcastTarget,
+  subject: broadcastSubject,
+  message: broadcastMessage
     });
 
     toast.success(
@@ -284,6 +288,7 @@ const groupedLicenses =
     setBroadcastModal(false);
     setBroadcastSubject("");
     setBroadcastMessage("");
+    setBroadcastTarget("all");
 
   } catch (err) {
 
@@ -848,12 +853,42 @@ Broadcast Email
 
 <div className="space-y-4">
 
+<label className="text-sm text-gray-400">
+Target Recipient
+</label>
+
+<select
+value={broadcastTarget}
+onChange={(e)=>setBroadcastTarget(e.target.value)}
+className="w-full bg-[#050505] border border-white/10 rounded-lg px-4 py-3"
+>
+
+<option value="all">
+All Customers
+</option>
+
+<option value="trial">
+Trial Users
+</option>
+
+<option value="paid">
+Paid Customers
+</option>
+
+<option value="license">
+Active License Users
+</option>
+
+</select>
+
+
 <input
 value={broadcastSubject}
 onChange={(e)=>setBroadcastSubject(e.target.value)}
 placeholder="Subject"
 className="w-full bg-[#050505] border border-white/10 rounded-lg px-4 py-3"
 />
+
 
 <textarea
 rows={10}
@@ -862,6 +897,7 @@ onChange={(e)=>setBroadcastMessage(e.target.value)}
 placeholder="Write your email..."
 className="w-full bg-[#050505] border border-white/10 rounded-lg px-4 py-3"
 />
+
 
 </div>
 
