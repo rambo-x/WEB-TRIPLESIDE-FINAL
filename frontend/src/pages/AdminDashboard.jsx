@@ -249,6 +249,13 @@ const groupedLicenses =
     }
   };
 
+  const toggleLicenseGroup = (product) => {
+  setLicenseGroups((prev) => ({
+    ...prev,
+    [product]: !(prev[product] ?? true),
+  }));
+  };
+
   const handleLogout = () => {
     logout();
     nav("/");
@@ -441,13 +448,13 @@ className="w-full flex items-center justify-between px-5 py-4 bg-white/5 hover:b
 
 <div className="text-2xl">
 
-{licenseGroups[product] ? "−" : "+"}
+{licenseGroups[product] === false ? "+" : "−"}
 
 </div>
 
 </button>
 
-{licenseGroups[product] && (
+{licenseGroups[product] !== false && (
 
 <table className="w-full text-sm">
 
