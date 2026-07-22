@@ -366,7 +366,7 @@ async def send_email_campaign(body: dict):
             if c.get("email")
         ]
 
-    # -------------------------------------
+        # -------------------------------------
     # PAID CUSTOMER
     # -------------------------------------
 
@@ -378,15 +378,15 @@ async def send_email_campaign(body: dict):
             },
             {
                 "_id": 0,
-                "customer_email": 1,
+                "buyer_email": 1,
             },
         ).to_list(5000)
 
         emails = list(
             {
-                t["customer_email"]
+                t["buyer_email"]
                 for t in trx
-                if t.get("customer_email")
+                if t.get("buyer_email")
             }
         )
 
@@ -444,24 +444,26 @@ async def send_email_campaign(body: dict):
 
     elif target.startswith("product:"):
 
-    product_id = target.split(":", 1)[1]
+        product_id = target.split(":", 1)[1]
 
-    trx = await db.payment_transactions.find(
-        {
-            "product_id": product_id,
-            "payment_status": "paid",
-        },
-        {
-            "_id": 0,
-            "buyer_email": 1,
-        },
-    ).to_list(5000)
+        trx = await db.payment_transactions.find(
+            {
+                "product_id": product_id,
+                "payment_status": "paid",
+            },
+            {
+                "_id": 0,
+                "buyer_email": 1,
+            },
+        ).to_list(5000)
 
-    emails = list({
-        t["buyer_email"]
-        for t in trx
-        if t.get("buyer_email")
-    })
+        emails = list(
+            {
+                t["buyer_email"]
+                for t in trx
+                if t.get("buyer_email")
+            }
+        )
 
     else:
         raise HTTPException(400, "Unknown target")
