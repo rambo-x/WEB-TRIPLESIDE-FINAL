@@ -312,6 +312,11 @@ async def admin_delete_blog(post_id: str):
 # EMAIL CAMPAIGN
 # ==========================================================
 
+# ==========================================================
+# EMAIL CAMPAIGN
+# ==========================================================
+
+@router.post("/broadcast-email")
 @router.post("/email-campaign/send")
 async def send_email_campaign(body: dict):
     """
