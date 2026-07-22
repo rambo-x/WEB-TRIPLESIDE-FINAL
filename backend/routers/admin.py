@@ -438,6 +438,34 @@ async def send_email_campaign(body: dict):
             }
         )
 
+    # -------------------------------------
+# PRODUCT CUSTOMER
+# -------------------------------------
+
+elif target.startswith("product:"):
+
+    product_id = target.split(":", 1)[1]
+
+    # cari semua transaksi PAID untuk produk ini
+    trx = await db.payment_transactions.find(
+        {
+            "product_id": product_id,
+            "payment_status": "paid",
+        },
+        {
+            "_id": 0,
+            "customer_email": 1,
+        },
+    ).to_list(5000)
+
+    emails = list(
+        {
+            t["customer_email"]
+            for t in trx
+            if t.get("customer_email")
+        }
+    )
+
     else:
         raise HTTPException(400, "Unknown target")
 
