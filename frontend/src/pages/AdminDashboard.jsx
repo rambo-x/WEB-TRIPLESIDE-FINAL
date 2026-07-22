@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { api, fmtPrice } from "../lib/api";
-import { Music2, Sliders, ShoppingBag, LogOut, Plus, Pencil, Trash2, Receipt, X, Users, Tag, Upload, Loader2, BookOpen, KeyRound, RotateCcw, Ban, Eye, EyeOff, Copy } from "lucide-react";
+import { Music2, Sliders, ShoppingBag, LogOut, Plus, Pencil, Trash2, Receipt, X, Users, Tag, Upload, Loader2, BookOpen, KeyRound, RotateCcw, Ban, Eye, EyeOff, Copy, Mail } from "lucide-react";
 import { toast } from "sonner";
 
 const TABS = [
@@ -81,6 +81,10 @@ export default function AdminDashboard() {
   const [form, setForm] = useState({});
   const [saving, setSaving] = useState(false);
   const [licenseGroups, setLicenseGroups] = useState({});
+  const [broadcastModal, setBroadcastModal] = useState(false);
+  const [broadcastSubject, setBroadcastSubject] = useState("");
+  const [broadcastMessage, setBroadcastMessage] = useState("");
+  const [sendingBroadcast, setSendingBroadcast] = useState(false);
 
   // ===============================
 // GROUP LICENSES BY PRODUCT
@@ -249,6 +253,53 @@ const groupedLicenses =
     }
   };
 
+  const sendBroadcastEmail = async () => {
+
+  if (!broadcastSubject.trim()) {
+    toast.error("Subject is required");
+    return;
+  }
+
+  if (!broadcastMessage.trim()) {
+    toast.error("Message is required");
+    return;
+  }
+
+  if (!window.confirm("Send this email to ALL customers?"))
+    return;
+
+  try {
+
+    setSendingBroadcast(true);
+
+    const res = await api.post("/admin/broadcast-email", {
+      subject: broadcastSubject,
+      message: broadcastMessage
+    });
+
+    toast.success(
+      `Email sent to ${res.data.sent} customers`
+    );
+
+    setBroadcastModal(false);
+    setBroadcastSubject("");
+    setBroadcastMessage("");
+
+  } catch (err) {
+
+    toast.error(
+      err?.response?.data?.detail ||
+      "Broadcast failed"
+    );
+
+  } finally {
+
+    setSendingBroadcast(false);
+
+  }
+
+};
+
   const toggleLicenseGroup = (product) => {
   setLicenseGroups((prev) => ({
     ...prev,
@@ -298,21 +349,44 @@ const groupedLicenses =
           </aside>
 
           <section className="bg-[#0a0a0c] border border-white/10 rounded-2xl p-6">
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h2 className="font-[Outfit] text-2xl font-bold">{tabConfig.label}</h2>
-                <p className="text-xs text-zinc-500 mt-0.5">{items.length} total</p>
-              </div>
-              {tab !== "transactions" && tab !== "customers" && tab !== "licenses" && (
-                <button
-                  data-testid="add-item-btn"
-                  onClick={openCreate}
-                  className="flex items-center gap-2 px-4 py-2 rounded-full bg-[#e11d48] hover:bg-[#be123c] text-sm font-semibold transition-colors"
-                >
-                  <Plus className="w-4 h-4" /> Add new
-                </button>
-              )}
-            </div>
+  <div className="flex items-center justify-between mb-6">
+    <div>
+      <h2 className="font-[Outfit] text-2xl font-bold">
+        {tabConfig.label}
+      </h2>
+      <p className="text-xs text-zinc-500 mt-0.5">
+        {items.length} total
+      </p>
+    </div>
+
+    <div className="flex items-center gap-2">
+
+      {tab === "customers" && (
+        <button
+          onClick={() => setBroadcastModal(true)}
+          className="flex items-center gap-2 px-4 py-2 rounded-full bg-[#e11d48] hover:bg-[#be123c] text-sm font-semibold transition-colors"
+        >
+          <Mail className="w-4 h-4" />
+          Broadcast Email
+        </button>
+      )}
+
+      {tab !== "transactions" &&
+        tab !== "customers" &&
+        tab !== "licenses" && (
+          <button
+            data-testid="add-item-btn"
+            onClick={openCreate}
+            className="flex items-center gap-2 px-4 py-2 rounded-full bg-[#e11d48] hover:bg-[#be123c] text-sm font-semibold transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            Add new
+          </button>
+        )}
+
+    </div>
+  </div>
+
 
             <div className="overflow-x-auto">
               {tab === "transactions" ? (
@@ -759,6 +833,69 @@ className="w-full flex items-center justify-between px-5 py-4 bg-[#e11d48] hover
       </div>
 
       {/* Modal */}
+
+      {broadcastModal && (
+
+<div className="fixed inset-0 bg-black/80 backdrop-blur flex items-center justify-center z-50">
+
+<div className="w-full max-w-xl bg-[#0a0a0c] border border-white/10 rounded-2xl p-8">
+
+<h2 className="text-2xl font-bold mb-6">
+
+Broadcast Email
+
+</h2>
+
+<div className="space-y-4">
+
+<input
+value={broadcastSubject}
+onChange={(e)=>setBroadcastSubject(e.target.value)}
+placeholder="Subject"
+className="w-full bg-[#050505] border border-white/10 rounded-lg px-4 py-3"
+/>
+
+<textarea
+rows={10}
+value={broadcastMessage}
+onChange={(e)=>setBroadcastMessage(e.target.value)}
+placeholder="Write your email..."
+className="w-full bg-[#050505] border border-white/10 rounded-lg px-4 py-3"
+/>
+
+</div>
+
+<div className="flex justify-end gap-3 mt-6">
+
+<button
+onClick={()=>setBroadcastModal(false)}
+className="px-5 py-2 rounded-full border border-white/10"
+>
+
+Cancel
+
+</button>
+
+<button
+onClick={sendBroadcastEmail}
+disabled={sendingBroadcast}
+className="px-5 py-2 rounded-full bg-[#e11d48]"
+>
+
+{sendingBroadcast
+? "Sending..."
+: "Send Email"}
+
+</button>
+
+</div>
+
+</div>
+
+</div>
+
+)}
+      
       {modal && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur flex items-center justify-center p-4" onClick={closeModal}>
           <form
