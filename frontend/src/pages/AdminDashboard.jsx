@@ -80,13 +80,13 @@ export default function AdminDashboard() {
   const [modal, setModal] = useState(null); // {mode, item}
   const [form, setForm] = useState({});
   const [saving, setSaving] = useState(false);
-  const [licenseGroups, setLicenseGroups] = useState({});
+  const [licenseGroups, setLicenseGroups] = useState(() => ({}));
   const [broadcastModal, setBroadcastModal] = useState(false);
   const [broadcastSubject, setBroadcastSubject] = useState("");
   const [broadcastMessage, setBroadcastMessage] = useState("");
   const [sendingBroadcast, setSendingBroadcast] = useState(false);
   const [broadcastTarget, setBroadcastTarget] = useState("all");
-  const [broadcastProducts, setBroadcastProducts] = useState([]);
+  const [products, setProducts] = useState([]);
 
   // ===============================
 // GROUP LICENSES BY PRODUCT
@@ -115,10 +115,35 @@ const groupedLicenses =
     }
   };
 
+  const loadBroadcastProducts = async () => {
+  try {
+
+    const r = await api.get("/admin/products");
+
+    setProducts(r.data);
+
+  } catch(err){
+
+    console.log("Failed load products", err);
+
+  }
+  };
+
   useEffect(() => {
-    if (isAdmin) load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, isAdmin]);
+  if (isAdmin) {
+    load();
+  }
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [tab, isAdmin]);
+
+useEffect(() => {
+  if (broadcastModal) {
+    loadBroadcastProducts();
+  }
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [broadcastModal]);
 
   if (loading) return <div className="pt-40 text-center text-zinc-500">Loading...</div>;
   if (!isAdmin) return <Navigate to="/admin/login" replace />;
@@ -283,7 +308,7 @@ const groupedLicenses =
     });
 
     toast.success(
-      `Email sent to ${res.data.sent} customers`
+      `Email sent to ${res.data.sent ?? 0} customers`
     );
 
     setBroadcastModal(false);
@@ -530,7 +555,7 @@ className="w-full flex items-center justify-between px-5 py-4 bg-[#e11d48] hover
 
 <p className="text-xs text-white/80">
   
-{licenses.length} License
+{licenses.length} {licenses.length === 1 ? "License" : "Licenses"}
   
 </p>
 
