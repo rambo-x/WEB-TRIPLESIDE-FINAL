@@ -418,15 +418,17 @@ const groupedLicenses =
 
 <div className="space-y-6">
 
-{Object.entries(groupedLicenses).map(([product, licenses]) => (
+{Object.entries(groupedLicenses).map(([product, licenses]) => {
 
-  const fullLicenses = licenses.filter(
+const fullLicenses = licenses.filter(
   (l) => (l.license_type || "full") === "full"
 );
 
 const trialLicenses = licenses.filter(
   (l) => l.license_type === "trial"
 );
+
+return (
 
 <div
 key={product}
@@ -669,7 +671,9 @@ className="w-full flex items-center justify-between px-5 py-4 bg-white/5 hover:b
 
 </div>
 
-))}
+);
+
+})}
 
 </div>
 
