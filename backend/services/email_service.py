@@ -96,3 +96,99 @@ def trial_license_html(customer_name: str, product_name: str, license_key: str, 
     <p style="color:#a1a1aa;">Masukkan serial ini pada jendela aktivasi plugin. Masa trial diverifikasi oleh server.</p>
     """
     return _shell("Trial License", body)
+
+
+# ==========================================================
+# EMAIL CAMPAIGN
+# ==========================================================
+
+def campaign_email_html(title: str, message: str) -> str:
+    """
+    HTML template untuk Email Campaign Admin.
+    message boleh berisi HTML.
+    """
+
+    body = f"""
+    <h1 style="font-size:28px;color:#fff;margin:0 0 18px 0;">
+        {title}
+    </h1>
+
+    <div style="
+        color:#d4d4d8;
+        font-size:15px;
+        line-height:1.8;
+        margin-bottom:30px;
+    ">
+        {message}
+    </div>
+
+    <table cellspacing="0" cellpadding="0">
+        <tr>
+            <td style="background:#e11d48;border-radius:999px;">
+                <a href="https://triplesidestudio.com"
+                   style="
+                       display:inline-block;
+                       padding:12px 28px;
+                       color:#ffffff;
+                       text-decoration:none;
+                       font-weight:700;
+                       font-size:14px;
+                   ">
+                    Visit TripleSide Studio
+                </a>
+            </td>
+        </tr>
+    </table>
+
+    <p style="
+        margin-top:30px;
+        color:#71717a;
+        font-size:12px;
+    ">
+        Anda menerima email ini karena terdaftar sebagai customer
+        TripleSide Studio.
+    </p>
+    """
+
+    return _shell(title, body)
+
+
+async def send_campaign_email(
+    recipients: list[str],
+    subject: str,
+    message: str,
+):
+    """
+    Broadcast Email.
+
+    recipients = list email customer
+    message = HTML
+    """
+
+    success = 0
+    failed = 0
+
+    html = campaign_email_html(subject, message)
+
+    for email in recipients:
+
+        ok = await send_email(
+            to=email,
+            subject=subject,
+            html=html,
+        )
+
+        if ok:
+            success += 1
+        else:
+            failed += 1
+
+    logger.info(
+        f"Campaign Finished : success={success} failed={failed}"
+    )
+
+    return {
+        "success": success,
+        "failed": failed,
+        "total": len(recipients),
+    }
