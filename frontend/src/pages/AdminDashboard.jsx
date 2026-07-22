@@ -80,6 +80,23 @@ export default function AdminDashboard() {
   const [modal, setModal] = useState(null); // {mode, item}
   const [form, setForm] = useState({});
   const [saving, setSaving] = useState(false);
+  const [licenseGroups, setLicenseGroups] = useState({});
+
+  // ===============================
+// GROUP LICENSES BY PRODUCT
+// ===============================
+const groupedLicenses =
+  tab === "licenses"
+    ? items.reduce((acc, lic) => {
+        const key = lic.product_name || "Unknown Product";
+
+        if (!acc[key]) acc[key] = [];
+
+        acc[key].push(lic);
+
+        return acc;
+      }, {})
+    : {};
 
   const tabConfig = TABS.find((t) => t.id === tab);
 
@@ -391,47 +408,168 @@ export default function AdminDashboard() {
                   </tbody>
                 </table>
               ) : tab === "licenses" ? (
-                <table className="w-full text-sm">
-                  <thead className="text-[10px] uppercase tracking-wider text-zinc-500 border-b border-white/10">
-                    <tr>
-                      <th className="text-left py-3 px-3">License Key</th>
-                      <th className="text-left py-3 px-3">Product</th>
-                      <th className="text-left py-3 px-3">Customer</th>
-                      <th className="text-left py-3 px-3">HW ID</th>
-                      <th className="text-left py-3 px-3">Status</th>
-                      <th className="text-right py-3 px-3">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {items.map((l) => (
-                      <tr key={l.id} data-testid={`license-row-${l.id}`} className="border-b border-white/5">
-                        <td className="py-3 px-3 font-mono text-xs">{l.license_key}</td>
-                        <td className="py-3 px-3 text-xs">{l.product_name}</td>
-                        <td className="py-3 px-3 text-xs">
-                          <div>{l.customer_name}</div>
-                          <div className="text-zinc-500">{l.customer_email}</div>
-                        </td>
-                        <td className="py-3 px-3 font-mono text-[10px] text-zinc-400 truncate max-w-[120px]">
-                          {l.hardware_id || "—"}
-                        </td>
-                        <td className="py-3 px-3">
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase ${
-                            l.status === "active" ? "bg-emerald-500/15 text-emerald-400" :
-                            l.status === "revoked" ? "bg-red-500/15 text-red-400" :
-                            "bg-zinc-500/15 text-zinc-400"
-                          }`}>
-                            {l.status}
-                          </span>
-                        </td>
-                        <td className="py-3 px-3 text-right whitespace-nowrap">
-                          <button data-testid={`reset-${l.id}`} onClick={() => resetLicense(l)} title="Reset hardware binding" className="p-2 rounded hover:bg-white/5 mr-1"><RotateCcw className="w-3.5 h-3.5" /></button>
-                          <button data-testid={`revoke-${l.id}`} onClick={() => revokeLicense(l)} title="Revoke license" className="p-2 rounded hover:bg-white/5 mr-1 text-amber-400"><Ban className="w-3.5 h-3.5" /></button>
-                          <button data-testid={`delete-license-${l.id}`} onClick={() => deleteLicense(l)} title="Delete permanently" className="p-2 rounded hover:bg-white/5 text-red-400"><Trash2 className="w-3.5 h-3.5" /></button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+
+<div className="space-y-6">
+
+{Object.entries(groupedLicenses).map(([product, licenses]) => (
+
+<div
+key={product}
+className="border border-white/10 rounded-xl overflow-hidden"
+>
+
+<button
+onClick={() => toggleLicenseGroup(product)}
+className="w-full flex items-center justify-between px-5 py-4 bg-white/5 hover:bg-white/10 transition"
+>
+
+<div>
+
+<h3 className="font-bold text-lg">
+
+🎹 {product}
+
+</h3>
+
+<p className="text-xs text-zinc-500">
+
+{licenses.length} License
+
+</p>
+
+</div>
+
+<div className="text-2xl">
+
+{licenseGroups[product] ? "−" : "+"}
+
+</div>
+
+</button>
+
+{licenseGroups[product] && (
+
+<table className="w-full text-sm">
+
+<thead className="text-[10px] uppercase tracking-wider text-zinc-500 border-b border-white/10">
+
+<tr>
+
+<th className="text-left py-3 px-3">License Key</th>
+
+<th className="text-left py-3 px-3">Customer</th>
+
+<th className="text-left py-3 px-3">HW ID</th>
+
+<th className="text-left py-3 px-3">Status</th>
+
+<th className="text-right py-3 px-3">Actions</th>
+
+</tr>
+
+</thead>
+
+<tbody>
+
+{licenses.map((l) => (
+
+<tr
+key={l.id}
+className="border-b border-white/5"
+>
+
+<td className="py-3 px-3 font-mono text-xs">
+
+{l.license_key}
+
+</td>
+
+<td className="py-3 px-3 text-xs">
+
+<div>{l.customer_name}</div>
+
+<div className="text-zinc-500">
+
+{l.customer_email}
+
+</div>
+
+</td>
+
+<td className="py-3 px-3 font-mono text-[10px] text-zinc-400 truncate max-w-[120px]">
+
+{l.hardware_id || "—"}
+
+</td>
+
+<td className="py-3 px-3">
+
+<span
+className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase ${
+l.status === "active"
+? "bg-emerald-500/15 text-emerald-400"
+: l.status === "revoked"
+? "bg-red-500/15 text-red-400"
+: "bg-zinc-500/15 text-zinc-400"
+}`}
+>
+
+{l.status}
+
+</span>
+
+</td>
+
+<td className="py-3 px-3 text-right whitespace-nowrap">
+
+<button
+onClick={() => resetLicense(l)}
+title="Reset"
+className="p-2 rounded hover:bg-white/5 mr-1"
+>
+
+<RotateCcw className="w-3.5 h-3.5"/>
+
+</button>
+
+<button
+onClick={() => revokeLicense(l)}
+title="Revoke"
+className="p-2 rounded hover:bg-white/5 mr-1 text-amber-400"
+>
+
+<Ban className="w-3.5 h-3.5"/>
+
+</button>
+
+<button
+onClick={() => deleteLicense(l)}
+title="Delete"
+className="p-2 rounded hover:bg-white/5 text-red-400"
+>
+
+<Trash2 className="w-3.5 h-3.5"/>
+
+</button>
+
+</td>
+
+</tr>
+
+))}
+
+</tbody>
+
+</table>
+
+)}
+
+</div>
+
+))}
+
+</div>
+
               ) : tab === "customers" ? (
                 <table className="w-full text-sm">
                   <thead className="text-[10px] uppercase tracking-wider text-zinc-500 border-b border-white/10">
