@@ -420,6 +420,14 @@ const groupedLicenses =
 
 {Object.entries(groupedLicenses).map(([product, licenses]) => (
 
+  const fullLicenses = licenses.filter(
+  (l) => (l.license_type || "full") === "full"
+);
+
+const trialLicenses = licenses.filter(
+  (l) => l.license_type === "trial"
+);
+
 <div
 key={product}
 className="border border-white/10 rounded-xl overflow-hidden"
@@ -478,92 +486,180 @@ className="w-full flex items-center justify-between px-5 py-4 bg-white/5 hover:b
 
 <tbody>
 
-{licenses.map((l) => (
+{/* FULL LICENSE */}
+{fullLicenses.length > 0 && (
+  <>
+    <tr className="bg-emerald-900/20">
+      <td
+        colSpan={5}
+        className="px-4 py-2 font-semibold text-emerald-400"
+      >
+        🟢 Full License ({fullLicenses.length})
+      </td>
+    </tr>
 
-<tr
-key={l.id}
-className="border-b border-white/5"
->
+    {fullLicenses.map((l) => (
 
-<td className="py-3 px-3 font-mono text-xs">
+      <tr
+        key={l.id}
+        className="border-b border-white/5"
+      >
 
-{l.license_key}
+        <td className="py-3 px-3 font-mono text-xs">
+          {l.license_key}
+        </td>
 
-</td>
+        <td className="py-3 px-3 text-xs">
+          <div>{l.customer_name}</div>
+          <div className="text-zinc-500">
+            {l.customer_email}
+          </div>
+        </td>
 
-<td className="py-3 px-3 text-xs">
+        <td className="py-3 px-3 font-mono text-[10px] text-zinc-400 truncate max-w-[120px]">
+          {l.hardware_id || "—"}
+        </td>
 
-<div>{l.customer_name}</div>
+        <td className="py-3 px-3">
 
-<div className="text-zinc-500">
+          <span
+            className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase ${
+              l.status === "active"
+                ? "bg-emerald-500/15 text-emerald-400"
+                : l.status === "revoked"
+                ? "bg-red-500/15 text-red-400"
+                : "bg-zinc-500/15 text-zinc-400"
+            }`}
+          >
 
-{l.customer_email}
+            {l.status}
 
-</div>
+          </span>
 
-</td>
+        </td>
 
-<td className="py-3 px-3 font-mono text-[10px] text-zinc-400 truncate max-w-[120px]">
+        <td className="py-3 px-3 text-right whitespace-nowrap">
 
-{l.hardware_id || "—"}
+          <button
+            onClick={() => resetLicense(l)}
+            title="Reset"
+            className="p-2 rounded hover:bg-white/5 mr-1"
+          >
+            <RotateCcw className="w-3.5 h-3.5"/>
+          </button>
 
-</td>
+          <button
+            onClick={() => revokeLicense(l)}
+            title="Revoke"
+            className="p-2 rounded hover:bg-white/5 mr-1 text-amber-400"
+          >
+            <Ban className="w-3.5 h-3.5"/>
+          </button>
 
-<td className="py-3 px-3">
+          <button
+            onClick={() => deleteLicense(l)}
+            title="Delete"
+            className="p-2 rounded hover:bg-white/5 text-red-400"
+          >
+            <Trash2 className="w-3.5 h-3.5"/>
+          </button>
 
-<span
-className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase ${
-l.status === "active"
-? "bg-emerald-500/15 text-emerald-400"
-: l.status === "revoked"
-? "bg-red-500/15 text-red-400"
-: "bg-zinc-500/15 text-zinc-400"
-}`}
->
+        </td>
 
-{l.status}
+      </tr>
 
-</span>
+    ))}
 
-</td>
+  </>
+)}
 
-<td className="py-3 px-3 text-right whitespace-nowrap">
+{/* TRIAL LICENSE */}
 
-<button
-onClick={() => resetLicense(l)}
-title="Reset"
-className="p-2 rounded hover:bg-white/5 mr-1"
->
+{trialLicenses.length > 0 && (
+  <>
+    <tr className="bg-yellow-900/20">
+      <td
+        colSpan={5}
+        className="px-4 py-2 font-semibold text-yellow-400"
+      >
+        🟡 Trial License ({trialLicenses.length})
+      </td>
+    </tr>
 
-<RotateCcw className="w-3.5 h-3.5"/>
+    {trialLicenses.map((l) => (
 
-</button>
+      <tr
+        key={l.id}
+        className="border-b border-white/5"
+      >
 
-<button
-onClick={() => revokeLicense(l)}
-title="Revoke"
-className="p-2 rounded hover:bg-white/5 mr-1 text-amber-400"
->
+        <td className="py-3 px-3 font-mono text-xs">
+          {l.license_key}
+        </td>
 
-<Ban className="w-3.5 h-3.5"/>
+        <td className="py-3 px-3 text-xs">
+          <div>{l.customer_name}</div>
+          <div className="text-zinc-500">
+            {l.customer_email}
+          </div>
+        </td>
 
-</button>
+        <td className="py-3 px-3 font-mono text-[10px] text-zinc-400 truncate max-w-[120px]">
+          {l.hardware_id || "—"}
+        </td>
 
-<button
-onClick={() => deleteLicense(l)}
-title="Delete"
-className="p-2 rounded hover:bg-white/5 text-red-400"
->
+        <td className="py-3 px-3">
 
-<Trash2 className="w-3.5 h-3.5"/>
+          <span
+            className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase ${
+              l.status === "active"
+                ? "bg-emerald-500/15 text-emerald-400"
+                : l.status === "revoked"
+                ? "bg-red-500/15 text-red-400"
+                : "bg-zinc-500/15 text-zinc-400"
+            }`}
+          >
 
-</button>
+            {l.status}
 
-</td>
+          </span>
 
-</tr>
+        </td>
 
-))}
+        <td className="py-3 px-3 text-right whitespace-nowrap">
+
+          <button
+            onClick={() => resetLicense(l)}
+            title="Reset"
+            className="p-2 rounded hover:bg-white/5 mr-1"
+          >
+            <RotateCcw className="w-3.5 h-3.5"/>
+          </button>
+
+          <button
+            onClick={() => revokeLicense(l)}
+            title="Revoke"
+            className="p-2 rounded hover:bg-white/5 mr-1 text-amber-400"
+          >
+            <Ban className="w-3.5 h-3.5"/>
+          </button>
+
+          <button
+            onClick={() => deleteLicense(l)}
+            title="Delete"
+            className="p-2 rounded hover:bg-white/5 text-red-400"
+          >
+            <Trash2 className="w-3.5 h-3.5"/>
+          </button>
+
+        </td>
+
+      </tr>
+
+    ))}
+
+  </>
+)}
 
 </tbody>
 
