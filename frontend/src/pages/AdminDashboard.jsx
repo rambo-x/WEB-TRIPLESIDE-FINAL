@@ -86,6 +86,7 @@ export default function AdminDashboard() {
   const [broadcastMessage, setBroadcastMessage] = useState("");
   const [sendingBroadcast, setSendingBroadcast] = useState(false);
   const [broadcastTarget, setBroadcastTarget] = useState("all");
+  const [broadcastProducts, setBroadcastProducts] = useState([]);
 
   // ===============================
 // GROUP LICENSES BY PRODUCT
@@ -878,6 +879,19 @@ Paid Customers
 <option value="license">
 Active License Users
 </option>
+
+<option disabled>
+──────── Products ────────
+</option>
+
+{products.map((p)=>(
+<option
+key={p.id}
+value={`product:${p.id}`}
+>
+Product: {p.name}
+</option>
+))}
 
 </select>
 
