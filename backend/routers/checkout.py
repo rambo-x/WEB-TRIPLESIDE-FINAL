@@ -23,6 +23,13 @@ from core import (
     CheckoutRequest,
     ApplyCouponRequest,
 )
+
+from services.paypal_service import (
+    is_configured as paypal_is_configured,
+    create_order,
+    capture_order,
+    get_order,
+)
 from services.email_service import send_email, purchase_confirmation_html
 from services.invoice_service import generate_invoice_pdf
 from services.license_service import generate_license_key
@@ -148,28 +155,52 @@ async def create_checkout(
     request: Request,
     customer_id: Optional[str] = Depends(optional_customer),
 ):
-    product = await db.products.find_one({"id": body.product_id, "$or": [{"status": "published"}, {"status": {"$exists": False}}]}, {"_id": 0})
+    product = await db.products.find_one(
+        {
+            "id": body.product_id,
+            "$or": [
+                {"status": "published"},
+                {"status": {"$exists": False}}
+            ]
+        },
+        {"_id": 0},
+    )
+
     if not product:
         raise HTTPException(404, "Product not found")
 
     original_amount = float(product["price"])
-    currency = "idr"
 
-    discount, coupon = await _validate_coupon(body.coupon_code or "", original_amount)
-    amount = round(original_amount - discount)
-    if amount < 1:
-        amount = 1
+    # PayPal menggunakan USD
+    currency = "USD"
+
+    discount, coupon = await _validate_coupon(
+        body.coupon_code or "",
+        original_amount,
+    )
+
+    amount = round(original_amount - discount, 2)
+
+    if amount <= 0:
+        amount = 1.00
 
     buyer_email = body.buyer_email or ""
     buyer_name = ""
+
     if customer_id:
-        c = await db.customers.find_one({"id": customer_id}, {"_id": 0})
-        if c:
-            buyer_email = c.get("email", "") or buyer_email
-            buyer_name = c.get("name", "")
+        customer = await db.customers.find_one(
+            {"id": customer_id},
+            {"_id": 0},
+        )
+
+        if customer:
+            buyer_email = customer.get("email", "") or buyer_email
+            buyer_name = customer.get("name", "")
 
     origin = body.origin_url.rstrip("/")
-    success_url = f"{origin}/payment/success?session_id={{CHECKOUT_SESSION_ID}}"
+
+    # PayPal akan mengirim parameter token
+    success_url = f"{origin}/payment/success"
     cancel_url = f"{origin}/shop/{product['id']}"
 
     metadata = {
@@ -180,37 +211,59 @@ async def create_checkout(
         "coupon_code": coupon["code"] if coupon else "",
     }
 
-    _require_stripe_config()
-    try:
-        session = await asyncio.to_thread(
-            stripe.checkout.Session.create,
-            mode="payment",
-            payment_method_types=["card"],
-            line_items=[
-                {
-                    "price_data": {
-                        "currency": currency,
-                        "unit_amount": _stripe_unit_amount(amount, currency),
-                        "product_data": {"name": product["name"]},
-                    },
-                    "quantity": 1,
-                }
-            ],
-            success_url=success_url,
-            cancel_url=cancel_url,
-            customer_email=buyer_email or None,
-            metadata=metadata,
+    if not paypal_is_configured():
+        raise HTTPException(
+            503,
+            "PayPal belum dikonfigurasi."
         )
+
+    try:
+        paypal = await create_order(
+            {
+                "intent": "CAPTURE",
+                "purchase_units": [
+                    {
+                        "reference_id": product["id"],
+                        "description": product["name"],
+                        "amount": {
+                            "currency_code": currency,
+                            "value": f"{amount:.2f}",
+                        },
+                    }
+                ],
+                "application_context": {
+                    "brand_name": "TripleSide Studio",
+                    "landing_page": "LOGIN",
+                    "user_action": "PAY_NOW",
+                    "return_url": success_url,
+                    "cancel_url": cancel_url,
+                },
+            }
+        )
+
     except Exception as e:
-        msg = str(e)
-        logger.warning(f"Stripe checkout create failed: {msg}")
-        if "at least" in msg.lower() or "minimum" in msg.lower():
-            raise HTTPException(400, "Nominal terlalu kecil untuk pembayaran kartu. Gunakan Midtrans atau naikkan harga produk.")
-        raise HTTPException(502, "Gagal memulai checkout Stripe. Coba lagi.")
+        logger.warning(f"PayPal create order failed: {e}")
+        raise HTTPException(
+            502,
+            "Gagal memulai checkout PayPal."
+        )
+
+    approval_url = None
+
+    for link in paypal.get("links", []):
+        if link.get("rel") == "approve":
+            approval_url = link.get("href")
+            break
+
+    if not approval_url:
+        raise HTTPException(
+            502,
+            "PayPal tidak mengembalikan approval URL."
+        )
 
     txn = {
         "id": str(uuid.uuid4()),
-        "session_id": session.id,
+        "session_id": paypal["id"],
         "product_id": product["id"],
         "product_name": product["name"],
         "amount": amount,
@@ -218,6 +271,7 @@ async def create_checkout(
         "discount": discount,
         "coupon_code": coupon["code"] if coupon else "",
         "currency": currency,
+        "payment_method": "paypal",
         "buyer_email": buyer_email,
         "buyer_name": buyer_name,
         "customer_id": customer_id or "",
@@ -228,13 +282,13 @@ async def create_checkout(
         "created_at": now_iso(),
         "updated_at": now_iso(),
     }
+
     await db.payment_transactions.insert_one(txn)
-    return {"url": session.url, "session_id": session.id}
 
-
-async def _on_payment_succeeded(txn: dict):
-    if txn.get("coupon_code"):
-        await db.coupons.update_one({"code": txn["coupon_code"]}, {"$inc": {"times_used": 1}})
+    return {
+        "url": approval_url,
+        "session_id": paypal["id"],
+    }
 
     # Auto-generate license if product requires one
     product = await db.products.find_one({"id": txn.get("product_id")}, {"_id": 0}) or {}
