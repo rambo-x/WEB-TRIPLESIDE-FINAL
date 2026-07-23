@@ -45,7 +45,7 @@ import { CheckCircle2, Download, XCircle, Loader2 } from "lucide-react";export d
     };
     poll();
     return () => clearTimeout(timer);
-  }, [sessionId, orderId]);
+  }, [sessionId, orderId, paypalToken]);
 
   return (
     <div data-testid="payment-success-page" className="min-h-screen flex items-center justify-center px-6 pt-20 pb-32">
