@@ -61,7 +61,7 @@ export default function ProductDetail() {
     }
   };
 
-  const checkout = async () => {
+  const payPal = async () => {
     if (product?.is_free) {
       return claimFree();
     }
@@ -376,8 +376,8 @@ export default function ProductDetail() {
                 )}
               </button>
               <button
-                data-testid="pay-stripe-btn"
-                onClick={checkout}
+                data-testid="pay-payPal-btn"
+                onClick={payPal}
                 disabled={loading || loadingMt}
                 className="w-full px-10 py-3.5 rounded-full font-semibold transition-colors flex items-center justify-center gap-3 disabled:opacity-60 border border-white/15 hover:bg-white/5 text-zinc-200"
               >
