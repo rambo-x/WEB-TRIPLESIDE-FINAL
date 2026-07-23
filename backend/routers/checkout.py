@@ -290,6 +290,75 @@ async def create_checkout(
         "session_id": paypal["id"],
     }
 
+    @router.get("/checkout/paypal/capture")
+async def paypal_capture(token: str):
+    """
+    Capture PayPal payment setelah customer kembali dari PayPal.
+
+    PayPal redirect:
+    /payment/success?token=XXXX&PayerID=YYYY
+    """
+
+    txn = await db.payment_transactions.find_one(
+        {"session_id": token},
+        {"_id": 0},
+    )
+
+    if not txn:
+        raise HTTPException(404, "Transaction not found")
+
+    # Sudah pernah dicapture
+    if txn.get("payment_status") == "paid":
+        return {
+            "success": True,
+            "already_paid": True,
+            "transaction_id": txn["id"],
+        }
+
+    try:
+        result = await capture_order(token)
+
+    except Exception as e:
+        logger.warning(f"PayPal capture failed: {e}")
+        raise HTTPException(
+            502,
+            "PayPal capture failed."
+        )
+
+    status = result.get("status", "")
+
+    if status != "COMPLETED":
+        raise HTTPException(
+            400,
+            f"Payment status: {status}"
+        )
+
+    await db.payment_transactions.update_one(
+        {"session_id": token},
+        {
+            "$set": {
+                "status": "completed",
+                "payment_status": "paid",
+                "paypal_capture": result,
+                "updated_at": now_iso(),
+            }
+        },
+    )
+
+    txn["status"] = "completed"
+    txn["payment_status"] = "paid"
+
+    try:
+        await _on_payment_succeeded(txn)
+    except Exception as e:
+        logger.warning(f"Post-payment failed: {e}")
+
+    return {
+        "success": True,
+        "transaction_id": txn["id"],
+        "product_id": txn["product_id"],
+    }
+
     # Auto-generate license if product requires one
     product = await db.products.find_one({"id": txn.get("product_id")}, {"_id": 0}) or {}
     license_key = ""
