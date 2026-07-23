@@ -370,15 +370,15 @@ async def paypal_capture(token: str):
         "product_id": txn["product_id"],
     }
 
-    try:
-        result = await capture_order(token)
+try:
+    result = await capture_order(token)
 
-    except Exception as e:
-        logger.warning(f"PayPal capture failed: {e}")
-        raise HTTPException(
-            502,
-            "PayPal capture failed.",
-        )
+except Exception as e:
+    logger.warning(f"PayPal capture failed: {e}")
+    raise HTTPException(
+        502,
+        "PayPal capture failed.",
+    )
 
     status = result.get("status", "")
 
