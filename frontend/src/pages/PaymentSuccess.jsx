@@ -15,8 +15,7 @@ import { CheckCircle2, Download, XCircle, Loader2 } from "lucide-react";export d
       setState("failed");
       return;
     }
-    const statusUrl = orderId
-      const statusUrl = paypalToken
+    const statusUrl = paypalToken
       ? `/checkout/paypal/capture?token=${paypalToken}`
       : orderId
         ? `/checkout/midtrans/status/${orderId}`
