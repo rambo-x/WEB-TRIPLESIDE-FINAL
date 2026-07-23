@@ -351,12 +351,12 @@ async def create_midtrans_session(
     },
     }
     try:
-    data = await midtrans_service.create_snap_transaction(payload)
+        data = await midtrans_service.create_snap_transaction(payload)
     except Exception as e:
-    import traceback
-    traceback.print_exc()
-    logger.exception("Midtrans create session failed")
-    raise HTTPException(502, str(e))
+        import traceback
+        traceback.print_exc()
+        logger.exception("Midtrans create session failed")
+        raise HTTPException(502, str(e))
 
     txn = {
         "id": str(uuid.uuid4()),
