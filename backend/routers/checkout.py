@@ -347,9 +347,6 @@ async def create_checkout(
 async def paypal_capture(token: str):
     """
     Capture PayPal payment setelah customer kembali dari PayPal.
-
-    PayPal redirect:
-    /payment/success?token=XXXX&PayerID=YYYY
     """
 
     txn = await db.payment_transactions.find_one(
@@ -360,25 +357,27 @@ async def paypal_capture(token: str):
     if not txn:
         raise HTTPException(404, "Transaction not found")
 
+    # Sudah pernah dicapture
     if txn.get("payment_status") == "paid":
-    return {
-        "success": True,
-        "already_paid": True,
-        "payment_status": "paid",
-        "status": "completed",
-        "transaction_id": txn["id"],
-        "product_id": txn["product_id"],
-    }
+        return {
+            "success": True,
+            "already_paid": True,
+            "payment_status": "paid",
+            "status": "completed",
+            "transaction_id": txn["id"],
+            "product_id": txn["product_id"],
+        }
 
-try:
-    result = await capture_order(token)
+    # Capture ke PayPal
+    try:
+        result = await capture_order(token)
 
-except Exception as e:
-    logger.warning(f"PayPal capture failed: {e}")
-    raise HTTPException(
-        502,
-        "PayPal capture failed.",
-    )
+    except Exception as e:
+        logger.warning(f"PayPal capture failed: {e}")
+        raise HTTPException(
+            502,
+            "PayPal capture failed.",
+        )
 
     status = result.get("status", "")
 
@@ -409,13 +408,12 @@ except Exception as e:
         logger.warning(f"Post-payment failed: {e}")
 
     return {
-    "success": True,
-    "payment_status": "paid",
-    "status": "completed",
-    "transaction_id": txn["id"],
-    "product_id": txn["product_id"],
+        "success": True,
+        "payment_status": "paid",
+        "status": "completed",
+        "transaction_id": txn["id"],
+        "product_id": txn["product_id"],
     }
-
     
 
    
