@@ -354,19 +354,7 @@ async def paypal_capture(token: str):
         "product_id": txn["product_id"],
     }
 
-    txn["status"] = "completed"
-    txn["payment_status"] = "paid"
-
-    try:
-        await _on_payment_succeeded(txn)
-    except Exception as e:
-        logger.warning(f"Post-payment failed: {e}")
-
-    return {
-        "success": True,
-        "transaction_id": txn["id"],
-        "product_id": txn["product_id"],
-    }
+    
 
     # Auto-generate license if product requires one
     product = await db.products.find_one({"id": txn.get("product_id")}, {"_id": 0}) or {}
