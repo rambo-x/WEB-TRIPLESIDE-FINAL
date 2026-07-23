@@ -5,18 +5,22 @@ import { CheckCircle2, Download, XCircle, Loader2 } from "lucide-react";export d
   const [params] = useSearchParams();
   const sessionId = params.get("session_id");
   const orderId = params.get("order_id");
+  const paypalToken = params.get("token");
   const [state, setState] = useState("polling"); // polling | paid | failed | expired
   const [data, setData] = useState(null);
   const pollRef = useRef({ attempts: 0 });
 
   useEffect(() => {
-    if (!sessionId && !orderId) {
+    if (!sessionId && !orderId && !paypalToken) {
       setState("failed");
       return;
     }
     const statusUrl = orderId
-      ? `/checkout/midtrans/status/${orderId}`
-      : `/checkout/status/${sessionId}`;
+      const statusUrl = paypalToken
+      ? `/checkout/paypal/capture?token=${paypalToken}`
+      : orderId
+        ? `/checkout/midtrans/status/${orderId}`
+        : `/checkout/status/${sessionId}`;
     let timer;
     const poll = async () => {
       if (pollRef.current.attempts >= 10) {
