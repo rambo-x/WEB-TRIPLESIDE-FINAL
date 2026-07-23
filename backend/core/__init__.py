@@ -29,6 +29,16 @@ STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 MIDTRANS_SERVER_KEY = os.environ.get("MIDTRANS_SERVER_KEY", "")
 MIDTRANS_CLIENT_KEY = os.environ.get("MIDTRANS_CLIENT_KEY", "")
 MIDTRANS_IS_PRODUCTION = os.environ.get("MIDTRANS_IS_PRODUCTION", "false").strip().lower() == "true"
+# PayPal
+PAYPAL_CLIENT_ID = os.environ.get("PAYPAL_CLIENT_ID", "")
+PAYPAL_CLIENT_SECRET = os.environ.get("PAYPAL_CLIENT_SECRET", "")
+PAYPAL_MODE = os.environ.get("PAYPAL_MODE", "sandbox").lower()
+
+PAYPAL_API_BASE = (
+    "https://api-m.paypal.com"
+    if PAYPAL_MODE == "live"
+    else "https://api-m.sandbox.paypal.com"
+)
 APP_PUBLIC_URL = os.environ.get("APP_PUBLIC_URL", "")
 CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "*").split(",")
 
