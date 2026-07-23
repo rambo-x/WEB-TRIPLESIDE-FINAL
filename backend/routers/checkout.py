@@ -285,14 +285,14 @@ async def create_checkout(
 
     await db.payment_transactions.insert_one(txn)
 
-    return {
-        "url": approval_url,
-        "session_id": paypal["id"],
-    }
+return {
+    "url": approval_url,
+    "session_id": paypal["id"],
+}
 
-    @router.get("/checkout/paypal/capture")
+@router.get("/checkout/paypal/capture")
 async def paypal_capture(token: str):
-    """
+"""
     Capture PayPal payment setelah customer kembali dari PayPal.
 
     PayPal redirect:
