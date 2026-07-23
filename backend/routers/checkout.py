@@ -160,8 +160,8 @@ async def create_checkout(
             "id": body.product_id,
             "$or": [
                 {"status": "published"},
-                {"status": {"$exists": False}}
-            ]
+                {"status": {"$exists": False}},
+            ],
         },
         {"_id": 0},
     )
@@ -170,8 +170,6 @@ async def create_checkout(
         raise HTTPException(404, "Product not found")
 
     original_amount = float(product["price"])
-
-    # PayPal menggunakan USD
     currency = "USD"
 
     discount, coupon = await _validate_coupon(
@@ -180,7 +178,6 @@ async def create_checkout(
     )
 
     amount = round(original_amount - discount, 2)
-
     if amount <= 0:
         amount = 1.00
 
@@ -199,7 +196,6 @@ async def create_checkout(
 
     origin = body.origin_url.rstrip("/")
 
-    # PayPal akan mengirim parameter token
     success_url = f"{origin}/payment/success"
     cancel_url = f"{origin}/shop/{product['id']}"
 
@@ -214,7 +210,7 @@ async def create_checkout(
     if not paypal_is_configured():
         raise HTTPException(
             503,
-            "PayPal belum dikonfigurasi."
+            "PayPal belum dikonfigurasi.",
         )
 
     try:
@@ -245,7 +241,7 @@ async def create_checkout(
         logger.warning(f"PayPal create order failed: {e}")
         raise HTTPException(
             502,
-            "Gagal memulai checkout PayPal."
+            "Gagal memulai checkout PayPal.",
         )
 
     approval_url = None
@@ -258,7 +254,7 @@ async def create_checkout(
     if not approval_url:
         raise HTTPException(
             502,
-            "PayPal tidak mengembalikan approval URL."
+            "PayPal tidak mengembalikan approval URL.",
         )
 
     txn = {
@@ -285,14 +281,14 @@ async def create_checkout(
 
     await db.payment_transactions.insert_one(txn)
 
-return {
-    "url": approval_url,
-    "session_id": paypal["id"],
-}
+    return {
+        "url": approval_url,
+        "session_id": paypal["id"],
+    }
 
 @router.get("/checkout/paypal/capture")
 async def paypal_capture(token: str):
-"""
+    """
     Capture PayPal payment setelah customer kembali dari PayPal.
 
     PayPal redirect:
@@ -307,7 +303,6 @@ async def paypal_capture(token: str):
     if not txn:
         raise HTTPException(404, "Transaction not found")
 
-    # Sudah pernah dicapture
     if txn.get("payment_status") == "paid":
         return {
             "success": True,
@@ -322,7 +317,7 @@ async def paypal_capture(token: str):
         logger.warning(f"PayPal capture failed: {e}")
         raise HTTPException(
             502,
-            "PayPal capture failed."
+            "PayPal capture failed.",
         )
 
     status = result.get("status", "")
@@ -330,7 +325,7 @@ async def paypal_capture(token: str):
     if status != "COMPLETED":
         raise HTTPException(
             400,
-            f"Payment status: {status}"
+            f"Payment status: {status}",
         )
 
     await db.payment_transactions.update_one(
@@ -344,6 +339,20 @@ async def paypal_capture(token: str):
             }
         },
     )
+
+    txn["status"] = "completed"
+    txn["payment_status"] = "paid"
+
+    try:
+        await _on_payment_succeeded(txn)
+    except Exception as e:
+        logger.warning(f"Post-payment failed: {e}")
+
+    return {
+        "success": True,
+        "transaction_id": txn["id"],
+        "product_id": txn["product_id"],
+    }
 
     txn["status"] = "completed"
     txn["payment_status"] = "paid"
