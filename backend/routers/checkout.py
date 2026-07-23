@@ -361,11 +361,14 @@ async def paypal_capture(token: str):
         raise HTTPException(404, "Transaction not found")
 
     if txn.get("payment_status") == "paid":
-        return {
-            "success": True,
-            "already_paid": True,
-            "transaction_id": txn["id"],
-        }
+    return {
+        "success": True,
+        "already_paid": True,
+        "payment_status": "paid",
+        "status": "completed",
+        "transaction_id": txn["id"],
+        "product_id": txn["product_id"],
+    }
 
     try:
         result = await capture_order(token)
@@ -406,9 +409,11 @@ async def paypal_capture(token: str):
         logger.warning(f"Post-payment failed: {e}")
 
     return {
-        "success": True,
-        "transaction_id": txn["id"],
-        "product_id": txn["product_id"],
+    "success": True,
+    "payment_status": "paid",
+    "status": "completed",
+    "transaction_id": txn["id"],
+    "product_id": txn["product_id"],
     }
 
     
