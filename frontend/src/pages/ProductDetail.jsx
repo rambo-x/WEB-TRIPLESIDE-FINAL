@@ -60,14 +60,7 @@ export default function ProductDetail() {
       setLoading(false);
     }
   };
-
-  const buyProduct = () => {
-    if (product.is_free) {
-        return claimFree();
-    }
-
-    return payPaypal();
-  };
+  
 
   const checkout = async () => {
     if (product?.is_free) {
@@ -91,6 +84,30 @@ export default function ProductDetail() {
       setLoading(false);
     }
   };
+
+
+  const payPaypal = async () => {
+  if (!isCustomer) {
+    toast.info("Please sign in to purchase");
+    nav("/login", { state: { from: `/shop/${id}` } });
+    return;
+  }
+
+  setLoading(true);
+
+  try {
+    const r = await api.post("/checkout/session", {
+      product_id: id,
+      origin_url: window.location.origin,
+      coupon_code: couponApplied?.code || "",
+    });
+
+    window.location.href = r.data.url;
+  } catch (e) {
+    toast.error(e?.response?.data?.detail || "Failed to start PayPal checkout");
+    setLoading(false);
+  }
+};
 
 
  const startTrial = async () => {
@@ -384,8 +401,8 @@ export default function ProductDetail() {
                 )}
               </button>
               <button
-                data-testid="pay-payPal-btn"
-                onClick={buyProduct}
+                data-testid="pay-paypal-btn"
+                onClick={payPaypal}
                 disabled={loading || loadingMt}
                 className="w-full px-10 py-3.5 rounded-full font-semibold transition-colors flex items-center justify-center gap-3 disabled:opacity-60 border border-white/15 hover:bg-white/5 text-zinc-200"
               >
