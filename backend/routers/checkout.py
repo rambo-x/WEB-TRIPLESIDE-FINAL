@@ -85,6 +85,63 @@ def _require_stripe_config() -> None:
     stripe.api_key = STRIPE_API_KEY
 
 
+async def _on_payment_succeeded(txn):
+    # Auto-generate license if product requires one
+    product = await db.products.find_one({"id": txn.get("product_id")}, {"_id": 0}) or {}
+    license_key = ""
+    max_activations = max(1, min(3, int(product.get("max_activations", 1))))
+    if product.get("requires_license"):
+        existing_lic = await db.licenses.find_one({"transaction_id": txn["id"]}, {"_id": 0})
+        if existing_lic:
+            license_key = existing_lic.get("license_key", "")
+            max_activations = int(existing_lic.get("max_activations", max_activations))
+        else:
+            license_key = generate_license_key()
+            lic_doc = {
+                "id": str(uuid.uuid4()),
+                "license_key": license_key,
+                "product_id": product["id"],
+                "product_name": product.get("name", ""),
+                "customer_id": txn.get("customer_id", ""),
+                "customer_name": txn.get("buyer_name", ""),
+                "customer_email": txn.get("buyer_email", ""),
+                "transaction_id": txn["id"],
+                "hardware_id": "",
+                "machine_name": "",
+                "activated_at": None,
+                "activations": [],
+                "max_activations": max_activations,
+                "license_type": "full",
+                "expires_at": None,
+                "status": "unactivated",
+                "notes": "",
+                "created_at": now_iso(),
+            }
+            await db.licenses.insert_one(lic_doc)
+            logger.info(f"License {license_key} created for txn {txn['id']}")
+
+    if not txn.get("email_sent") and txn.get("buyer_email"):
+        dashboard_url = f"{APP_PUBLIC_URL}/dashboard" if APP_PUBLIC_URL else "/dashboard"
+        html = purchase_confirmation_html(
+            customer_name=txn.get("buyer_name") or "there",
+            product_name=txn.get("product_name", ""),
+            amount=float(txn.get("amount", 0)),
+            currency=txn.get("currency", "usd"),
+            dashboard_url=dashboard_url,
+            license_key=license_key,
+            max_activations=max_activations if license_key else 0,
+        )
+        sent = await send_email(
+            to=txn["buyer_email"],
+            subject=f"Pembayaran berhasil — {txn.get('product_name', '')}",
+            html=html,
+        )
+        if sent:
+            await db.payment_transactions.update_one(
+                {"id": txn["id"]}, {"$set": {"email_sent": True, "email_sent_at": now_iso()}}
+            )
+
+
 @router.post("/checkout/apply-coupon")
 async def apply_coupon(body: ApplyCouponRequest):
     product = await db.products.find_one({"id": body.product_id, "$or": [{"status": "published"}, {"status": {"$exists": False}}]}, {"_id": 0})
@@ -356,60 +413,7 @@ async def paypal_capture(token: str):
 
     
 
-    # Auto-generate license if product requires one
-    product = await db.products.find_one({"id": txn.get("product_id")}, {"_id": 0}) or {}
-    license_key = ""
-    max_activations = max(1, min(3, int(product.get("max_activations", 1))))
-    if product.get("requires_license"):
-        existing_lic = await db.licenses.find_one({"transaction_id": txn["id"]}, {"_id": 0})
-        if existing_lic:
-            license_key = existing_lic.get("license_key", "")
-            max_activations = int(existing_lic.get("max_activations", max_activations))
-        else:
-            license_key = generate_license_key()
-            lic_doc = {
-                "id": str(uuid.uuid4()),
-                "license_key": license_key,
-                "product_id": product["id"],
-                "product_name": product.get("name", ""),
-                "customer_id": txn.get("customer_id", ""),
-                "customer_name": txn.get("buyer_name", ""),
-                "customer_email": txn.get("buyer_email", ""),
-                "transaction_id": txn["id"],
-                "hardware_id": "",
-                "machine_name": "",
-                "activated_at": None,
-                "activations": [],
-                "max_activations": max_activations,
-                "license_type": "full",
-                "expires_at": None,
-                "status": "unactivated",
-                "notes": "",
-                "created_at": now_iso(),
-            }
-            await db.licenses.insert_one(lic_doc)
-            logger.info(f"License {license_key} created for txn {txn['id']}")
-
-    if not txn.get("email_sent") and txn.get("buyer_email"):
-        dashboard_url = f"{APP_PUBLIC_URL}/dashboard" if APP_PUBLIC_URL else "/dashboard"
-        html = purchase_confirmation_html(
-            customer_name=txn.get("buyer_name") or "there",
-            product_name=txn.get("product_name", ""),
-            amount=float(txn.get("amount", 0)),
-            currency=txn.get("currency", "usd"),
-            dashboard_url=dashboard_url,
-            license_key=license_key,
-            max_activations=max_activations if license_key else 0,
-        )
-        sent = await send_email(
-            to=txn["buyer_email"],
-            subject=f"Pembayaran berhasil — {txn.get('product_name', '')}",
-            html=html,
-        )
-        if sent:
-            await db.payment_transactions.update_one(
-                {"id": txn["id"]}, {"$set": {"email_sent": True, "email_sent_at": now_iso()}}
-            )
+   
 
 
 # ---------------- Midtrans (Snap) ----------------
