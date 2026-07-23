@@ -61,7 +61,15 @@ export default function ProductDetail() {
     }
   };
 
-  const payPal = async () => {
+  const buyProduct = () => {
+    if (product.is_free) {
+        return claimFree();
+    }
+
+    return payPaypal();
+  };
+
+  const checkout = async () => {
     if (product?.is_free) {
       return claimFree();
     }
@@ -377,14 +385,14 @@ export default function ProductDetail() {
               </button>
               <button
                 data-testid="pay-payPal-btn"
-                onClick={payPal}
+                onClick={buyProduct}
                 disabled={loading || loadingMt}
                 className="w-full px-10 py-3.5 rounded-full font-semibold transition-colors flex items-center justify-center gap-3 disabled:opacity-60 border border-white/15 hover:bg-white/5 text-zinc-200"
               >
                 {loading ? (
                   <><Loader2 className="w-4 h-4 animate-spin" /> Working...</>
                 ) : (
-                  <><ShoppingBag className="w-4 h-4" /> Bayar dengan Kartu (Stripe)</>
+                  <><ShoppingBag className="w-4 h-4" /> Pay with PayPal</>
                 )}
               </button>
             </div>
@@ -394,7 +402,7 @@ export default function ProductDetail() {
             {product.is_free
               ? "100% gratis · Cukup masuk untuk menambahkannya ke library Anda."
               : isCustomer
-              ? "Pembayaran aman · Midtrans (GoPay, VA, QRIS, kartu) atau Stripe · Rupiah"
+              ? "Pembayaran aman · Midtrans (GoPay, VA, QRIS, Kartu) atau PayPal"
               : "Anda perlu akun untuk membeli produk digital."}
           </p>
         </div>
