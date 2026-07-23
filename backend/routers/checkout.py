@@ -320,43 +320,23 @@ async def create_midtrans_session(
             buyer_email = c.get("email", "") or buyer_email
             buyer_name = c.get("name", "")
 
+    order_id = f"ORD-{uuid.uuid4().hex[:12].upper()}"
     payload = {
-    "transaction_details": {
-        "order_id": order_id,
-        "gross_amount": gross,
-    },
-
-    "item_details": [
-        {
-            "id": product["id"],
-            "price": gross,
-            "quantity": 1,
-            "name": product["name"][:50],
-        }
-    ],
-
-    "customer_details": {
-        "first_name": buyer_name or "Customer",
-        "email": buyer_email or "noreply@triplesidestudio.com",
-    },
-
-    "credit_card": {
-        "secure": True,
-    },
-
-    "callbacks": {
-        "finish": f"{APP_PUBLIC_URL}/payment/success?order_id={order_id}",
-        "pending": f"{APP_PUBLIC_URL}/payment/success?order_id={order_id}",
-        "error": f"{APP_PUBLIC_URL}/payment/success?order_id={order_id}",
-    },
+        "transaction_details": {"order_id": order_id, "gross_amount": gross},
+        "item_details": [
+            {"id": product["id"], "price": gross, "quantity": 1, "name": product["name"][:50]}
+        ],
+        "customer_details": {
+            "first_name": buyer_name or "Customer",
+            "email": buyer_email or "noreply@triplesidestudio.com",
+        },
+        "credit_card": {"secure": True},
     }
     try:
         data = await midtrans_service.create_snap_transaction(payload)
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        logger.exception("Midtrans create session failed")
-        raise HTTPException(502, str(e))
+        logger.warning(f"Midtrans create session failed: {e}")
+        raise HTTPException(502, "Gagal membuat transaksi Midtrans. Coba lagi.")
 
     txn = {
         "id": str(uuid.uuid4()),
