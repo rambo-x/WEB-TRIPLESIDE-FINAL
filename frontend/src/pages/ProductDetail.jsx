@@ -395,7 +395,7 @@ export default function ProductDetail() {
       {loadingMt ? (
         <><Loader2 className="w-4 h-4 animate-spin" /> Opening secure checkout...</>
       ) : isCustomer ? (
-        <><ShoppingBag className="w-4 h-4" /> Buy Now</>
+        <><ShoppingBag className="w-4 h-4" /> Bayar dengan Midtrans</>
       ) : (
         <><LogIn className="w-4 h-4" /> Masuk untuk Membeli</>
       )}
