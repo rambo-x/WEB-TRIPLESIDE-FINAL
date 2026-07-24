@@ -400,6 +400,7 @@ export default function ProductDetail() {
                   <><LogIn className="w-4 h-4" /> Masuk untuk Membeli</>
                 )}
               </button>
+             {isCustomer && (
               <button
                 data-testid="pay-paypal-btn"
                 onClick={payPaypal}
@@ -407,13 +408,18 @@ export default function ProductDetail() {
                 className="w-full px-10 py-3.5 rounded-full font-semibold transition-colors flex items-center justify-center gap-3 disabled:opacity-60 border border-white/15 hover:bg-white/5 text-zinc-200"
               >
                 {loading ? (
-                  <><Loader2 className="w-4 h-4 animate-spin" /> Working...</>
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Working...
+                  </>
                 ) : (
-                  <><ShoppingBag className="w-4 h-4" /> Pay with PayPal</>
+                  <>
+                    <ShoppingBag className="w-4 h-4" />
+                    Pay with PayPal
+                  </>
                 )}
               </button>
-            </div>
-          )}
+            )}
 
           <p className="text-xs text-zinc-500 mt-4 font-mono">
             {product.is_free
