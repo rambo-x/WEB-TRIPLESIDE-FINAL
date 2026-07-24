@@ -370,59 +370,61 @@ export default function ProductDetail() {
           )}
 
           {product.is_free ? (
-            <button
-              data-testid="buy-now-btn"
-              onClick={checkout}
-              disabled={loading}
-              className="w-full md:w-auto px-10 py-4 rounded-full font-semibold transition-colors flex items-center justify-center gap-3 disabled:opacity-60 bg-emerald-500 hover:bg-emerald-600 text-white"
-            >
-              {loading ? (
-                <><Loader2 className="w-4 h-4 animate-spin" /> Working...</>
-              ) : isCustomer ? (
-                <><Download className="w-4 h-4" /> Get for Free</>
-              ) : (
-                <><LogIn className="w-4 h-4" /> Sign In to Get Free</>
-              )}
-            </button>
-          ) : (
-            <div className="space-y-3 max-w-md">
-              <button
-                data-testid="pay-midtrans-btn"
-                onClick={payMidtrans}
-                disabled={loadingMt || loading}
-                className="w-full px-10 py-4 rounded-full font-semibold transition-colors flex items-center justify-center gap-3 disabled:opacity-60 bg-[#e11d48] hover:bg-[#be123c] glow-brand"
-              >
-                {loadingMt ? (
-                  <><Loader2 className="w-4 h-4 animate-spin" /> Opening secure checkout...</>
-                ) : isCustomer ? (
-                  <><ShoppingBag className="w-4 h-4" /> Buy Now</>
-                ) : (
-                  <><LogIn className="w-4 h-4" /> Masuk untuk Membeli</>
-                )}
-              </button>
-              {isCustomer && (
-                <button
-                  data-testid="pay-paypal-btn"
-                  onClick={payPaypal}
-                  disabled={loading || loadingMt}
-                  className="w-full px-10 py-3.5 rounded-full font-semibold transition-colors flex items-center justify-center gap-3 disabled:opacity-60 border border-white/15 hover:bg-white/5 text-zinc-200"
-                >
-                  {loading ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Working...
-                    </>
-                  ) : (
-                    <>
-                      <ShoppingBag className="w-4 h-4" />
-                      Pay with PayPal
-                    </>
-                  )}
-                </button>
-              )}
-            </div>
+  <button
+    data-testid="buy-now-btn"
+    onClick={checkout}
+    disabled={loading}
+    className="w-full md:w-auto px-10 py-4 rounded-full font-semibold transition-colors flex items-center justify-center gap-3 disabled:opacity-60 bg-emerald-500 hover:bg-emerald-600 text-white"
+  >
+    {loading ? (
+      <><Loader2 className="w-4 h-4 animate-spin" /> Working...</>
+    ) : isCustomer ? (
+      <><Download className="w-4 h-4" /> Get for Free</>
+    ) : (
+      <><LogIn className="w-4 h-4" /> Sign In to Get Free</>
+    )}
+  </button>
+) : (
+  <div className="space-y-3 max-w-md">
+    <button
+      data-testid="pay-midtrans-btn"
+      onClick={payMidtrans}
+      disabled={loadingMt || loading}
+      className="w-full px-10 py-4 rounded-full font-semibold transition-colors flex items-center justify-center gap-3 disabled:opacity-60 bg-[#e11d48] hover:bg-[#be123c] glow-brand"
+    >
+      {loadingMt ? (
+        <><Loader2 className="w-4 h-4 animate-spin" /> Opening secure checkout...</>
+      ) : isCustomer ? (
+        <><ShoppingBag className="w-4 h-4" /> Buy Now</>
+      ) : (
+        <><LogIn className="w-4 h-4" /> Masuk untuk Membeli</>
+      )}
+    </button>
 
-          <p className="text-xs text-zinc-500 mt-4 font-mono">
+    {isCustomer && (
+      <button
+        data-testid="pay-paypal-btn"
+        onClick={payPaypal}
+        disabled={loading || loadingMt}
+        className="w-full px-10 py-3.5 rounded-full font-semibold transition-colors flex items-center justify-center gap-3 disabled:opacity-60 border border-white/15 hover:bg-white/5 text-zinc-200"
+      >
+        {loading ? (
+          <>
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Working...
+          </>
+        ) : (
+          <>
+            <ShoppingBag className="w-4 h-4" />
+            Pay with PayPal
+          </>
+        )}
+      </button>
+    )}
+  </div>
+)}
+
+<p className="text-xs text-zinc-500 mt-4 font-mono">
             {product.is_free
               ? "100% gratis · Cukup masuk untuk menambahkannya ke library Anda."
               : isCustomer
