@@ -315,7 +315,7 @@ export default function ProductDetail() {
             ))}
           </div>
 
-          {product.requires_license && product.trial_enabled !== false && (
+          {product.requires_license && product.trial_enabled !== false && isCustomer && (
             <button
               data-testid="start-trial-btn"
               onClick={startTrial}
