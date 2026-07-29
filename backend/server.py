@@ -3,6 +3,7 @@ import logging
 import os
 from fastapi import APIRouter, FastAPI
 from starlette.middleware.cors import CORSMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
@@ -10,7 +11,17 @@ from core import mongo_client, CORS_ORIGINS  # noqa: E402
 from core.seed import seed_all  # noqa: E402
 from routers import public, admin_auth, customer, admin, checkout, blog, license as license_router  # noqa: E402
 
-app = FastAPI(title="TripleSide Studio API")
+app = FastAPI(
+    title="TripleSide Studio API",
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+)
+
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=["triplesidestudio.com", "www.triplesidestudio.com", "127.0.0.1", "localhost", "testserver"],
+)
 
 api = APIRouter(prefix="/api")
 api.include_router(public.router)
@@ -28,8 +39,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
     allow_origins=CORS_ORIGINS,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 

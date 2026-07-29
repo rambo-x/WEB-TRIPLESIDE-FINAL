@@ -6,16 +6,20 @@ import time
 import pytest
 import requests
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://tripleside-studio.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "").rstrip("/")
 API = f"{BASE_URL}/api"
 
-ADMIN_EMAIL = "admin@tripleside.studio"
-ADMIN_PASSWORD = "tripleside2025"
+ADMIN_EMAIL = os.environ.get("TEST_ADMIN_EMAIL", "").strip()
+ADMIN_PASSWORD = os.environ.get("TEST_ADMIN_PASSWORD", "")
 
 
 # ---------- Fixtures ----------
 @pytest.fixture(scope="session")
 def admin_token() -> str:
+    if not BASE_URL or not ADMIN_EMAIL or not ADMIN_PASSWORD:
+        pytest.skip(
+            "Set REACT_APP_BACKEND_URL, TEST_ADMIN_EMAIL, and TEST_ADMIN_PASSWORD"
+        )
     r = requests.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD}, timeout=20)
     assert r.status_code == 200, f"Admin login failed: {r.status_code} {r.text}"
     return r.json()["token"]

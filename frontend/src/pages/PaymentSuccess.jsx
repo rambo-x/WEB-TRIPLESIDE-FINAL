@@ -5,24 +5,28 @@ import { CheckCircle2, Download, XCircle, Loader2 } from "lucide-react";export d
   const [params] = useSearchParams();
   const sessionId = params.get("session_id");
   const orderId = params.get("order_id");
+  const dokuOrderId = params.get("doku_order_id");
   const paypalToken = params.get("token");
   const [state, setState] = useState("polling"); // polling | paid | failed | expired
   const [data, setData] = useState(null);
   const pollRef = useRef({ attempts: 0 });
 
   useEffect(() => {
-    if (!sessionId && !orderId && !paypalToken) {
+    if (!sessionId && !orderId && !dokuOrderId && !paypalToken) {
       setState("failed");
       return;
     }
     const statusUrl = paypalToken
       ? `/checkout/paypal/capture?token=${paypalToken}`
-      : orderId
+      : dokuOrderId
+        ? `/checkout/doku/status/${dokuOrderId}`
+        : orderId
         ? `/checkout/midtrans/status/${orderId}`
         : `/checkout/status/${sessionId}`;
     let timer;
     const poll = async () => {
-      if (pollRef.current.attempts >= 10) {
+      const maxAttempts = dokuOrderId ? 30 : 10;
+      if (pollRef.current.attempts >= maxAttempts) {
         setState("failed");
         return;
       }
@@ -45,7 +49,7 @@ import { CheckCircle2, Download, XCircle, Loader2 } from "lucide-react";export d
     };
     poll();
     return () => clearTimeout(timer);
-  }, [sessionId, orderId, paypalToken]);
+  }, [sessionId, orderId, dokuOrderId, paypalToken]);
 
   return (
     <div data-testid="payment-success-page" className="min-h-screen flex items-center justify-center px-6 pt-20 pb-32">

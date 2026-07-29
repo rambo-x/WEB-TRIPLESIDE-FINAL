@@ -19,9 +19,12 @@ from core import (
     CustomerUpdateRequest,
     ForgotPasswordRequest,
     ResetPasswordRequest,
+    normalize_download_platform,
+    product_download_options,
 )
 from core.rate_limit import forgot_password_limiter, login_limiter
 from services.email_service import send_email, password_reset_html
+from services.manual_payment_service import expire_pending_manual_payments
 
 router = APIRouter()
 
@@ -108,6 +111,7 @@ async def customer_update(body: CustomerUpdateRequest, customer_id: str = Depend
 
 @router.get("/customer/orders")
 async def customer_orders(customer_id: str = Depends(verify_customer)):
+    await expire_pending_manual_payments(db)
     txns = await db.payment_transactions.find(
         {"customer_id": customer_id}, {"_id": 0}
     ).sort("created_at", -1).to_list(500)
@@ -121,6 +125,14 @@ async def customer_orders(customer_id: str = Depends(verify_customer)):
         if prod:
             t["product_image"] = prod.get("image_url", "")
             t["product_category"] = prod.get("category", "")
+            available_platforms = list(product_download_options(prod))
+            selected_platform = normalize_download_platform(
+                t.get("download_platform") or "windows"
+            )
+            if selected_platform not in available_platforms and available_platforms:
+                selected_platform = available_platforms[0]
+            t["available_platforms"] = available_platforms
+            t["download_platform"] = selected_platform
     return txns
 
 
@@ -133,6 +145,8 @@ async def customer_delete_order(transaction_id: str, customer_id: str = Depends(
         raise HTTPException(404, "Order not found")
     if txn.get("payment_status") == "paid":
         raise HTTPException(400, "Paid orders cannot be deleted")
+    if txn.get("payment_method") == "manual_bank" and txn.get("proof_status") == "submitted":
+        raise HTTPException(400, "Bukti pembayaran sedang diperiksa dan pesanan tidak dapat dihapus.")
     await db.payment_transactions.delete_one({"id": transaction_id, "customer_id": customer_id})
     return {"ok": True}
 

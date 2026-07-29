@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Navigate, Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { api, fmtPrice, BACKEND_URL } from "../lib/api";
-import { User, ShoppingBag, Download, Pencil, LogOut, Check, Loader2, Mail, Phone, FileText, Trash2, KeyRound, Copy, MonitorOff, Clock3 } from "lucide-react";
+import { User, ShoppingBag, Download, Pencil, LogOut, Check, Loader2, Mail, Phone, FileText, Trash2, KeyRound, Copy, MonitorOff, Clock3, Building2 } from "lucide-react";
 import { toast } from "sonner";
 
 export default function CustomerDashboard() {
@@ -59,9 +59,11 @@ export default function CustomerDashboard() {
     }
   };
 
-  const handleDownload = async (txnId) => {
+  const handleDownload = async (txnId, platform) => {
     try {
-      const r = await api.get(`/download/${txnId}`);
+      const r = await api.get(`/download/${txnId}`, {
+        params: { platform },
+      });
       // Try opening the URL directly (works for Cloudinary / public URLs)
       const url = r.data.download_url;
       if (url && (url.startsWith("http://") || url.startsWith("https://"))) {
@@ -263,14 +265,25 @@ export default function CustomerDashboard() {
                       {(o.created_at || "").slice(0, 10)} · {fmtPrice(o.amount)}
                     </div>
                   </div>
-                  <div className="flex gap-2 flex-shrink-0">
-                    <button
-                      data-testid={`download-${o.id}`}
-                      onClick={() => handleDownload(o.id)}
-                      className="flex items-center gap-2 px-4 py-2.5 rounded-full bg-[#e11d48] hover:bg-[#be123c] text-sm font-semibold"
-                    >
-                      <Download className="w-3.5 h-3.5" /> Download
-                    </button>
+                  <div className="flex flex-wrap justify-end gap-2 flex-shrink-0">
+                    {(o.available_platforms?.length
+                      ? o.available_platforms
+                      : ["windows"]
+                    ).map((platform) => (
+                      <button
+                        key={platform}
+                        data-testid={`download-${o.id}-${platform}`}
+                        onClick={() => handleDownload(o.id, platform)}
+                        className="flex items-center gap-2 px-4 py-2.5 rounded-full bg-[#e11d48] hover:bg-[#be123c] text-sm font-semibold"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        {platform === "product"
+                          ? "Download Product"
+                          : platform === "macos"
+                            ? "macOS"
+                            : "Windows"}
+                      </button>
+                    ))}
                     <button
                       data-testid={`invoice-${o.id}`}
                       onClick={() => downloadInvoice(o.id)}
@@ -300,19 +313,30 @@ export default function CustomerDashboard() {
                   )}
                   <div className="flex-1 min-w-0 opacity-70">
                     <div className="font-semibold truncate">{o.product_name}</div>
-                    <div className="text-xs text-zinc-500 font-mono mt-1">{fmtPrice(o.amount)}</div>
+                    <div className="text-xs text-zinc-500 font-mono mt-1">{fmtPrice(o.payable_amount || o.amount)}</div>
                   </div>
                   <span className="px-3 py-1 rounded-full text-[10px] font-semibold uppercase bg-amber-500/15 text-amber-400 flex-shrink-0">
-                    {o.payment_status}
+                    {o.proof_status === "submitted" ? "verifying" : o.status || o.payment_status}
                   </span>
-                  <button
-                    data-testid={`delete-pending-${o.id}`}
-                    onClick={() => deletePending(o.id)}
-                    title="Remove this pending order"
-                    className="p-2.5 rounded-full border border-white/10 hover:border-red-500/40 hover:bg-red-500/10 text-zinc-400 hover:text-red-400 transition-colors flex-shrink-0"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  {o.payment_method === "manual_bank" && o.payment_status !== "failed" && (
+                    <Link
+                      to={`/payment/manual/${o.id}`}
+                      title="Open bank transfer instructions"
+                      className="p-2.5 rounded-full border border-[#e11d48]/30 bg-[#e11d48]/10 text-[#fb7185] hover:bg-[#e11d48]/20 transition-colors flex-shrink-0"
+                    >
+                      <Building2 className="w-3.5 h-3.5" />
+                    </Link>
+                  )}
+                  {o.proof_status !== "submitted" && (
+                    <button
+                      data-testid={`delete-pending-${o.id}`}
+                      onClick={() => deletePending(o.id)}
+                      title="Remove this pending order"
+                      className="p-2.5 rounded-full border border-white/10 hover:border-red-500/40 hover:bg-red-500/10 text-zinc-400 hover:text-red-400 transition-colors flex-shrink-0"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
               ))}
             </div>

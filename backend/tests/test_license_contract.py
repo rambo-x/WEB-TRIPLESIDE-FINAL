@@ -23,8 +23,8 @@ if not BASE_URL:
                     BASE_URL = line.split("=", 1)[1].strip().strip('"').rstrip("/")
                     break
 
-ADMIN_EMAIL = "admin@tripleside.studio"
-ADMIN_PASSWORD = "tripleside2025"
+ADMIN_EMAIL = os.environ.get("TEST_ADMIN_EMAIL", "").strip()
+ADMIN_PASSWORD = os.environ.get("TEST_ADMIN_PASSWORD", "")
 
 
 # ---------- Fixtures ----------
@@ -37,6 +37,10 @@ def api():
 
 @pytest.fixture(scope="module")
 def admin_token(api):
+    if not BASE_URL or not ADMIN_EMAIL or not ADMIN_PASSWORD:
+        pytest.skip(
+            "Set REACT_APP_BACKEND_URL, TEST_ADMIN_EMAIL, and TEST_ADMIN_PASSWORD"
+        )
     r = api.post(f"{BASE_URL}/api/auth/login",
                  json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
     assert r.status_code == 200, f"Admin login failed: {r.status_code} {r.text}"

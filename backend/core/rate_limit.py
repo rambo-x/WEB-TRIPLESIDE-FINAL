@@ -48,3 +48,6 @@ forgot_password_limiter = RateLimiter(max_calls=3, window_seconds=15 * 60)
 
 # Customer login limiter: 10 per IP per 5 minutes (anti credential-stuffing)
 login_limiter = RateLimiter(max_calls=10, window_seconds=5 * 60)
+
+# Admin password changes: 5 attempts per IP per 15 minutes
+admin_password_limiter = RateLimiter(max_calls=5, window_seconds=15 * 60)

@@ -11,6 +11,7 @@ import Gear from "./pages/Gear";
 import Shop from "./pages/Shop";
 import ProductDetail from "./pages/ProductDetail";
 import PaymentSuccess from "./pages/PaymentSuccess";
+import ManualPayment from "./pages/ManualPayment";
 import Blog from "./pages/Blog";
 import BlogPost from "./pages/BlogPost";
 import CustomerLogin from "./pages/CustomerLogin";
@@ -40,6 +41,7 @@ function App() {
                 <Route path="/blog" element={<Blog />} />
                 <Route path="/blog/:slug" element={<BlogPost />} />
                 <Route path="/payment/success" element={<PaymentSuccess />} />
+                <Route path="/payment/manual/:transactionId" element={<ManualPayment />} />
                 <Route path="/login" element={<CustomerLogin />} />
                 <Route path="/register" element={<CustomerRegister />} />
                 <Route path="/forgot-password" element={<ForgotPassword />} />

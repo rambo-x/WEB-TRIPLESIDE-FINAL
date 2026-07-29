@@ -19,11 +19,27 @@ from core import (
     CouponInput,
     BlogPost,
     BlogPostInput,
+    ManualPaymentReviewInput,
+    PaymentSettingsInput,
+    product_download_options,
 )
-from services.storage_service import upload_file, CLOUDINARY_CONFIGURED
+from services.storage_service import (
+    CLOUDINARY_CONFIGURED,
+    R2_CONFIGURED,
+    upload_file_stream,
+    upload_private_file_stream,
+)
 from services.email_service import send_campaign_email
+from services import doku_service
+from services.manual_payment_service import (
+    expire_pending_manual_payments,
+    get_payment_settings,
+    save_payment_settings,
+)
 
 router = APIRouter(dependencies=[Depends(verify_admin)])
+MAX_ADMIN_UPLOAD_BYTES = 500 * 1024 * 1024
+MAX_PRODUCT_UPLOAD_BYTES = 5 * 1024 * 1024 * 1024
 
 
 def _slugify(text: str) -> str:
@@ -91,6 +107,65 @@ def _product_status(value: str) -> str:
     return "published" if value == "published" else "draft"
 
 
+def _normalize_product_downloads(data: dict) -> dict:
+    data["download_mode"] = (
+        "single"
+        if str(data.get("download_mode") or "").strip().lower() in {"single", "product"}
+        else "platform"
+    )
+    data["download_url"] = (data.get("download_url") or "").strip()
+    data["product_storage_key"] = (data.get("product_storage_key") or "").strip()
+    data["product_download_filename"] = (
+        data.get("product_download_filename") or ""
+    ).strip()
+    data["windows_enabled"] = bool(data.get("windows_enabled", True))
+    data["macos_enabled"] = bool(data.get("macos_enabled", False))
+    data["windows_download_url"] = (
+        data.get("windows_download_url") or data.get("download_url") or ""
+    ).strip()
+    data["windows_storage_key"] = (data.get("windows_storage_key") or "").strip()
+    data["windows_download_filename"] = (
+        data.get("windows_download_filename") or ""
+    ).strip()
+    data["macos_download_url"] = (data.get("macos_download_url") or "").strip()
+    data["macos_storage_key"] = (data.get("macos_storage_key") or "").strip()
+    data["macos_download_filename"] = (
+        data.get("macos_download_filename") or ""
+    ).strip()
+
+    if data["download_mode"] == "single":
+        data["windows_enabled"] = False
+        data["macos_enabled"] = False
+        if not data["download_url"] and not data["product_storage_key"]:
+            raise HTTPException(400, "File atau link product wajib diisi")
+        if data["product_storage_key"]:
+            data["download_url"] = ""
+        return data
+
+    if (
+        data["windows_enabled"]
+        and not data["windows_download_url"]
+        and not data["windows_storage_key"]
+    ):
+        raise HTTPException(400, "Link/file Windows wajib diisi saat Windows diaktifkan")
+    if (
+        data["macos_enabled"]
+        and not data["macos_download_url"]
+        and not data["macos_storage_key"]
+    ):
+        raise HTTPException(400, "Link/file macOS wajib diisi saat macOS diaktifkan")
+    if not product_download_options(data):
+        raise HTTPException(400, "Aktifkan dan isi setidaknya satu platform download")
+
+    if data["windows_enabled"] and not data["windows_storage_key"]:
+        data["download_url"] = data["windows_download_url"]
+    elif data["macos_enabled"] and not data["macos_storage_key"]:
+        data["download_url"] = data["macos_download_url"]
+    else:
+        data["download_url"] = ""
+    return data
+
+
 @router.get("/products", response_model=List[DigitalProduct])
 async def admin_list_products():
     # Admin sees drafts and published products. Existing products without a status
@@ -104,7 +179,7 @@ async def admin_list_products():
 
 @router.post("/products", response_model=DigitalProduct)
 async def create_product(body: ProductInput):
-    data = body.model_dump()
+    data = _normalize_product_downloads(body.model_dump())
     data["status"] = _product_status(data.get("status"))
     data["published_at"] = now_iso() if data["status"] == "published" else None
     product = DigitalProduct(**data)
@@ -117,7 +192,7 @@ async def update_product(product_id: str, body: ProductInput):
     existing = await db.products.find_one({"id": product_id}, {"_id": 0})
     if not existing:
         raise HTTPException(404, "Product not found")
-    updates = body.model_dump()
+    updates = _normalize_product_downloads(body.model_dump())
     updates["status"] = _product_status(updates.get("status"))
     updates["updated_at"] = now_iso()
     if updates["status"] == "published" and not existing.get("published_at"):
@@ -164,8 +239,171 @@ async def delete_product(product_id: str):
 
 # ---- Listings ----
 @router.get("/transactions")
-async def list_transactions():
-    return await db.payment_transactions.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+async def list_transactions(archived: bool = False):
+    await expire_pending_manual_payments(db)
+    query = (
+        {"admin_archived": True}
+        if archived
+        else {"admin_archived": {"$ne": True}}
+    )
+    return await db.payment_transactions.find(
+        query,
+        {"_id": 0},
+    ).sort("created_at", -1).to_list(500)
+
+
+@router.post("/transactions/{transaction_id}/archive")
+async def archive_transaction(
+    transaction_id: str,
+    admin_email: str = Depends(verify_admin),
+):
+    archived_at = now_iso()
+    transaction = await db.payment_transactions.find_one_and_update(
+        {"id": transaction_id},
+        {
+            "$set": {
+                "admin_archived": True,
+                "admin_archived_at": archived_at,
+                "admin_archived_by": admin_email,
+                "updated_at": archived_at,
+            }
+        },
+        return_document=True,
+        projection={"_id": 0},
+    )
+    if not transaction:
+        raise HTTPException(404, "Transaction not found")
+    return transaction
+
+
+@router.post("/transactions/{transaction_id}/restore")
+async def restore_transaction(
+    transaction_id: str,
+    admin_email: str = Depends(verify_admin),
+):
+    restored_at = now_iso()
+    transaction = await db.payment_transactions.find_one_and_update(
+        {"id": transaction_id},
+        {
+            "$set": {
+                "admin_archived": False,
+                "admin_restored_at": restored_at,
+                "admin_restored_by": admin_email,
+                "updated_at": restored_at,
+            }
+        },
+        return_document=True,
+        projection={"_id": 0},
+    )
+    if not transaction:
+        raise HTTPException(404, "Transaction not found")
+    return transaction
+
+
+@router.get("/payment-settings")
+async def payment_settings():
+    settings = await get_payment_settings(db)
+    settings["doku_configured"] = doku_service.is_configured()
+    settings["doku_mode"] = (
+        "production" if doku_service.DOKU_IS_PRODUCTION else "sandbox"
+    )
+    return settings
+
+
+@router.put("/payment-settings")
+async def update_payment_settings(body: PaymentSettingsInput):
+    payload = body.model_dump()
+    for key in ("bank_name", "account_number", "account_holder", "instructions"):
+        payload[key] = payload[key].strip()
+    settings = await save_payment_settings(db, payload)
+    settings["doku_configured"] = doku_service.is_configured()
+    settings["doku_mode"] = (
+        "production" if doku_service.DOKU_IS_PRODUCTION else "sandbox"
+    )
+    return settings
+
+
+@router.post("/transactions/{transaction_id}/manual/approve")
+async def approve_manual_payment(
+    transaction_id: str,
+    body: ManualPaymentReviewInput,
+    admin_email: str = Depends(verify_admin),
+):
+    txn = await db.payment_transactions.find_one({"id": transaction_id}, {"_id": 0})
+    if not txn:
+        raise HTTPException(404, "Transaction not found")
+    if txn.get("payment_method") != "manual_bank":
+        raise HTTPException(400, "Bukan transaksi transfer bank manual.")
+    if txn.get("payment_status") == "paid":
+        return txn
+    if txn.get("proof_status") != "submitted":
+        raise HTTPException(400, "Bukti pembayaran belum dikirim.")
+
+    reviewed_at = now_iso()
+    update = {
+        "status": "completed",
+        "payment_status": "paid",
+        "proof_status": "approved",
+        "review_note": body.note.strip(),
+        "reviewed_by": admin_email,
+        "reviewed_at": reviewed_at,
+        "paid_at": reviewed_at,
+        "updated_at": reviewed_at,
+    }
+    result = await db.payment_transactions.update_one(
+        {
+            "id": transaction_id,
+            "payment_method": "manual_bank",
+            "payment_status": {"$ne": "paid"},
+            "proof_status": "submitted",
+        },
+        {"$set": update},
+    )
+    if result.modified_count == 0:
+        current = await db.payment_transactions.find_one({"id": transaction_id}, {"_id": 0})
+        if current and current.get("payment_status") == "paid":
+            return current
+        raise HTTPException(409, "Status transaksi sudah berubah. Muat ulang halaman.")
+
+    txn.update(update)
+    try:
+        from routers.checkout import _on_payment_succeeded
+
+        await _on_payment_succeeded(txn)
+    except Exception as exc:
+        logger.warning(f"Manual payment post-payment side-effects failed: {exc}")
+    return txn
+
+
+@router.post("/transactions/{transaction_id}/manual/reject")
+async def reject_manual_payment(
+    transaction_id: str,
+    body: ManualPaymentReviewInput,
+    admin_email: str = Depends(verify_admin),
+):
+    txn = await db.payment_transactions.find_one({"id": transaction_id}, {"_id": 0})
+    if not txn:
+        raise HTTPException(404, "Transaction not found")
+    if txn.get("payment_method") != "manual_bank":
+        raise HTTPException(400, "Bukan transaksi transfer bank manual.")
+    if txn.get("payment_status") == "paid":
+        raise HTTPException(400, "Pembayaran yang sudah disetujui tidak dapat ditolak.")
+    if txn.get("proof_status") != "submitted":
+        raise HTTPException(400, "Tidak ada bukti pembayaran yang menunggu pemeriksaan.")
+
+    reviewed_at = now_iso()
+    update = {
+        "status": "proof_rejected",
+        "payment_status": "pending",
+        "proof_status": "rejected",
+        "review_note": body.note.strip() or "Bukti pembayaran belum dapat diverifikasi.",
+        "reviewed_by": admin_email,
+        "reviewed_at": reviewed_at,
+        "updated_at": reviewed_at,
+    }
+    await db.payment_transactions.update_one({"id": transaction_id}, {"$set": update})
+    txn.update(update)
+    return txn
 
 
 @router.get("/customers")
@@ -181,26 +419,77 @@ async def list_coupons():
     return await db.coupons.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
 
 
+async def _coupon_payload(body: CouponInput, coupon_id: str = "") -> dict:
+    data = body.model_dump()
+    data["code"] = data["code"].strip().upper()
+    data["coupon_type"] = (data.get("coupon_type") or "discount").strip().lower()
+    data["discount_scope"] = (data.get("discount_scope") or "all").strip().lower()
+    data["discount_product_id"] = (data.get("discount_product_id") or "").strip()
+    data["trial_product_id"] = (data.get("trial_product_id") or "").strip()
+
+    if not data["code"]:
+        raise HTTPException(400, "Code required")
+    duplicate_query = {"code": data["code"]}
+    if coupon_id:
+        duplicate_query["id"] = {"$ne": coupon_id}
+    if await db.coupons.find_one(duplicate_query, {"_id": 0}):
+        raise HTTPException(409, "Coupon code already exists")
+    if (data.get("max_uses") or 0) < 0:
+        raise HTTPException(400, "max_uses cannot be negative")
+
+    if data["coupon_type"] == "trial":
+        if not data["trial_product_id"]:
+            raise HTTPException(400, "Product trial wajib dipilih")
+        product = await db.products.find_one(
+            {"id": data["trial_product_id"]},
+            {"_id": 0},
+        )
+        if not product:
+            raise HTTPException(404, "Product trial tidak ditemukan")
+        if not product.get("requires_license"):
+            raise HTTPException(400, "Product trial harus menggunakan sistem license")
+        data["discount_type"] = "percent"
+        data["discount_value"] = 0
+        data["discount_scope"] = "all"
+        data["discount_product_id"] = ""
+    elif data["coupon_type"] == "discount":
+        if data["discount_type"] not in ("percent", "amount"):
+            raise HTTPException(400, "discount_type must be 'percent' or 'amount'")
+        if data["discount_value"] <= 0:
+            raise HTTPException(400, "discount_value must be > 0")
+        if data["discount_scope"] not in ("all", "product"):
+            raise HTTPException(400, "discount_scope must be 'all' or 'product'")
+        if data["discount_scope"] == "product":
+            if not data["discount_product_id"]:
+                raise HTTPException(400, "Product discount wajib dipilih")
+            product = await db.products.find_one(
+                {"id": data["discount_product_id"]},
+                {"_id": 0},
+            )
+            if not product:
+                raise HTTPException(404, "Product discount tidak ditemukan")
+            if product.get("is_free") or float(product.get("price") or 0) <= 0:
+                raise HTTPException(400, "Coupon discount tidak dapat digunakan untuk product gratis")
+        else:
+            data["discount_product_id"] = ""
+        data["trial_product_id"] = ""
+        data["trial_days"] = 7
+    else:
+        raise HTTPException(400, "coupon_type must be 'discount' or 'trial'")
+
+    return data
+
+
 @router.post("/coupons", response_model=Coupon)
 async def create_coupon(body: CouponInput):
-    code = body.code.strip().upper()
-    if not code:
-        raise HTTPException(400, "Code required")
-    if body.discount_type not in ("percent", "amount"):
-        raise HTTPException(400, "discount_type must be 'percent' or 'amount'")
-    if body.discount_value <= 0:
-        raise HTTPException(400, "discount_value must be > 0")
-    if await db.coupons.find_one({"code": code}, {"_id": 0}):
-        raise HTTPException(409, "Coupon code already exists")
-    coupon = Coupon(**{**body.model_dump(), "code": code})
+    coupon = Coupon(**await _coupon_payload(body))
     await db.coupons.insert_one(coupon.model_dump())
     return coupon
 
 
 @router.put("/coupons/{coupon_id}", response_model=Coupon)
 async def update_coupon(coupon_id: str, body: CouponInput):
-    updates = body.model_dump()
-    updates["code"] = updates["code"].strip().upper()
+    updates = await _coupon_payload(body, coupon_id)
     updated = await db.coupons.find_one_and_update(
         {"id": coupon_id}, {"$set": updates}, return_document=True, projection={"_id": 0}
     )
@@ -217,7 +506,42 @@ async def delete_coupon(coupon_id: str):
     return {"ok": True}
 
 
-# ---- File upload (Cloudinary) ----
+# ---- Private product upload (Cloudflare R2) ----
+@router.post("/upload/product")
+async def upload_product(
+    file: UploadFile = File(...),
+    platform: str = Form(...),
+):
+    selected_platform = platform.strip().lower()
+    if selected_platform not in {"windows", "macos", "product"}:
+        raise HTTPException(400, "Jenis file harus Windows, macOS, atau Product")
+    if not R2_CONFIGURED:
+        raise HTTPException(503, "Cloudflare R2 belum dikonfigurasi di backend")
+
+    file_size = file.size
+    if file_size is None:
+        current_position = file.file.tell()
+        file.file.seek(0, 2)
+        file_size = file.file.tell()
+        file.file.seek(current_position)
+    if file_size > MAX_PRODUCT_UPLOAD_BYTES:
+        raise HTTPException(413, "Ukuran file melebihi batas 5 GB")
+    if file_size <= 0:
+        raise HTTPException(400, "File kosong")
+
+    try:
+        return await upload_private_file_stream(
+            file.file,
+            file.filename or "product-download.bin",
+            folder=f"products/{selected_platform}",
+            content_type=file.content_type or "application/octet-stream",
+        )
+    except Exception:
+        logger.exception("Cloudflare R2 product upload failed")
+        raise HTTPException(500, "Upload ke penyimpanan privat gagal. Silakan coba lagi.")
+
+
+# ---- General file upload (Cloudinary) ----
 @router.post("/upload")
 async def upload(
     file: UploadFile = File(...),
@@ -225,14 +549,25 @@ async def upload(
 ):
     if not CLOUDINARY_CONFIGURED:
         raise HTTPException(503, "Cloudinary not configured. Set CLOUDINARY_API_SECRET in backend/.env")
-    contents = await file.read()
-    if not contents:
+    file_size = file.size
+    if file_size is None:
+        current_position = file.file.tell()
+        file.file.seek(0, 2)
+        file_size = file.file.tell()
+        file.file.seek(current_position)
+    if file_size > MAX_ADMIN_UPLOAD_BYTES:
+        raise HTTPException(413, "File size exceeds the 500 MB limit")
+    if file_size <= 0:
         raise HTTPException(400, "Empty file")
     try:
-        return await upload_file(contents, file.filename or "upload", folder=folder)
-    except Exception as e:
+        return await upload_file_stream(
+            file.file,
+            file.filename or "upload",
+            folder=folder,
+        )
+    except Exception:
         logger.exception("Cloudinary upload failed")
-        raise HTTPException(500, f"Upload failed: {e}")
+        raise HTTPException(500, "Upload failed. Please try again.")
 
 
 # ---- Blog (Markdown CMS) ----

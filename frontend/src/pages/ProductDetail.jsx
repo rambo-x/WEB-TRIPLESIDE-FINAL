@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from "react-router-dom";
 import { api, fmtPrice } from "../lib/api";
 import { useAudio } from "../context/AudioContext";
 import { useAuth } from "../context/AuthContext";
-import { Play, Pause, ShoppingBag, Check, Loader2, ArrowLeft, LogIn, Tag, X, Download, Clock3 } from "lucide-react";
+import { Play, Pause, ShoppingBag, Check, Loader2, ArrowLeft, LogIn, Tag, X, Download, Clock3, Building2 } from "lucide-react";
 import { toast } from "sonner";
 
 export default function ProductDetail() {
@@ -12,16 +12,55 @@ export default function ProductDetail() {
   const [product, setProduct] = useState(null);
   const [loading, setLoading] = useState(false);
   const [loadingMt, setLoadingMt] = useState(false);
+  const [loadingDoku, setLoadingDoku] = useState(false);
+  const [paymentMethods, setPaymentMethods] = useState({
+    doku_enabled: false,
+    midtrans_enabled: false,
+    paypal_enabled: true,
+  });
   const [couponInput, setCouponInput] = useState("");
   const [couponApplied, setCouponApplied] = useState(null); // {code, discount, final_amount}
   const [couponLoading, setCouponLoading] = useState(false);
   const [trialLoading, setTrialLoading] = useState(false);
+  const [selectedPlatform, setSelectedPlatform] = useState("windows");
   const { current, playing, playTrack } = useAudio();
   const { isCustomer } = useAuth();
 
   useEffect(() => {
-    api.get(`/products/${id}`).then((r) => setProduct(r.data)).catch(() => nav("/shop"));
+    api
+      .get(`/products/${id}`)
+      .then((r) => {
+        const loadedProduct = r.data;
+        setProduct(loadedProduct);
+        const availablePlatforms = loadedProduct.available_platforms || [];
+        const windowsAvailable = availablePlatforms.includes("windows");
+        const macosAvailable = availablePlatforms.includes("macos");
+        const productAvailable = availablePlatforms.includes("product");
+        setSelectedPlatform(
+          productAvailable
+            ? "product"
+            : windowsAvailable
+              ? "windows"
+              : macosAvailable
+                ? "macos"
+                : "windows",
+        );
+      })
+      .catch(() => nav("/shop"));
   }, [id, nav]);
+
+  useEffect(() => {
+    api
+      .get("/checkout/payment-methods")
+      .then((response) => setPaymentMethods(response.data))
+      .catch(() => {
+        setPaymentMethods({
+          doku_enabled: false,
+          midtrans_enabled: false,
+          paypal_enabled: true,
+        });
+      });
+  }, []);
 
   const applyCoupon = async () => {
     const code = couponInput.trim();
@@ -30,7 +69,11 @@ export default function ProductDetail() {
     try {
       const r = await api.post("/checkout/apply-coupon", { code, product_id: id });
       setCouponApplied(r.data);
-      toast.success(`Coupon applied: -${fmtPrice(r.data.discount)}`);
+      toast.success(
+        r.data.coupon_type === "trial"
+          ? `Coupon trial ${r.data.trial_days} hari berhasil diterapkan`
+          : `Coupon applied: -${fmtPrice(r.data.discount)}`,
+      );
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Invalid coupon");
       setCouponApplied(null);
@@ -52,7 +95,11 @@ export default function ProductDetail() {
     }
     setLoading(true);
     try {
-      const r = await api.post(`/free-claim/${id}`);
+      const endpoint = product?.is_free ? `/free-claim/${id}` : `/coupon-claim/${id}`;
+      const r = await api.post(endpoint, {
+        platform: selectedPlatform,
+        ...(!product?.is_free && { coupon_code: couponApplied?.code || "" }),
+      });
       toast.success(r.data.already_claimed ? "You already own this" : "Added to your library!");
       nav("/dashboard");
     } catch (e) {
@@ -63,7 +110,7 @@ export default function ProductDetail() {
   
 
   const checkout = async () => {
-    if (product?.is_free) {
+    if (product?.is_free || (couponApplied && Number(couponApplied.final_amount) <= 0)) {
       return claimFree();
     }
     if (!isCustomer) {
@@ -77,6 +124,7 @@ export default function ProductDetail() {
         product_id: id,
         origin_url: window.location.origin,
         coupon_code: couponApplied?.code || "",
+        platform: selectedPlatform,
       });
       window.location.href = r.data.url;
     } catch (e) {
@@ -100,6 +148,7 @@ export default function ProductDetail() {
       product_id: id,
       origin_url: window.location.origin,
       coupon_code: couponApplied?.code || "",
+      platform: selectedPlatform,
     });
 
     window.location.href = r.data.url;
@@ -108,6 +157,27 @@ export default function ProductDetail() {
     setLoading(false);
   }
 };
+
+  const payDoku = async () => {
+    if (!isCustomer) {
+      toast.info("Silakan masuk untuk membeli");
+      nav("/login", { state: { from: `/shop/${id}` } });
+      return;
+    }
+    setLoadingDoku(true);
+    try {
+      const response = await api.post("/checkout/doku/session", {
+        product_id: id,
+        origin_url: window.location.origin,
+        coupon_code: couponApplied?.code || "",
+        platform: selectedPlatform,
+      });
+      window.location.href = response.data.url;
+    } catch (error) {
+      toast.error(error?.response?.data?.detail || "Gagal membuat pembayaran DOKU");
+      setLoadingDoku(false);
+    }
+  };
 
 
  const startTrial = async () => {
@@ -127,7 +197,9 @@ export default function ProductDetail() {
     // 🔥 REQUEST PERTAMA (PAKSA BAWA TOKEN)
     let res;
     try {
-      res = await api.post(`/customer/trials/${id}`, {}, {
+      res = await api.post(`/customer/trials/${id}`, {
+        platform: selectedPlatform,
+      }, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -137,7 +209,9 @@ export default function ProductDetail() {
       if (err?.response?.status === 401) {
         console.warn("Retry trial after 401...");
 
-        res = await api.post(`/customer/trials/${id}`, {}, {
+        res = await api.post(`/customer/trials/${id}`, {
+          platform: selectedPlatform,
+        }, {
           headers: {
             Authorization: `Bearer ${localStorage.getItem("ts_token")}`,
           },
@@ -171,6 +245,38 @@ export default function ProductDetail() {
     setTrialLoading(false);
   }
 };
+
+  const startCouponTrial = async () => {
+    if (trialLoading) return;
+    if (!isCustomer) {
+      toast.info("Silakan masuk untuk mengaktifkan trial");
+      nav("/login", { state: { from: `/shop/${id}` } });
+      return;
+    }
+
+    setTrialLoading(true);
+    try {
+      const response = await api.post(`/customer/trial-coupons/${id}`, {
+        platform: selectedPlatform,
+        coupon_code: couponApplied?.code || "",
+      });
+      toast.success(
+        response.data.already_created
+          ? "Trial ini sudah aktif"
+          : `License trial ${couponApplied?.trial_days || 1} hari berhasil dibuat`,
+      );
+      if (response.data.download_url) {
+        window.location.replace(response.data.download_url);
+      } else {
+        nav("/dashboard");
+      }
+    } catch (error) {
+      toast.error(error?.response?.data?.detail || "Gagal mengaktifkan coupon trial");
+    } finally {
+      setTrialLoading(false);
+    }
+  };
+
   const loadSnap = (clientKey, isProduction) =>
     new Promise((resolve, reject) => {
       if (window.snap) return resolve();
@@ -204,6 +310,7 @@ export default function ProductDetail() {
         product_id: id,
         origin_url: window.location.origin,
         coupon_code: couponApplied?.code || "",
+        platform: selectedPlatform,
       });
       await loadSnap(r.data.client_key, r.data.is_production);
       if (!window.snap) {
@@ -228,6 +335,17 @@ export default function ProductDetail() {
   if (!product) {
     return <div className="pt-40 text-center text-zinc-500">Loading...</div>;
   }
+
+  const couponIsTrial = couponApplied?.coupon_type === "trial";
+  const couponMakesFree =
+    Boolean(couponApplied) && Number(couponApplied.final_amount) <= 0;
+  const isFreeCheckout = product.is_free || couponMakesFree;
+
+  const paymentLabels = [
+    paymentMethods.doku_enabled ? "DOKU" : null,
+    paymentMethods.midtrans_enabled ? "Midtrans" : null,
+    paymentMethods.paypal_enabled ? "PayPal" : null,
+  ].filter(Boolean);
 
   const isCurrent = current?.id === `preview-${product.id}`;
   const previewTrack = product.preview_audio_url
@@ -266,16 +384,44 @@ export default function ProductDetail() {
         <div>
           <div className="flex items-center gap-3 mb-3">
             <div className="text-[10px] font-mono text-[#e11d48] uppercase tracking-[0.3em]">{product.category}</div>
-            {product.is_free && (
+            {couponIsTrial ? (
+              <span className="text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-full bg-sky-500/15 text-sky-400 border border-sky-500/30">
+                Trial {couponApplied.trial_days} Days
+              </span>
+            ) : isFreeCheckout && (
               <span className="text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
                 Free
               </span>
             )}
           </div>
           <h1 className="font-[Outfit] text-4xl md:text-6xl font-black tracking-tighter mb-4">{product.name}</h1>
-          {product.is_free ? (
-            <div className="font-[Outfit] text-5xl font-black text-emerald-400 mb-8" data-testid="product-price">
-              Free
+          {couponIsTrial ? (
+            <div className="mb-8" data-testid="product-price">
+              <div className="text-sm text-zinc-500 font-mono">
+                Full license: {fmtPrice(product.price)}
+              </div>
+              <div className="font-[Outfit] text-5xl font-black text-sky-400">
+                Free Trial
+              </div>
+              <div className="text-xs font-mono text-sky-300 mt-1">
+                License aktif selama {couponApplied.trial_days} hari
+              </div>
+            </div>
+          ) : isFreeCheckout ? (
+            <div className="mb-8" data-testid="product-price">
+              {couponMakesFree && (
+                <div className="text-2xl line-through text-zinc-500 font-[Outfit] font-bold">
+                  {fmtPrice(couponApplied.original_amount)}
+                </div>
+              )}
+              <div className="font-[Outfit] text-5xl font-black text-emerald-400">
+                Free
+              </div>
+              {couponMakesFree && (
+                <div className="text-xs font-mono text-emerald-400 mt-1">
+                  Coupon {couponApplied.code} covers the full price
+                </div>
+              )}
             </div>
           ) : couponApplied ? (
             <div className="mb-8" data-testid="product-price">
@@ -300,7 +446,7 @@ export default function ProductDetail() {
           {product.requires_license && (
             <div className="mb-6 rounded-xl border border-white/10 bg-[#0a0a0c] p-4 text-sm text-zinc-300">
               <div className="flex items-center gap-2"><Check className="h-4 w-4 text-emerald-400" /> One serial, usable on up to <strong className="text-white">{product.max_activations || 1} computer(s)</strong>.</div>
-              {product.trial_enabled !== false && <div className="mt-2 flex items-center gap-2"><Clock3 className="h-4 w-4 text-[#fb7185]" /> Try every feature free for <strong className="text-white">{product.trial_days || 7} days</strong>.</div>}
+              {(couponIsTrial || product.trial_enabled !== false) && <div className="mt-2 flex items-center gap-2"><Clock3 className="h-4 w-4 text-[#fb7185]" /> Try every feature free for <strong className="text-white">{couponIsTrial ? couponApplied.trial_days : product.trial_days || 7} days</strong>.</div>}
             </div>
           )}
 
@@ -315,7 +461,7 @@ export default function ProductDetail() {
             ))}
           </div>
 
-          {product.requires_license && product.trial_enabled !== false && isCustomer && (
+          {!couponIsTrial && product.requires_license && product.trial_enabled !== false && isCustomer && (
             <button
               data-testid="start-trial-btn"
               onClick={startTrial}
@@ -332,13 +478,15 @@ export default function ProductDetail() {
             <div className="mb-6">
               <div className="flex items-center gap-2 mb-2">
                 <Tag className="w-3.5 h-3.5 text-zinc-500" />
-                <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500">Discount code</span>
+                <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500">Coupon code</span>
               </div>
               {couponApplied ? (
                 <div className="flex items-center gap-2 px-4 py-3 rounded-full bg-emerald-500/10 border border-emerald-500/30">
                   <Tag className="w-4 h-4 text-emerald-400" />
                   <span className="font-mono font-bold text-emerald-400">{couponApplied.code}</span>
-                  <span className="text-xs text-zinc-400 flex-1">applied</span>
+                  <span className="text-xs text-zinc-400 flex-1">
+                    {couponIsTrial ? `${couponApplied.trial_days} day trial` : "applied"}
+                  </span>
                   <button
                     data-testid="coupon-remove"
                     onClick={removeCoupon}
@@ -369,7 +517,22 @@ export default function ProductDetail() {
             </div>
           )}
 
-          {product.is_free ? (
+          {couponIsTrial ? (
+  <button
+    data-testid="start-coupon-trial-btn"
+    onClick={startCouponTrial}
+    disabled={trialLoading}
+    className="w-full md:w-auto px-10 py-4 rounded-full font-semibold transition-colors flex items-center justify-center gap-3 disabled:opacity-60 bg-sky-500 hover:bg-sky-600 text-white"
+  >
+    {trialLoading ? (
+      <><Loader2 className="w-4 h-4 animate-spin" /> Membuat license trial...</>
+    ) : isCustomer ? (
+      <><Clock3 className="w-4 h-4" /> Aktifkan Trial {couponApplied.trial_days} Hari</>
+    ) : (
+      <><LogIn className="w-4 h-4" /> Masuk untuk Mengaktifkan Trial</>
+    )}
+  </button>
+) : isFreeCheckout ? (
   <button
     data-testid="buy-now-btn"
     onClick={checkout}
@@ -386,26 +549,45 @@ export default function ProductDetail() {
   </button>
 ) : (
   <div className="space-y-3 max-w-md">
-    <button
-      data-testid="pay-midtrans-btn"
-      onClick={payMidtrans}
-      disabled={loadingMt || loading}
-      className="w-full px-10 py-4 rounded-full font-semibold transition-colors flex items-center justify-center gap-3 disabled:opacity-60 bg-[#e11d48] hover:bg-[#be123c] glow-brand"
-    >
-      {loadingMt ? (
-        <><Loader2 className="w-4 h-4 animate-spin" /> Opening secure checkout...</>
-      ) : isCustomer ? (
-        <><ShoppingBag className="w-4 h-4" /> Bayar dengan Midtrans</>
-      ) : (
-        <><LogIn className="w-4 h-4" /> Masuk untuk Membeli</>
-      )}
-    </button>
+    {paymentMethods.doku_enabled && (
+      <button
+        data-testid="pay-doku-btn"
+        onClick={payDoku}
+        disabled={loadingDoku || loading || loadingMt}
+        className="w-full px-10 py-4 rounded-full font-semibold transition-colors flex items-center justify-center gap-3 disabled:opacity-60 bg-[#e11d48] hover:bg-[#be123c] glow-brand"
+      >
+        {loadingDoku ? (
+          <><Loader2 className="w-4 h-4 animate-spin" /> Membuat pesanan...</>
+        ) : isCustomer ? (
+          <><Building2 className="w-4 h-4" /> Bayar dengan DOKU</>
+        ) : (
+          <><LogIn className="w-4 h-4" /> Masuk untuk Membeli</>
+        )}
+      </button>
+    )}
 
-    {isCustomer && (
+    {paymentMethods.midtrans_enabled && (
+      <button
+        data-testid="pay-midtrans-btn"
+        onClick={payMidtrans}
+        disabled={loadingMt || loading || loadingDoku}
+        className="w-full px-10 py-4 rounded-full font-semibold transition-colors flex items-center justify-center gap-3 disabled:opacity-60 bg-[#e11d48] hover:bg-[#be123c] glow-brand"
+      >
+        {loadingMt ? (
+          <><Loader2 className="w-4 h-4 animate-spin" /> Opening secure checkout...</>
+        ) : isCustomer ? (
+          <><ShoppingBag className="w-4 h-4" /> Bayar dengan Midtrans</>
+        ) : (
+          <><LogIn className="w-4 h-4" /> Masuk untuk Membeli</>
+        )}
+      </button>
+    )}
+
+    {paymentMethods.paypal_enabled && isCustomer && (
       <button
         data-testid="pay-paypal-btn"
         onClick={payPaypal}
-        disabled={loading || loadingMt}
+        disabled={loading || loadingMt || loadingDoku}
         className="w-full px-10 py-3.5 rounded-full font-semibold transition-colors flex items-center justify-center gap-3 disabled:opacity-60 border border-white/15 hover:bg-white/5 text-zinc-200"
       >
         {loading ? (
@@ -425,10 +607,14 @@ export default function ProductDetail() {
 )}
 
 <p className="text-xs text-zinc-500 mt-4 font-mono">
-            {product.is_free
-              ? "100% gratis · Cukup masuk untuk menambahkannya ke library Anda."
+            {couponIsTrial
+              ? `Coupon ${couponApplied.code} memberikan license trial selama ${couponApplied.trial_days} hari.`
+              : isFreeCheckout
+              ? couponMakesFree
+                ? `Gratis dengan coupon ${couponApplied.code} · Cukup masuk untuk menambahkannya ke library Anda.`
+                : "100% gratis · Cukup masuk untuk menambahkannya ke library Anda."
               : isCustomer
-              ? "Pembayaran aman · Midtrans (GoPay, VA, QRIS, Kartu) atau PayPal"
+              ? `Metode pembayaran: ${paymentLabels.join(" atau ")}`
               : "Anda perlu akun untuk membeli produk digital."}
           </p>
         </div>
