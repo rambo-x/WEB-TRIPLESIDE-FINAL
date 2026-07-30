@@ -254,7 +254,7 @@ export default function CustomerDashboard() {
                 <div
                   key={o.id}
                   data-testid={`order-${o.id}`}
-                  className="bg-[#0a0a0c] border border-white/10 rounded-xl p-4 flex items-center gap-4"
+                  className="bg-[#0a0a0c] border border-white/10 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center gap-4"
                 >
                   {o.product_image && (
                     <img src={o.product_image} alt={o.product_name} className="w-16 h-16 rounded-lg object-cover flex-shrink-0" />
@@ -265,7 +265,7 @@ export default function CustomerDashboard() {
                       {(o.created_at || "").slice(0, 10)} · {fmtPrice(o.amount)}
                     </div>
                   </div>
-                  <div className="flex flex-wrap justify-end gap-2 flex-shrink-0">
+                  <div className="w-full sm:w-auto flex flex-wrap justify-start sm:justify-end gap-2 sm:flex-shrink-0">
                     {(o.available_platforms?.length
                       ? o.available_platforms
                       : ["windows"]
@@ -274,7 +274,7 @@ export default function CustomerDashboard() {
                         key={platform}
                         data-testid={`download-${o.id}-${platform}`}
                         onClick={() => handleDownload(o.id, platform)}
-                        className="flex items-center gap-2 px-4 py-2.5 rounded-full bg-[#e11d48] hover:bg-[#be123c] text-sm font-semibold"
+                        className="inline-flex items-center justify-center gap-1.5 px-3 py-2 sm:px-4 sm:py-2.5 rounded-full bg-[#e11d48] hover:bg-[#be123c] text-xs sm:text-sm font-semibold whitespace-nowrap"
                       >
                         <Download className="w-3.5 h-3.5" />
                         {platform === "product"
@@ -287,7 +287,7 @@ export default function CustomerDashboard() {
                     <button
                       data-testid={`invoice-${o.id}`}
                       onClick={() => downloadInvoice(o.id)}
-                      className="flex items-center gap-2 px-4 py-2.5 rounded-full border border-white/15 hover:bg-white/5 text-sm font-semibold"
+                      className="inline-flex items-center justify-center gap-1.5 px-3 py-2 sm:px-4 sm:py-2.5 rounded-full border border-white/15 hover:bg-white/5 text-xs sm:text-sm font-semibold whitespace-nowrap"
                       title="Download invoice PDF"
                     >
                       <FileText className="w-3.5 h-3.5" />
