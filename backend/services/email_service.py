@@ -84,6 +84,20 @@ def password_reset_html(customer_name: str, reset_url: str) -> str:
     return _shell("Reset Password", body)
 
 
+def registration_otp_html(code: str, expires_minutes: int = 10) -> str:
+    body = f"""
+    <h1 style="font-size:26px;color:#fff;margin:0 0 8px 0;">Verifikasi email Anda</h1>
+    <p style="color:#a1a1aa;margin:0 0 24px 0;">Gunakan kode berikut untuk menyelesaikan registrasi akun TripleSide.</p>
+    <div style="background:#151518;border:1px solid #e11d48;border-radius:12px;padding:24px;margin-bottom:24px;text-align:center;">
+      <div style="color:#a1a1aa;font-size:11px;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:10px;">Kode OTP Registrasi</div>
+      <div style="color:#fff;font-family:monospace;font-size:34px;font-weight:800;letter-spacing:10px;">{code}</div>
+    </div>
+    <p style="color:#a1a1aa;margin:0;">Kode berlaku selama {expires_minutes} menit dan hanya dapat digunakan satu kali.</p>
+    <p style="color:#71717a;font-size:12px;margin-top:20px;">Jika Anda tidak melakukan registrasi, abaikan email ini.</p>
+    """
+    return _shell("Kode OTP Registrasi", body)
+
+
 def trial_license_html(customer_name: str, product_name: str, license_key: str, trial_days: int, expires_at: str) -> str:
     body = f"""
     <h1 style="font-size:26px;color:#fff;margin:0 0 8px 0;">Trial {trial_days} hari siap</h1>

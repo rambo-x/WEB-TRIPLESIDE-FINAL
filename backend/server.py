@@ -7,7 +7,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
-from core import mongo_client, CORS_ORIGINS  # noqa: E402
+from core import mongo_client, db, CORS_ORIGINS  # noqa: E402
 from core.seed import seed_all  # noqa: E402
 from routers import public, admin_auth, customer, admin, checkout, blog, license as license_router  # noqa: E402
 
@@ -47,6 +47,8 @@ app.add_middleware(
 @app.on_event("startup")
 async def on_startup():
     await seed_all()
+    await db.registration_otps.create_index("expires_at", expireAfterSeconds=0)
+    await db.registration_otps.create_index([("email", 1), ("created_at", -1)])
 
 
 @app.on_event("shutdown")

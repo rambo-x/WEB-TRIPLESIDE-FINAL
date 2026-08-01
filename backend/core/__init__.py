@@ -7,11 +7,12 @@ from pathlib import Path
 from typing import List, Optional
 
 import jwt
+import phonenumbers
 from dotenv import load_dotenv
 from fastapi import HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from motor.motor_asyncio import AsyncIOMotorClient
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT_DIR / ".env")
@@ -65,6 +66,22 @@ def normalize_phone(p: Optional[str]) -> str:
     if not p:
         return ""
     return "".join(ch for ch in p if ch.isdigit() or ch == "+")
+
+
+def validate_and_normalize_phone(phone: Optional[str], country_code: Optional[str] = None) -> str:
+    raw_phone = (phone or "").strip()
+    region = (country_code or "").strip().upper() or None
+    if not raw_phone:
+        raise ValueError("Phone number is required")
+    if region and region not in phonenumbers.SUPPORTED_REGIONS:
+        raise ValueError("Unsupported phone country")
+    try:
+        parsed = phonenumbers.parse(raw_phone, region)
+    except phonenumbers.NumberParseException as exc:
+        raise ValueError("Invalid phone number") from exc
+    if not phonenumbers.is_valid_number(parsed):
+        raise ValueError("Invalid phone number for the selected country")
+    return phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
 
 
 def normalize_download_platform(value: Optional[str]) -> str:
@@ -382,11 +399,22 @@ class ManualPaymentReviewInput(BaseModel):
     note: str = ""
 
 
+class RegistrationOtpRequest(BaseModel):
+    email: EmailStr
+
+
+class PhoneValidationRequest(BaseModel):
+    country_code: str = Field(min_length=2, max_length=2)
+    phone: str = Field(min_length=4, max_length=32)
+
+
 class CustomerRegisterRequest(BaseModel):
     name: str
-    email: Optional[str] = ""
-    phone: Optional[str] = ""
+    email: EmailStr
+    phone: str = Field(min_length=4, max_length=32)
+    phone_country: str = Field(min_length=2, max_length=2)
     password: str
+    otp: str = Field(min_length=6, max_length=6)
 
 
 class CustomerLoginRequest(BaseModel):
