@@ -53,23 +53,8 @@ export const AuthProvider = ({ children }) => {
     return r.data;
   };
 
-  const customerRegistrationStart = async (data) => {
-    const r = await api.post("/customer/register/request-otp", data);
-    return r.data;
-  };
-
-  const customerRegistrationResend = async (registrationId) => {
-    const r = await api.post("/customer/register/resend-otp", {
-      registration_id: registrationId,
-    });
-    return r.data;
-  };
-
-  const customerRegister = async (registrationId, otp) => {
-    const r = await api.post("/customer/register", {
-      registration_id: registrationId,
-      otp,
-    });
+  const customerRegister = async (data) => {
+    const r = await api.post("/customer/register", data);
     localStorage.setItem("ts_token", r.data.token);
     localStorage.setItem("ts_kind", "customer");
     setUser({ kind: "customer", profile: r.data.customer });
@@ -97,8 +82,6 @@ export const AuthProvider = ({ children }) => {
         isAdmin: user?.kind === "admin",
         adminLogin,
         customerLogin,
-        customerRegistrationStart,
-        customerRegistrationResend,
         customerRegister,
         updateProfile,
         logout,

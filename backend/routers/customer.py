@@ -7,7 +7,6 @@ import secrets
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pymongo import ReturnDocument
-from pymongo.errors import DuplicateKeyError
 
 from core import (
     db,
@@ -19,10 +18,9 @@ from core import (
     validate_and_normalize_phone,
     now_iso,
     logger,
-    CustomerRegistrationStartRequest,
-    RegistrationOtpVerifyRequest,
-    RegistrationOtpResendRequest,
+    RegistrationOtpRequest,
     PhoneValidationRequest,
+    CustomerRegisterRequest,
     CustomerLoginRequest,
     CustomerProfile,
     CustomerUpdateRequest,
@@ -47,16 +45,6 @@ def _registration_otp_hash(email: str, code: str) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def _registration_pending_key(email: str) -> str:
-    return f"registration:{hashlib.sha256(email.encode()).hexdigest()}"
-
-
-def _mask_email(email: str) -> str:
-    local, domain = email.split("@", 1)
-    visible = local[:2] if len(local) > 2 else local[:1]
-    return f"{visible}{'*' * max(3, len(local) - len(visible))}@{domain}"
-
-
 @router.get("/customer/phone-countries")
 async def customer_phone_countries():
     countries = []
@@ -77,22 +65,11 @@ async def customer_validate_phone(body: PhoneValidationRequest):
 
 
 @router.post("/customer/register/request-otp")
-async def customer_request_registration_otp(body: CustomerRegistrationStartRequest, request: Request):
+async def customer_request_registration_otp(body: RegistrationOtpRequest, request: Request):
     registration_otp_limiter.check(request)
     email = str(body.email).strip().lower()
-    name = body.name.strip()
-    try:
-        phone = validate_and_normalize_phone(body.phone, body.phone_country)
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
-    if not name:
-        raise HTTPException(400, "Name is required")
-    if len(body.password.encode()) > 72:
-        raise HTTPException(400, "Password must not exceed 72 bytes")
     if await db.customers.find_one({"email": email}, {"_id": 0, "id": 1}):
         raise HTTPException(409, "Email already registered")
-    if await db.customers.find_one({"phone": phone}, {"_id": 0, "id": 1}):
-        raise HTTPException(409, "Phone already registered")
 
     now = datetime.now(timezone.utc)
     recent = await db.registration_otps.find_one(
@@ -102,31 +79,22 @@ async def customer_request_registration_otp(body: CustomerRegistrationStartReque
     if recent:
         raise HTTPException(429, "Please wait before requesting another OTP")
 
-    pending_key = _registration_pending_key(email)
     await db.registration_otps.update_many(
-        {"email": email, "used": False, "_id": {"$ne": pending_key}},
-        {"$set": {"used": True, "status": "superseded", "superseded_at": now}},
+        {"email": email, "used": False},
+        {"$set": {"used": True, "superseded_at": now}},
     )
     code = f"{secrets.randbelow(1_000_000):06d}"
-    registration_id = str(uuid.uuid4())
-    pending = {
-        "_id": pending_key,
-        "id": registration_id,
-        "customer_id": str(uuid.uuid4()),
-        "name": name,
+    otp_id = str(uuid.uuid4())
+    await db.registration_otps.insert_one({
+        "id": otp_id,
         "email": email,
-        "phone": phone,
-        "phone_country": body.phone_country.upper(),
-        "password_hash": bcrypt.hashpw(body.password.encode(), bcrypt.gensalt()).decode(),
         "code_hash": _registration_otp_hash(email, code),
         "attempts": 0,
         "used": False,
-        "status": "pending",
         "created_at": now,
         "expires_at": now + timedelta(minutes=OTP_EXPIRES_MINUTES),
         "resend_available_at": now + timedelta(seconds=OTP_RESEND_SECONDS),
-    }
-    await db.registration_otps.replace_one({"_id": pending_key}, pending, upsert=True)
+    })
 
     sent = await send_email(
         to=email,
@@ -134,184 +102,81 @@ async def customer_request_registration_otp(body: CustomerRegistrationStartReque
         html=registration_otp_html(code, OTP_EXPIRES_MINUTES),
     )
     if not sent:
-        await db.registration_otps.delete_one({"id": registration_id})
+        await db.registration_otps.delete_one({"id": otp_id})
         raise HTTPException(503, "OTP email could not be sent. Please try again later")
     return {
         "ok": True,
-        "registration_id": registration_id,
-        "email_hint": _mask_email(email),
-        "expires_in": OTP_EXPIRES_MINUTES * 60,
-        "resend_after": OTP_RESEND_SECONDS,
-    }
-
-
-@router.post("/customer/register/resend-otp")
-async def customer_resend_registration_otp(body: RegistrationOtpResendRequest, request: Request):
-    registration_otp_limiter.check(request)
-    now = datetime.now(timezone.utc)
-    record = await db.registration_otps.find_one(
-        {"id": body.registration_id, "used": False, "status": "pending"},
-        {"_id": 0},
-    )
-    if not record:
-        raise HTTPException(400, "Registration session is invalid or has expired")
-
-    code = f"{secrets.randbelow(1_000_000):06d}"
-    code_hash = _registration_otp_hash(record["email"], code)
-    updated = await db.registration_otps.find_one_and_update(
-        {
-            "id": body.registration_id,
-            "used": False,
-            "status": "pending",
-            "resend_available_at": {"$lte": now},
-        },
-        {
-            "$set": {
-                "code_hash": code_hash,
-                "attempts": 0,
-                "expires_at": now + timedelta(minutes=OTP_EXPIRES_MINUTES),
-                "resend_available_at": now + timedelta(seconds=OTP_RESEND_SECONDS),
-                "last_sent_at": now,
-            }
-        },
-        projection={"_id": 0},
-        return_document=ReturnDocument.AFTER,
-    )
-    if not updated:
-        raise HTTPException(429, "Please wait before requesting another OTP")
-
-    sent = await send_email(
-        to=record["email"],
-        subject="Kode OTP registrasi TripleSide",
-        html=registration_otp_html(code, OTP_EXPIRES_MINUTES),
-    )
-    if not sent:
-        await db.registration_otps.update_one(
-            {"id": body.registration_id, "code_hash": code_hash, "status": "pending"},
-            {
-                "$set": {
-                    "code_hash": record["code_hash"],
-                    "attempts": record.get("attempts", 0),
-                    "expires_at": record["expires_at"],
-                    "resend_available_at": now,
-                    "last_send_failed_at": now,
-                }
-            },
-        )
-        raise HTTPException(503, "OTP email could not be sent. Please try again later")
-    return {
-        "ok": True,
-        "email_hint": _mask_email(record["email"]),
         "expires_in": OTP_EXPIRES_MINUTES * 60,
         "resend_after": OTP_RESEND_SECONDS,
     }
 
 
 @router.post("/customer/register")
-async def customer_register(body: RegistrationOtpVerifyRequest, request: Request):
+async def customer_register(body: CustomerRegisterRequest, request: Request):
     login_limiter.check(request)
+    email = str(body.email).strip().lower()
+    try:
+        phone = validate_and_normalize_phone(body.phone, body.phone_country)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if len(body.password) < 6:
+        raise HTTPException(400, "Password must be at least 6 characters")
+    if not body.name.strip():
+        raise HTTPException(400, "Name is required")
     if not body.otp.isdigit():
         raise HTTPException(400, "OTP must contain 6 digits")
-
-    now = datetime.now(timezone.utc)
-    otp_record = await db.registration_otps.find_one(
-        {
-            "id": body.registration_id,
-            "used": False,
-            "status": "pending",
-            "expires_at": {"$gt": now},
-        },
-        {"_id": 0},
-    )
-    if not otp_record:
-        raise HTTPException(400, "Registration session is invalid or has expired")
-    if otp_record.get("attempts", 0) >= OTP_MAX_ATTEMPTS:
-        raise HTTPException(400, "Too many invalid OTP attempts. Request a new code")
-    expected_hash = _registration_otp_hash(otp_record["email"], body.otp)
-    if not secrets.compare_digest(otp_record.get("code_hash", ""), expected_hash):
-        updated = await db.registration_otps.find_one_and_update(
-            {
-                "id": body.registration_id,
-                "used": False,
-                "status": "pending",
-                "expires_at": {"$gt": now},
-                "attempts": {"$lt": OTP_MAX_ATTEMPTS},
-            },
-            {"$inc": {"attempts": 1}, "$set": {"last_attempt_at": now}},
-            projection={"_id": 0},
-            return_document=ReturnDocument.AFTER,
-        )
-        if not updated:
-            raise HTTPException(400, "Too many invalid OTP attempts. Request a new code")
-        if updated.get("attempts", 0) >= OTP_MAX_ATTEMPTS:
-            await db.registration_otps.update_one(
-                {"id": body.registration_id, "status": "pending"},
-                {"$set": {"used": True, "status": "locked", "locked_at": now}},
-            )
-            raise HTTPException(400, "Too many invalid OTP attempts. Request a new code")
-        raise HTTPException(400, "Invalid OTP code")
-
-    email = otp_record["email"]
-    phone = otp_record["phone"]
     if await db.customers.find_one({"email": email}, {"_id": 0}):
         raise HTTPException(409, "Email already registered")
     if await db.customers.find_one({"phone": phone}, {"_id": 0}):
         raise HTTPException(409, "Phone already registered")
 
+    now = datetime.now(timezone.utc)
+    otp_record = await db.registration_otps.find_one(
+        {"email": email, "used": False, "expires_at": {"$gt": now}},
+        {"_id": 0},
+        sort=[("created_at", -1)],
+    )
+    if not otp_record:
+        raise HTTPException(400, "OTP is invalid or has expired")
+    if otp_record.get("attempts", 0) >= OTP_MAX_ATTEMPTS:
+        raise HTTPException(400, "Too many invalid OTP attempts. Request a new code")
+    expected_hash = _registration_otp_hash(email, body.otp)
+    if not secrets.compare_digest(otp_record.get("code_hash", ""), expected_hash):
+        attempts = otp_record.get("attempts", 0) + 1
+        updates = {"attempts": attempts, "last_attempt_at": now}
+        if attempts >= OTP_MAX_ATTEMPTS:
+            updates["used"] = True
+        await db.registration_otps.update_one({"id": otp_record["id"]}, {"$set": updates})
+        raise HTTPException(400, "Invalid OTP code")
+
     claimed_otp = await db.registration_otps.find_one_and_update(
         {
-            "id": body.registration_id,
+            "id": otp_record["id"],
             "used": False,
-            "status": "pending",
-            "code_hash": expected_hash,
             "attempts": {"$lt": OTP_MAX_ATTEMPTS},
             "expires_at": {"$gt": now},
         },
-        {"$set": {"used": True, "status": "processing", "verified_at": now}},
+        {"$set": {"used": True, "verified_at": now}},
         projection={"_id": 0},
         return_document=ReturnDocument.AFTER,
     )
     if not claimed_otp:
         raise HTTPException(400, "OTP is invalid or has already been used")
 
-    customer_id = claimed_otp["customer_id"]
+    customer_id = str(uuid.uuid4())
     doc = {
-        "_id": customer_id,
         "id": customer_id,
-        "name": claimed_otp["name"],
+        "name": body.name.strip(),
         "email": email,
         "phone": phone,
-        "phone_country": claimed_otp["phone_country"],
+        "phone_country": body.phone_country.upper(),
         "email_verified_at": now.isoformat(),
-        "password_hash": claimed_otp["password_hash"],
+        "password_hash": bcrypt.hashpw(body.password.encode(), bcrypt.gensalt()).decode(),
         "created_at": now_iso(),
     }
-    try:
-        await db.customers.insert_one(doc)
-        customer = doc
-    except DuplicateKeyError:
-        customer = await db.customers.find_one({"_id": customer_id, "email": email})
-        if not customer:
-            await db.registration_otps.update_one(
-                {"id": body.registration_id, "status": "processing"},
-                {"$set": {"used": False, "status": "pending"}, "$unset": {"verified_at": ""}},
-            )
-            raise HTTPException(409, "Email or phone is already registered")
-    except Exception:
-        customer = await db.customers.find_one({"_id": customer_id, "email": email})
-        if not customer:
-            await db.registration_otps.update_one(
-                {"id": body.registration_id, "status": "processing"},
-                {"$set": {"used": False, "status": "pending"}, "$unset": {"verified_at": ""}},
-            )
-            raise
-
-    await db.registration_otps.update_one(
-        {"id": body.registration_id, "status": "processing"},
-        {"$set": {"status": "completed", "completed_at": now, "customer_id": customer_id}},
-    )
+    await db.customers.insert_one(doc)
     token = create_token(customer_id, role="customer")
-    profile = {k: customer[k] for k in ("id", "name", "email", "phone", "created_at")}
+    profile = {k: doc[k] for k in ("id", "name", "email", "phone", "created_at")}
     return {"token": token, "customer": profile}
 
 

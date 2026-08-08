@@ -399,26 +399,22 @@ class ManualPaymentReviewInput(BaseModel):
     note: str = ""
 
 
-class CustomerRegistrationStartRequest(BaseModel):
-    name: str = Field(min_length=1, max_length=120)
+class RegistrationOtpRequest(BaseModel):
     email: EmailStr
-    phone: str = Field(min_length=4, max_length=32)
-    phone_country: str = Field(min_length=2, max_length=2)
-    password: str = Field(min_length=6, max_length=128)
-
-
-class RegistrationOtpVerifyRequest(BaseModel):
-    registration_id: str = Field(min_length=36, max_length=36)
-    otp: str = Field(min_length=6, max_length=6)
-
-
-class RegistrationOtpResendRequest(BaseModel):
-    registration_id: str = Field(min_length=36, max_length=36)
 
 
 class PhoneValidationRequest(BaseModel):
     country_code: str = Field(min_length=2, max_length=2)
     phone: str = Field(min_length=4, max_length=32)
+
+
+class CustomerRegisterRequest(BaseModel):
+    name: str
+    email: EmailStr
+    phone: str = Field(min_length=4, max_length=32)
+    phone_country: str = Field(min_length=2, max_length=2)
+    password: str
+    otp: str = Field(min_length=6, max_length=6)
 
 
 class CustomerLoginRequest(BaseModel):

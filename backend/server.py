@@ -47,18 +47,6 @@ app.add_middleware(
 @app.on_event("startup")
 async def on_startup():
     await seed_all()
-    await db.customers.create_index(
-        "email",
-        unique=True,
-        name="uq_customers_email_nonempty",
-        partialFilterExpression={"email": {"$gt": ""}},
-    )
-    await db.customers.create_index(
-        "phone",
-        unique=True,
-        name="uq_customers_phone_nonempty",
-        partialFilterExpression={"phone": {"$gt": ""}},
-    )
     await db.registration_otps.create_index("expires_at", expireAfterSeconds=0)
     await db.registration_otps.create_index([("email", 1), ("created_at", -1)])
 
