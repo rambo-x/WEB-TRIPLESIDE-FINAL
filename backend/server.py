@@ -9,7 +9,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(level
 
 from core import mongo_client, db, CORS_ORIGINS  # noqa: E402
 from core.seed import seed_all  # noqa: E402
-from routers import public, admin_auth, customer, admin, checkout, blog, license as license_router  # noqa: E402
+from routers import public, admin_auth, customer, admin, checkout, blog, seo, license as license_router  # noqa: E402
 
 app = FastAPI(
     title="TripleSide Studio API",
@@ -25,6 +25,7 @@ app.add_middleware(
 
 api = APIRouter(prefix="/api")
 api.include_router(public.router)
+api.include_router(seo.router, prefix="/seo")
 api.include_router(blog.router)
 api.include_router(admin_auth.router)
 api.include_router(customer.router)
