@@ -5,6 +5,7 @@ import { Toaster } from "sonner";
 import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
 import AudioPlayer from "./components/AudioPlayer";
+import RouteSEO from "./components/RouteSEO";
 import Home from "./pages/Home";
 import Songs from "./pages/Songs";
 import Gear from "./pages/Gear";
@@ -14,6 +15,7 @@ import PaymentSuccess from "./pages/PaymentSuccess";
 import ManualPayment from "./pages/ManualPayment";
 import Blog from "./pages/Blog";
 import BlogPost from "./pages/BlogPost";
+import NotFound from "./pages/NotFound";
 import CustomerLogin from "./pages/CustomerLogin";
 import CustomerRegister from "./pages/CustomerRegister";
 import CustomerVerifyOtp from "./pages/CustomerVerifyOtp";
@@ -31,6 +33,7 @@ function App() {
       <AuthProvider>
         <AudioProvider>
           <BrowserRouter>
+            <RouteSEO />
             <Navbar />
             <main className="min-h-screen">
               <Routes>
@@ -51,6 +54,7 @@ function App() {
                 <Route path="/dashboard" element={<CustomerDashboard />} />
                 <Route path="/admin/login" element={<AdminLogin />} />
                 <Route path="/admin" element={<AdminDashboard />} />
+                <Route path="*" element={<NotFound />} />
               </Routes>
             </main>
             <Footer />

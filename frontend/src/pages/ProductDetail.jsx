@@ -5,6 +5,7 @@ import { useAudio } from "../context/AudioContext";
 import { useAuth } from "../context/AuthContext";
 import { Play, Pause, ShoppingBag, Check, Loader2, ArrowLeft, LogIn, Tag, X, Download, Clock3, Building2 } from "lucide-react";
 import { toast } from "sonner";
+import SEO from "../components/SEO";
 
 export default function ProductDetail() {
   const { id } = useParams();
@@ -359,7 +360,35 @@ export default function ProductDetail() {
     : null;
 
   return (
-    <div data-testid="product-detail-page" className="max-w-7xl mx-auto px-6 md:px-12 pt-28 pb-32">
+    <>
+      <SEO
+        title={product.name}
+        description={product.description}
+        path={`/shop/${product.id}`}
+        image={product.image_url}
+        type="product"
+        structuredData={{
+          "@context": "https://schema.org",
+          "@type": "Product",
+          name: product.name,
+          description: product.description,
+          image: product.image_url ? [product.image_url] : undefined,
+          sku: product.id,
+          category: product.category,
+          brand: {
+            "@type": "Brand",
+            name: "TripleSide Studio",
+          },
+          offers: {
+            "@type": "Offer",
+            url: `https://triplesidestudio.com/shop/${product.id}`,
+            priceCurrency: "IDR",
+            price: String(product.is_free ? 0 : product.price),
+            availability: "https://schema.org/InStock",
+          },
+        }}
+      />
+      <div data-testid="product-detail-page" className="max-w-7xl mx-auto px-6 md:px-12 pt-28 pb-32">
       <Link to="/shop" className="inline-flex items-center gap-2 text-sm text-zinc-400 hover:text-white mb-8">
         <ArrowLeft className="w-4 h-4" /> Back to Shop
       </Link>
@@ -619,6 +648,7 @@ export default function ProductDetail() {
           </p>
         </div>
       </div>
-    </div>
+      </div>
+    </>
   );
 }

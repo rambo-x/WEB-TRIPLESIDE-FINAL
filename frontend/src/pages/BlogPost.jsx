@@ -4,6 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api } from "../lib/api";
 import { ArrowLeft, Calendar, User } from "lucide-react";
+import SEO from "../components/SEO";
 
 export default function BlogPost() {
   const { slug } = useParams();
@@ -23,7 +24,43 @@ export default function BlogPost() {
   if (!post) return null;
 
   return (
-    <article data-testid="blog-post-page" className="max-w-3xl mx-auto px-6 md:px-12 pt-28 pb-32">
+    <>
+      <SEO
+        title={post.title}
+        description={
+          post.excerpt ||
+          String(post.content || "").replace(/\s+/g, " ").trim().slice(0, 160)
+        }
+        path={`/blog/${post.slug}`}
+        image={post.featured_image}
+        type="article"
+        structuredData={{
+          "@context": "https://schema.org",
+          "@type": "BlogPosting",
+          headline: post.title,
+          description: post.excerpt,
+          image: post.featured_image ? [post.featured_image] : undefined,
+          datePublished: post.published_at || post.created_at,
+          dateModified: post.updated_at || post.published_at || post.created_at,
+          author: {
+            "@type": "Person",
+            name: post.author || "TripleSide Studio",
+          },
+          publisher: {
+            "@type": "Organization",
+            name: "TripleSide Studio",
+            logo: {
+              "@type": "ImageObject",
+              url: "https://triplesidestudio.com/favicon.svg",
+            },
+          },
+          mainEntityOfPage: {
+            "@type": "WebPage",
+            "@id": `https://triplesidestudio.com/blog/${post.slug}`,
+          },
+        }}
+      />
+      <article data-testid="blog-post-page" className="max-w-3xl mx-auto px-6 md:px-12 pt-28 pb-32">
       <Link to="/blog" className="inline-flex items-center gap-2 text-sm text-zinc-400 hover:text-white mb-8">
         <ArrowLeft className="w-4 h-4" /> Back to Blog
       </Link>
@@ -58,6 +95,7 @@ export default function BlogPost() {
       <div data-testid="post-content" className="prose-blog">
         <ReactMarkdown remarkPlugins={[remarkGfm]}>{post.content}</ReactMarkdown>
       </div>
-    </article>
+      </article>
+    </>
   );
 }
