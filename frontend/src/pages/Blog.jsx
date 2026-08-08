@@ -3,14 +3,21 @@ import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { ArrowRight, Calendar } from "lucide-react";
 
+const getInitialPosts = () => {
+  const data = window.__TRIPLESIDE_SSR__;
+  return Array.isArray(data?.blogPosts) ? data.blogPosts : [];
+};
+
 export default function Blog() {
-  const [posts, setPosts] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const initialPosts = getInitialPosts();
+  const [posts, setPosts] = useState(initialPosts);
+  const [loading, setLoading] = useState(initialPosts.length === 0);
 
   useEffect(() => {
     api
       .get("/blog")
       .then((r) => setPosts(r.data))
+      .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
 

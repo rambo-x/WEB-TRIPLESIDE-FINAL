@@ -124,6 +124,7 @@ def _inject_shell(
     canonical: str,
     body: str,
     structured_data: dict,
+    bootstrap_data: dict | None = None,
     image: str = DEFAULT_IMAGE,
     page_type: str = "website",
 ) -> str:
@@ -158,9 +159,21 @@ def _inject_shell(
         ensure_ascii=False,
         separators=(",", ":"),
     ).replace("</", "<\\/")
+    bootstrap = ""
+    if bootstrap_data is not None:
+        payload = json.dumps(
+            bootstrap_data,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            default=lambda value: value.isoformat()
+            if isinstance(value, datetime)
+            else str(value),
+        ).replace("</", "<\\/")
+        bootstrap = f'<script>window.__TRIPLESIDE_SSR__={payload};</script>'
     head = (
         f'<link rel="canonical" href="{escape(canonical, quote=True)}"/>'
         f'<script type="application/ld+json">{schema}</script>'
+        f"{bootstrap}"
     )
     document = document.replace("</head>", f"{head}</head>", 1)
     document = re.sub(
@@ -276,6 +289,7 @@ async def blog_index():
         canonical=canonical,
         body=_layout(content),
         structured_data=schema,
+        bootstrap_data={"blogPosts": posts},
     )
     return _response(document, canonical)
 
@@ -338,6 +352,7 @@ async def blog_post(slug: str):
         canonical=canonical,
         body=_layout(article),
         structured_data=schema,
+        bootstrap_data={"blogPost": post},
         image=image,
         page_type="article",
     )

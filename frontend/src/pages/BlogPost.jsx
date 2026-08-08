@@ -9,16 +9,21 @@ import SEO from "../components/SEO";
 export default function BlogPost() {
   const { slug } = useParams();
   const nav = useNavigate();
-  const [post, setPost] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const bootstrapPost = window.__TRIPLESIDE_SSR__?.blogPost;
+  const initialPost = bootstrapPost?.slug === slug ? bootstrapPost : null;
+  const hasInitialPost = Boolean(initialPost);
+  const [post, setPost] = useState(initialPost);
+  const [loading, setLoading] = useState(!hasInitialPost);
 
   useEffect(() => {
     api
       .get(`/blog/${slug}`)
       .then((r) => setPost(r.data))
-      .catch(() => nav("/blog"))
+      .catch(() => {
+        if (!hasInitialPost) nav("/blog");
+      })
       .finally(() => setLoading(false));
-  }, [slug, nav]);
+  }, [slug, nav, hasInitialPost]);
 
   if (loading) return <div className="pt-40 text-center text-zinc-500">Loading...</div>;
   if (!post) return null;

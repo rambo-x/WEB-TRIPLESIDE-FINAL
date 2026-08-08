@@ -1,5 +1,9 @@
 User-agent: *
 Allow: /
+Allow: /api/blog
+Allow: /api/songs
+Allow: /api/gear
+Allow: /api/products
 Disallow: /api/
 Disallow: /admin/
 
