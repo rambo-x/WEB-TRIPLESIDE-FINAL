@@ -16,6 +16,7 @@ import Blog from "./pages/Blog";
 import BlogPost from "./pages/BlogPost";
 import CustomerLogin from "./pages/CustomerLogin";
 import CustomerRegister from "./pages/CustomerRegister";
+import CustomerVerifyOtp from "./pages/CustomerVerifyOtp";
 import CustomerDashboard from "./pages/CustomerDashboard";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
@@ -44,6 +45,7 @@ function App() {
                 <Route path="/payment/manual/:transactionId" element={<ManualPayment />} />
                 <Route path="/login" element={<CustomerLogin />} />
                 <Route path="/register" element={<CustomerRegister />} />
+                <Route path="/register/verify" element={<CustomerVerifyOtp />} />
                 <Route path="/forgot-password" element={<ForgotPassword />} />
                 <Route path="/reset-password" element={<ResetPassword />} />
                 <Route path="/dashboard" element={<CustomerDashboard />} />

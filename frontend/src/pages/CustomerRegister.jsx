@@ -2,11 +2,11 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, Navigate, Link, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { api } from "../lib/api";
-import { CheckCircle2, Loader2, MailCheck, Phone, UserPlus } from "lucide-react";
+import { CheckCircle2, Loader2, Phone, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 
 export default function CustomerRegister() {
-  const { customerRegister, user } = useAuth();
+  const { customerRegistrationStart, user } = useAuth();
   const nav = useNavigate();
   const loc = useLocation();
   const [form, setForm] = useState({
@@ -14,7 +14,6 @@ export default function CustomerRegister() {
     email: "",
     password: "",
     confirmPassword: "",
-    otp: "",
   });
   const [countries, setCountries] = useState([]);
   const [phoneCountry, setPhoneCountry] = useState("ID");
@@ -25,9 +24,6 @@ export default function CustomerRegister() {
     e164: "",
     message: "",
   });
-  const [otpSent, setOtpSent] = useState(false);
-  const [otpLoading, setOtpLoading] = useState(false);
-  const [resendSeconds, setResendSeconds] = useState(0);
   const [loading, setLoading] = useState(false);
 
   const redirectTo = loc.state?.from || "/dashboard";
@@ -39,8 +35,6 @@ export default function CustomerRegister() {
     emailValid &&
     phoneStatus.valid &&
     passwordsValid &&
-    otpSent &&
-    /^\d{6}$/.test(form.otp) &&
     !loading;
 
   const regionNames = useMemo(() => {
@@ -108,69 +102,39 @@ export default function CustomerRegister() {
     };
   }, [phoneCountry, phoneInput]);
 
-  useEffect(() => {
-    if (resendSeconds <= 0) return undefined;
-    const timer = window.setTimeout(
-      () => setResendSeconds((seconds) => Math.max(0, seconds - 1)),
-      1000
-    );
-    return () => window.clearTimeout(timer);
-  }, [resendSeconds]);
-
   if (user?.kind === "customer") return <Navigate to={redirectTo} replace />;
 
   const handle = (key) => (event) =>
     setForm((current) => ({ ...current, [key]: event.target.value }));
 
-  const handleEmail = (event) => {
-    const email = event.target.value;
-    setForm((current) => ({ ...current, email, otp: "" }));
-    setOtpSent(false);
-    setResendSeconds(0);
-  };
-
-  const sendOtp = async () => {
-    if (!emailValid) {
-      toast.error("Enter a valid email address");
-      return;
-    }
-
-    setOtpLoading(true);
-    try {
-      const response = await api.post("/customer/register/request-otp", {
-        email: form.email.trim(),
-      });
-      setOtpSent(true);
-      setResendSeconds(response.data.resend_after || 60);
-      toast.success("OTP code sent. Check your email inbox.");
-    } catch (error) {
-      toast.error(error?.response?.data?.detail || "Unable to send OTP code");
-    } finally {
-      setOtpLoading(false);
-    }
-  };
-
   const submit = async (event) => {
     event.preventDefault();
     if (!canSubmit) {
-      toast.error("Complete the form, verify your phone, and enter the email OTP");
+      toast.error("Complete the form and verify your phone number");
       return;
     }
 
     setLoading(true);
     try {
-      await customerRegister({
+      const pending = await customerRegistrationStart({
         name: form.name.trim(),
         email: form.email.trim(),
         phone: phoneStatus.e164,
         phone_country: phoneCountry,
         password: form.password,
-        otp: form.otp,
       });
-      toast.success("Account verified and created — welcome to TripleSide!");
-      nav(redirectTo, { replace: true });
+      const verificationState = {
+        registrationId: pending.registration_id,
+        emailHint: pending.email_hint,
+        resendAt: Date.now() + (pending.resend_after || 60) * 1000,
+        expiresAt: Date.now() + (pending.expires_in || 600) * 1000,
+        redirectTo,
+      };
+      sessionStorage.setItem("ts_pending_registration", JSON.stringify(verificationState));
+      toast.success("OTP code sent. Check your email inbox.");
+      nav("/register/verify", { state: verificationState });
     } catch (error) {
-      toast.error(error?.response?.data?.detail || "Registration failed");
+      toast.error(error?.response?.data?.detail || "Unable to start registration");
     } finally {
       setLoading(false);
     }
@@ -190,7 +154,7 @@ export default function CustomerRegister() {
         </div>
         <h1 className="font-[Outfit] text-3xl font-bold mb-2">Create your account</h1>
         <p className="text-sm text-zinc-400 mb-8">
-          Verify your email and phone number before creating an account.
+          Complete your details. We will email an OTP before creating your account.
         </p>
 
         <label className="block text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500 mb-2">
@@ -211,49 +175,10 @@ export default function CustomerRegister() {
           data-testid="register-email"
           type="email"
           value={form.email}
-          onChange={handleEmail}
+          onChange={handle("email")}
           placeholder="you@example.com"
           required
-          className="w-full bg-[#050505] border border-white/10 rounded-lg px-4 py-3 text-sm mb-3 focus:outline-none focus:border-[#e11d48]"
-        />
-        <button
-          type="button"
-          data-testid="register-send-otp"
-          onClick={sendOtp}
-          disabled={!emailValid || otpLoading || resendSeconds > 0}
-          className="w-full mb-5 py-3 rounded-lg border border-[#e11d48]/50 text-[#fb7185] hover:bg-[#e11d48]/10 text-sm font-semibold transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {otpLoading ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <MailCheck className="w-4 h-4" />
-          )}
-          {resendSeconds > 0
-            ? `Resend OTP in ${resendSeconds}s`
-            : otpSent
-              ? "Resend OTP"
-              : "Send OTP to Email"}
-        </button>
-
-        <label className="block text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500 mb-2">
-          Email OTP <span className="text-[#e11d48]">*</span>
-        </label>
-        <input
-          data-testid="register-otp"
-          inputMode="numeric"
-          autoComplete="one-time-code"
-          maxLength={6}
-          value={form.otp}
-          onChange={(event) =>
-            setForm((current) => ({
-              ...current,
-              otp: event.target.value.replace(/\D/g, "").slice(0, 6),
-            }))
-          }
-          disabled={!otpSent}
-          placeholder={otpSent ? "6-digit code" : "Send OTP first"}
-          required
-          className="w-full bg-[#050505] border border-white/10 rounded-lg px-4 py-3 text-sm mb-5 tracking-[0.35em] font-mono focus:outline-none focus:border-[#e11d48] disabled:opacity-50"
+          className="w-full bg-[#050505] border border-white/10 rounded-lg px-4 py-3 text-sm mb-5 focus:outline-none focus:border-[#e11d48]"
         />
 
         <label className="block text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500 mb-2">
@@ -334,7 +259,7 @@ export default function CustomerRegister() {
           disabled={!canSubmit}
           className="w-full py-3.5 rounded-full bg-[#e11d48] hover:bg-[#be123c] font-semibold transition-colors flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Verify & Create Account"}
+          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Create Account"}
         </button>
 
         <p className="mt-6 text-center text-sm text-zinc-400">
