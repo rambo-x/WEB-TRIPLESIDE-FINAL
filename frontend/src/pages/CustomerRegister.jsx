@@ -188,7 +188,7 @@ export default function CustomerRegister() {
         <label className="block text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500 mb-2">
           Phone <span className="text-[#e11d48]">*</span>
         </label>
-        <div className="grid grid-cols-[105px_minmax(0,1fr)] gap-2 mb-2">
+        <div className="grid grid-cols-[90px_minmax(0,1fr)] gap-2 mb-2">
           <div className="relative">
             <select
               data-testid="register-phone-country"
