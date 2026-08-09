@@ -1253,18 +1253,18 @@ className="border border-white/10 rounded-xl overflow-hidden"
 
 <button
 onClick={() => toggleLicenseGroup(product)}
-className="w-full flex items-center justify-between px-5 py-4 bg-[#e11d48] hover:bg-[#be123c] text-white rounded-t-xl shadow-lg transition"
+className="w-full flex items-center justify-between px-5 py-3 bg-[#e11d48] hover:bg-[#be123c] text-white rounded-t-xl shadow-lg transition"
 >
 
 <div>
 
-<h3 className="font-bold text-lg">
+<h3 className="font-bold text-base leading-tight">
 
 🎹 {product}
 
 </h3>
 
-<p className="text-xs text-white/80">
+<p className="text-[11px] text-white/80 mt-0.5">
   
 {licenses.length} {licenses.length === 1 ? "License" : "Licenses"}
   
@@ -1272,7 +1272,7 @@ className="w-full flex items-center justify-between px-5 py-4 bg-[#e11d48] hover
 
 </div>
 
-<div className="text-2xl">
+<div className="text-xl leading-none">
 
 {licenseGroups[product] === false ? "+" : "−"}
 
