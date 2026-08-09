@@ -41,6 +41,10 @@ export default function CustomerRegister() {
     if (typeof Intl.DisplayNames !== "function") return null;
     return new Intl.DisplayNames(["en"], { type: "region" });
   }, []);
+  const selectedCountry = useMemo(
+    () => countries.find((item) => item.country === phoneCountry),
+    [countries, phoneCountry],
+  );
 
   useEffect(() => {
     let active = true;
@@ -185,18 +189,37 @@ export default function CustomerRegister() {
           International Phone <span className="text-[#e11d48]">*</span>
         </label>
         <div className="grid grid-cols-[minmax(130px,0.9fr)_minmax(0,1.6fr)] gap-2 mb-2">
-          <select
-            data-testid="register-phone-country"
-            value={phoneCountry}
-            onChange={(event) => setPhoneCountry(event.target.value)}
-            className="bg-[#050505] border border-white/10 rounded-lg px-3 py-3 text-sm focus:outline-none focus:border-[#e11d48]"
-          >
-            {countries.map((item) => (
-              <option key={item.country} value={item.country}>
-                {regionNames?.of(item.country) || item.country} ({item.calling_code})
-              </option>
-            ))}
-          </select>
+          <div className="relative">
+            <select
+              data-testid="register-phone-country"
+              value={phoneCountry}
+              onChange={(event) => setPhoneCountry(event.target.value)}
+              className="w-full bg-[#050505] border border-white/10 rounded-lg px-3 py-3 text-sm text-transparent focus:outline-none focus:border-[#e11d48]"
+            >
+              {countries.map((item) => (
+                <option
+                  key={item.country}
+                  value={item.country}
+                  className="bg-[#050505] text-zinc-100"
+                >
+                  {regionNames?.of(item.country) || item.country} ({item.calling_code})
+                </option>
+              ))}
+            </select>
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-zinc-100"
+            >
+              {phoneCountry ? (
+                <img
+                  src={`https://flagcdn.com/w40/${phoneCountry.toLowerCase()}.png`}
+                  alt=""
+                  className="h-3.5 w-5 rounded-[2px] object-cover"
+                />
+              ) : null}
+              <span className="ml-2">{selectedCountry?.calling_code || ""}</span>
+            </span>
+          </div>
           <div className="relative">
             <Phone className="absolute left-3 top-3.5 w-4 h-4 text-zinc-600" />
             <input
