@@ -4,7 +4,8 @@ import { api, fmtPrice } from "../lib/api";
 import { useAudio } from "../context/AudioContext";
 import { Play, Pause, ArrowRight, Music2, Sliders, ShoppingBag, Sparkles } from "lucide-react";
 
-const HERO_IMG = "/images/hero-studio-v2.png";
+const HERO_IMG =
+  "https://images.pexels.com/photos/10933686/pexels-photo-10933686.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=900&w=1600";
 
 export default function Home() {
   const [songs, setSongs] = useState([]);
@@ -43,31 +44,19 @@ export default function Home() {
   return (
     <div data-testid="home-page" className="pb-32">
       {/* HERO */}
-      <section className="hero-cinematic relative isolate min-h-[92vh] flex items-end overflow-hidden grain-overlay">
-        <div className="hero-media absolute inset-0" aria-hidden="true">
-          <img
-            src={HERO_IMG}
-            alt=""
-            className="h-full w-full object-cover"
-            fetchPriority="high"
-            decoding="async"
-          />
-        </div>
-        <div className="hero-vignette absolute inset-0" aria-hidden="true" />
-        <div className="hero-ambient hero-ambient-rose" aria-hidden="true" />
-        <div className="hero-ambient hero-ambient-blue" aria-hidden="true" />
-        <div className="hero-signal-rings" aria-hidden="true">
-          <span />
-          <span />
-          <span />
-        </div>
-        <div className="absolute top-32 right-12 z-[6] hidden lg:flex flex-col gap-1.5 opacity-50 mix-blend-screen">
+      <section className="relative min-h-[92vh] flex items-end overflow-hidden grain-overlay">
+        <div
+          className="absolute inset-0 bg-cover bg-center scale-105"
+          style={{ backgroundImage: `url(${HERO_IMG})` }}
+        />
+        <div className="absolute inset-0 bg-gradient-to-t from-[#050505] via-black/60 to-black/30" />
+        <div className="absolute top-32 right-12 hidden lg:flex flex-col gap-1.5 opacity-70">
           {[...Array(4)].map((_, i) => (
             <div key={i} className="eq-bar w-2 h-12 bg-[#e11d48] rounded-sm" />
           ))}
         </div>
 
-        <div className="relative z-10 max-w-7xl mx-auto px-6 md:px-12 pb-24 pt-32 w-full fade-up">
+        <div className="relative max-w-7xl mx-auto px-6 md:px-12 pb-24 pt-32 w-full fade-up">
           <div className="flex items-center gap-2 mb-6 text-[#e11d48]">
             <span className="w-2 h-2 rounded-full bg-[#e11d48] animate-pulse" />
             <span className="text-[10px] font-bold uppercase tracking-[0.3em]">Recording · Mixing · Mastering</span>
