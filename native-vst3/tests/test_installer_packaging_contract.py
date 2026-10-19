@@ -42,6 +42,8 @@ def test_smoke_workflows_are_manual_and_do_not_touch_customer_queue():
     assert "workflow_dispatch:" in windows
     assert "Inno Setup 6" in windows
     assert "runs-on: windows-2022" in windows
+    assert "Exercise installer and uninstaller" in windows
+    assert "Uninstaller left the VST3 bundle installed" in windows
     assert "*.exe" in windows
     assert "/vst-worker/jobs/" not in macos
     assert "/vst-worker/jobs/" not in windows
