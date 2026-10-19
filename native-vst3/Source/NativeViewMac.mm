@@ -1,5 +1,6 @@
 #include "NativeView.h"
 #include "NativeInstrument.h"
+#include "LicenseRuntime.h"
 #include "NativeProject.h"
 #include "pluginterfaces/gui/iplugview.h"
 
@@ -46,6 +47,7 @@ NSImage* loadResourceImage(NSString* filename) {
 } // namespace tripleside::native
 
 using tripleside::native::NativeInstrument;
+using tripleside::native::LicenseRuntime;
 using tripleside::native::displayedValue;
 using tripleside::native::equals;
 using tripleside::native::interactiveKind;
@@ -175,6 +177,46 @@ namespace project = tripleside::project;
                 operation:NSCompositingOperationSourceOver fraction:1 respectFlipped:YES
                     hints:@{NSImageHintInterpolation: @(NSImageInterpolationHigh)}];
     }
+
+    if constexpr (project::kLicenseRequired) {
+        if (!LicenseRuntime::isLicensed()) {
+            [[NSColor colorWithCalibratedWhite:.025 alpha:.96] setFill];
+            NSRectFill(NSMakeRect(0, 0, project::kCanvasWidth, project::kCanvasHeight));
+            NSMutableParagraphStyle* centered = [[NSMutableParagraphStyle alloc] init];
+            centered.alignment = NSTextAlignmentCenter;
+            NSDictionary* eyebrow = @{
+                NSFontAttributeName: [NSFont boldSystemFontOfSize:12],
+                NSForegroundColorAttributeName: [NSColor colorWithCalibratedRed:.98 green:.75 blue:.2 alpha:1],
+                NSParagraphStyleAttributeName: centered,
+            };
+            NSDictionary* title = @{
+                NSFontAttributeName: [NSFont boldSystemFontOfSize:26],
+                NSForegroundColorAttributeName: NSColor.whiteColor,
+                NSParagraphStyleAttributeName: centered,
+            };
+            NSDictionary* detail = @{
+                NSFontAttributeName: [NSFont systemFontOfSize:12],
+                NSForegroundColorAttributeName: [NSColor colorWithCalibratedWhite:.68 alpha:1],
+                NSParagraphStyleAttributeName: centered,
+            };
+            [@"AKTIVASI PRODUK" drawInRect:NSMakeRect(40, project::kCanvasHeight * .5 - 92, project::kCanvasWidth - 80, 20) withAttributes:eyebrow];
+            [@"Lisensi VST3 diperlukan" drawInRect:NSMakeRect(40, project::kCanvasHeight * .5 - 66, project::kCanvasWidth - 80, 36) withAttributes:title];
+            auto state = LicenseRuntime::statusText();
+            NSString* stateText = [[NSString alloc] initWithBytes:state.data() length:state.size() * sizeof(wchar_t) encoding:NSUTF32LittleEndianStringEncoding];
+            [(stateText ?: @"Aktivasi diperlukan") drawInRect:NSMakeRect(40, project::kCanvasHeight * .5 - 22, project::kCanvasWidth - 80, 22) withAttributes:detail];
+            const NSRect button = NSMakeRect(project::kCanvasWidth * .5 - 145, project::kCanvasHeight * .5 + 20, 290, 48);
+            NSBezierPath* path = [NSBezierPath bezierPathWithRoundedRect:button xRadius:10 yRadius:10];
+            [[NSColor colorWithCalibratedRed:.75 green:.24 blue:.08 alpha:1] setFill];
+            [path fill];
+            NSDictionary* action = @{
+                NSFontAttributeName: [NSFont boldSystemFontOfSize:13],
+                NSForegroundColorAttributeName: NSColor.whiteColor,
+                NSParagraphStyleAttributeName: centered,
+            };
+            [@"AKTIFKAN DARI CLIPBOARD" drawInRect:NSMakeRect(button.origin.x, button.origin.y + 15, button.size.width, 20) withAttributes:action];
+            [@"Salin serial dari Dashboard, lalu tekan tombol di atas." drawInRect:NSMakeRect(40, button.origin.y + 61, project::kCanvasWidth - 80, 22) withAttributes:detail];
+        }
+    }
     [NSGraphicsContext restoreGraphicsState];
 }
 
@@ -219,6 +261,20 @@ namespace project = tripleside::project;
 - (void)mouseDown:(NSEvent*)event {
     [self.window makeFirstResponder:self];
     const NSPoint point = [self designPoint:[self convertPoint:event.locationInWindow fromView:nil]];
+    if constexpr (project::kLicenseRequired) {
+        if (!LicenseRuntime::isLicensed()) {
+            const NSRect button = NSMakeRect(project::kCanvasWidth * .5 - 145, project::kCanvasHeight * .5 + 20, 290, 48);
+            if (NSPointInRect(point, button)) {
+                NSString* serial = [NSPasteboard.generalPasteboard stringForType:NSPasteboardTypeString] ?: @"";
+                const char* characters = serial.UTF8String ?: "";
+                std::wstring value;
+                while (*characters) value.push_back(static_cast<unsigned char>(*characters++));
+                LicenseRuntime::activateSerial(value);
+                [self setNeedsDisplay:YES];
+            }
+            return;
+        }
+    }
     _dragControl = [self controlAt:point];
     if (_dragControl < 0) return;
     const auto& control = project::kControls[static_cast<std::size_t>(_dragControl)];

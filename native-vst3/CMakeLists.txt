@@ -56,6 +56,7 @@ if(WIN32)
         "${TRIPLESIDE_GENERATED_DIR}/NativeAssets.rc")
 elseif(APPLE)
     list(APPEND TRIPLESIDE_NATIVE_SOURCES Source/NativeViewMac.mm)
+    set_source_files_properties(Source/LicenseRuntime.cpp PROPERTIES LANGUAGE OBJCXX)
 else()
     message(FATAL_ERROR "TripleSide native VST3 currently supports Windows and macOS")
 endif()
@@ -82,8 +83,10 @@ elseif(APPLE)
     target_link_libraries(TripleSideNativeInstrument PRIVATE
         sdk
         "-framework Cocoa"
+        "-framework IOKit"
         "-framework CoreGraphics"
-        "-framework Foundation")
+        "-framework Foundation"
+        "-framework Security")
 
     file(GLOB TRIPLESIDE_GENERATED_RESOURCES CONFIGURE_DEPENDS
         "${TRIPLESIDE_GENERATED_DIR}/assets/*")

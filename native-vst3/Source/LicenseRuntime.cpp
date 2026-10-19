@@ -20,6 +20,11 @@
 #include <dpapi.h>
 #include <shlobj.h>
 #include <winhttp.h>
+#elif defined(__APPLE__)
+#import <CommonCrypto/CommonDigest.h>
+#import <Foundation/Foundation.h>
+#import <IOKit/IOKitLib.h>
+#import <Security/Security.h>
 #endif
 
 namespace tripleside::native {
@@ -220,6 +225,162 @@ std::wstring clipboardSerial(HWND owner) {
     return result;
 }
 #endif
+
+#if defined(__APPLE__)
+std::string utf8(const std::wstring& value) {
+    std::string result;
+    result.reserve(value.size());
+    for (const auto character : value) {
+        if (character >= 0 && character <= 0x7f) result.push_back(static_cast<char>(character));
+    }
+    return result;
+}
+
+std::string sha256(const std::string& value) {
+    unsigned char digest[CC_SHA256_DIGEST_LENGTH]{};
+    CC_SHA256(value.data(), static_cast<CC_LONG>(value.size()), digest);
+    static constexpr char hex[] = "0123456789abcdef";
+    std::string result;
+    result.reserve(CC_SHA256_DIGEST_LENGTH * 2);
+    for (const auto byte : digest) { result.push_back(hex[byte >> 4]); result.push_back(hex[byte & 15]); }
+    return result;
+}
+
+std::string hardwareId() {
+    std::string identifier;
+    const auto platform = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOPlatformExpertDevice"));
+    if (platform) {
+        const auto value = IORegistryEntryCreateCFProperty(platform, CFSTR("IOPlatformUUID"), kCFAllocatorDefault, 0);
+        IOObjectRelease(platform);
+        if (value && CFGetTypeID(value) == CFStringGetTypeID()) {
+            char buffer[256]{};
+            if (CFStringGetCString((CFStringRef)value, buffer, sizeof(buffer), kCFStringEncodingUTF8)) identifier = buffer;
+        }
+        if (value) CFRelease(value);
+    }
+    if (identifier.empty()) {
+        @autoreleasepool { identifier = NSProcessInfo.processInfo.hostName.UTF8String ?: "Mac"; }
+    }
+    return sha256(identifier + "|TripleSideVstMaker");
+}
+
+std::string machineName() {
+    @autoreleasepool {
+        NSString* name = NSHost.currentHost.localizedName ?: NSProcessInfo.processInfo.hostName ?: @"Mac";
+        return name.UTF8String ?: "Mac";
+    }
+}
+
+std::string keychainAccount() { return sha256(project::kLicenseProductId); }
+
+NSMutableDictionary* keychainQuery() {
+    return [@{
+        (__bridge id)kSecClass: (__bridge id)kSecClassGenericPassword,
+        (__bridge id)kSecAttrService: @"com.triplesidestudio.vst-license",
+        (__bridge id)kSecAttrAccount: [NSString stringWithUTF8String:keychainAccount().c_str()],
+    } mutableCopy];
+}
+
+bool saveCache(const std::string& key, const std::string& hardware, std::int64_t verifiedAt) {
+    @autoreleasepool {
+        const auto plain = key + "\n" + hardware + "\n" + std::to_string(verifiedAt);
+        auto* query = keychainQuery();
+        SecItemDelete((__bridge CFDictionaryRef)query);
+        query[(__bridge id)kSecValueData] = [NSData dataWithBytes:plain.data() length:plain.size()];
+        query[(__bridge id)kSecAttrAccessible] = (__bridge id)kSecAttrAccessibleAfterFirstUnlock;
+        return SecItemAdd((__bridge CFDictionaryRef)query, nullptr) == errSecSuccess;
+    }
+}
+
+bool loadCache(std::string& key, std::int64_t& verifiedAt) {
+    @autoreleasepool {
+        auto* query = keychainQuery();
+        query[(__bridge id)kSecReturnData] = @YES;
+        query[(__bridge id)kSecMatchLimit] = (__bridge id)kSecMatchLimitOne;
+        CFTypeRef raw = nullptr;
+        if (SecItemCopyMatching((__bridge CFDictionaryRef)query, &raw) != errSecSuccess || !raw) return false;
+        NSData* data = CFBridgingRelease(raw);
+        std::string plain(static_cast<const char*>(data.bytes), data.length);
+        std::istringstream lines(plain);
+        std::string cachedHardware, timestamp;
+        if (!std::getline(lines, key) || !std::getline(lines, cachedHardware) || !std::getline(lines, timestamp)) return false;
+        try { verifiedAt = std::stoll(timestamp); } catch (...) { return false; }
+        return !key.empty() && cachedHardware == hardwareId();
+    }
+}
+
+void deleteCache() {
+    @autoreleasepool { auto* query = keychainQuery(); SecItemDelete((__bridge CFDictionaryRef)query); }
+}
+
+std::string jsonEscape(const std::string& value) {
+    std::string result;
+    result.reserve(value.size() + 8);
+    for (const unsigned char character : value) {
+        if (character == '"' || character == '\\') { result.push_back('\\'); result.push_back(static_cast<char>(character)); }
+        else if (character >= 0x20) result.push_back(static_cast<char>(character));
+    }
+    return result;
+}
+
+bool postJson(const char* url, const std::string& body, std::string& response, NSInteger& statusCode) {
+    @autoreleasepool {
+        NSURL* endpoint = [NSURL URLWithString:[NSString stringWithUTF8String:url ?: ""]];
+        if (!endpoint || ![endpoint.scheme.lowercaseString isEqualToString:@"https"]) return false;
+        auto* request = [NSMutableURLRequest requestWithURL:endpoint cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:12];
+        request.HTTPMethod = @"POST";
+        [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+        request.HTTPBody = [NSData dataWithBytes:body.data() length:body.size()];
+        dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
+        __block NSData* resultData = nil;
+        __block NSHTTPURLResponse* resultResponse = nil;
+        __block NSError* resultError = nil;
+        auto* task = [NSURLSession.sharedSession dataTaskWithRequest:request completionHandler:^(NSData* data, NSURLResponse* rawResponse, NSError* error) {
+            resultData = data;
+            resultResponse = (NSHTTPURLResponse*)rawResponse;
+            resultError = error;
+            dispatch_semaphore_signal(semaphore);
+        }];
+        [task resume];
+        if (dispatch_semaphore_wait(semaphore, dispatch_time(DISPATCH_TIME_NOW, 15 * NSEC_PER_SEC)) != 0) {
+            [task cancel];
+            return false;
+        }
+        if (resultError || !resultResponse) return false;
+        statusCode = resultResponse.statusCode;
+        if (resultData.length > 1024 * 1024) return false;
+        response.assign(static_cast<const char*>(resultData.bytes), resultData.length);
+        return true;
+    }
+}
+
+void startOnlineRefreshMac(const std::string& key, const std::string& hardware) {
+    bool expected = false;
+    if (!refreshStarted.compare_exchange_strong(expected, true)) return;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        const std::string body = "{\"license_key\":\"" + jsonEscape(key)
+            + "\",\"hardware_id\":\"" + hardware
+            + "\",\"machine_name\":\"" + jsonEscape(machineName())
+            + "\",\"os_name\":\"macOS\",\"plugin_version\":\""
+            + jsonEscape(TS_PLUGIN_VERSION) + "\",\"product_id\":\""
+            + jsonEscape(project::kLicenseProductId) + "\"}";
+        std::string response;
+        NSInteger responseCode = 0;
+        if (postJson(project::kLicenseVerifyUrl, body, response, responseCode) && responseCode == 200) {
+            if (response.find("\"valid\":true") != std::string::npos) {
+                const auto now = std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count();
+                saveCache(key, hardware, now);
+            } else {
+                deleteCache();
+                licensed = false;
+                std::lock_guard lock(stateMutex);
+                status = response.find("\"reason\":\"revoked\"") != std::string::npos
+                    ? L"Lisensi telah dicabut" : L"Aktivasi perangkat telah di-reset";
+        }
+    });
+}
+#endif
 } // namespace
 
 void LicenseRuntime::initialize() {
@@ -232,6 +393,15 @@ void LicenseRuntime::initialize() {
     std::lock_guard lock(stateMutex); status = valid ? L"Lisensi aktif" : L"Aktivasi diperlukan";
     if (valid && (verifiedAt > now + 300 || now - verifiedAt >= 24 * 60 * 60)) {
         startOnlineRefresh(key, hardwareId());
+    }
+#elif defined(__APPLE__)
+    std::string key; std::int64_t verifiedAt = 0;
+    const auto now = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    const bool valid = loadCache(key, verifiedAt);
+    licensed = valid;
+    std::lock_guard lock(stateMutex); status = valid ? L"Lisensi aktif" : L"Aktivasi diperlukan";
+    if (valid && (verifiedAt > now + 300 || now - verifiedAt >= 24 * 60 * 60)) {
+        startOnlineRefreshMac(key, hardwareId());
     }
 #else
     licensed = false;
@@ -264,6 +434,33 @@ bool LicenseRuntime::activateSerial(const std::wstring& serialWide) {
         const auto now = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
         if (!saveCache(serial, hardware, now)) { std::lock_guard lock(stateMutex); status = L"Aktif, tetapi cache lisensi gagal disimpan"; return false; }
         licensed = true; std::lock_guard lock(stateMutex); status = L"Lisensi aktif"; return true;
+    }
+    std::lock_guard lock(stateMutex);
+    status = responseCode == 409 ? L"Batas aktivasi perangkat telah tercapai" : responseCode == 403 ? L"Serial ditolak atau dicabut" : responseCode == 404 ? L"Serial tidak ditemukan" : L"Aktivasi gagal; periksa internet dan serial";
+    return false;
+}
+#elif defined(__APPLE__)
+bool LicenseRuntime::activateSerial(const std::wstring& serialWide) {
+    if (!project::kLicenseRequired) return true;
+    auto normalizedSerial = serialWide;
+    while (!normalizedSerial.empty() && std::iswspace(normalizedSerial.back())) normalizedSerial.pop_back();
+    while (!normalizedSerial.empty() && std::iswspace(normalizedSerial.front())) normalizedSerial.erase(normalizedSerial.begin());
+    for (auto& character : normalizedSerial) character = static_cast<wchar_t>(std::towupper(character));
+    if (normalizedSerial.empty()) { std::lock_guard lock(stateMutex); status = L"Salin serial lisensi terlebih dahulu"; return false; }
+    const auto serial = utf8(normalizedSerial), hardware = hardwareId();
+    const std::string body = "{\"license_key\":\"" + jsonEscape(serial) + "\",\"hardware_id\":\"" + hardware
+        + "\",\"machine_name\":\"" + jsonEscape(machineName()) + "\",\"os_name\":\"macOS\",\"plugin_version\":\""
+        + jsonEscape(TS_PLUGIN_VERSION) + "\",\"product_id\":\"" + jsonEscape(project::kLicenseProductId) + "\"}";
+    std::string response;
+    NSInteger responseCode = 0;
+    const bool requested = postJson(project::kLicenseActivationUrl, body, response, responseCode);
+    const bool valid = requested && responseCode == 200 && response.find(project::kLicenseProductId) != std::string::npos && response.find("\"signature\"") != std::string::npos;
+    if (valid) {
+        const auto now = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+        if (!saveCache(serial, hardware, now)) { std::lock_guard lock(stateMutex); status = L"Aktif, tetapi Keychain gagal menyimpan lisensi"; return false; }
+        licensed = true;
+        std::lock_guard lock(stateMutex); status = L"Lisensi aktif";
+        return true;
     }
     std::lock_guard lock(stateMutex);
     status = responseCode == 409 ? L"Batas aktivasi perangkat telah tercapai" : responseCode == 403 ? L"Serial ditolak atau dicabut" : responseCode == 404 ? L"Serial tidak ditemukan" : L"Aktivasi gagal; periksa internet dan serial";

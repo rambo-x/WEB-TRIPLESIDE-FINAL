@@ -358,6 +358,25 @@ def test_customer_build_runtime_requires_machine_bound_activation():
     assert "now - verifiedAt <=" not in runtime
 
 
+def test_macos_runtime_uses_keychain_machine_binding_and_activation_overlay():
+    runtime = (SOURCE_DIR / "LicenseRuntime.cpp").read_text(encoding="utf-8")
+    header = (SOURCE_DIR / "LicenseRuntime.h").read_text(encoding="utf-8")
+    view = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
+    cmake = (SOURCE_DIR.parent / "CMakeLists.txt").read_text(encoding="utf-8")
+
+    assert "IOPlatformUUID" in runtime
+    assert "SecItemAdd" in runtime
+    assert "SecItemCopyMatching" in runtime
+    assert 'os_name\\\":\\\"macOS' in runtime
+    assert "startOnlineRefreshMac" in runtime
+    assert 'defined(_WIN32) || defined(__APPLE__)' in header
+    assert "AKTIFKAN DARI CLIPBOARD" in view
+    assert "NSPasteboard.generalPasteboard" in view
+    assert "LicenseRuntime::activateSerial(value)" in view
+    assert 'set_source_files_properties(Source/LicenseRuntime.cpp PROPERTIES LANGUAGE OBJCXX)' in cmake
+    assert '"-framework Security"' in cmake
+
+
 def test_factory_presets_restore_hidden_dsp_and_native_text_style():
     instrument_header = (SOURCE_DIR / "NativeInstrument.h").read_text(encoding="utf-8")
     instrument = (SOURCE_DIR / "NativeInstrument.cpp").read_text(encoding="utf-8")
