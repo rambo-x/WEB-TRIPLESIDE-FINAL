@@ -75,6 +75,7 @@ jobs:
         run: |
           brew list ninja >/dev/null 2>&1 || brew install ninja
           brew list ccache >/dev/null 2>&1 || brew install ccache
+          brew list jq >/dev/null 2>&1 || brew install jq
           python -m pip install -r native-vst3/tools/requirements-visual.txt
           python -m playwright install chromium
 
