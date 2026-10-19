@@ -47,15 +47,11 @@ jobs:
           path: ~\AppData\Local\ms-playwright
           key: windows-playwright-${{ hashFiles('native-vst3/tools/requirements-visual.txt') }}
 
-      - name: Install build and packaging dependencies
+      - name: Install build dependencies
         shell: pwsh
         run: |
           python -m pip install -r native-vst3/tools/requirements-visual.txt
           python -m playwright install chromium
-          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
-          if (-not (Test-Path -LiteralPath $iscc)) {
-            choco install innosetup --yes --no-progress
-          }
 
       - name: Build VST3 installer
         shell: pwsh
@@ -69,7 +65,6 @@ jobs:
             -OutputDir $output `
             -Vst3SdkDir "$env:GITHUB_WORKSPACE\.build-deps\vst3sdk" `
             -VisualRenderUrl "${{ inputs.visual_render_url }}" `
-            -InnoSetupCompiler "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
             -BuildJobs 2
 
       - name: Exercise installer and uninstaller
@@ -79,17 +74,22 @@ jobs:
           $installers = @(Get-ChildItem -LiteralPath (Join-Path $output "artifacts") -Filter "*-windows-vst3-setup.exe")
           if ($installers.Count -ne 1) { throw "Expected exactly one Windows installer." }
           $installer = $installers[0]
-          $install = Start-Process -FilePath $installer.FullName -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/LOG=$output\install.log" -Wait -PassThru
+          $install = Start-Process -FilePath $installer.FullName -ArgumentList "--silent", "/LOG=$output\install.log" -Wait -PassThru
           if ($install.ExitCode -ne 0) { throw "Installer smoke test failed with exit code $($install.ExitCode)." }
           $installedBundle = "C:\Program Files\Common Files\VST3\MixForge_Native_Smoke.vst3"
           if (-not (Test-Path -LiteralPath $installedBundle -PathType Container)) { throw "Installed VST3 bundle was not found." }
           $uninstallRoot = "C:\ProgramData\TripleSide Studio\Uninstall\MixForge_Native_Smoke"
-          $uninstallers = @(Get-ChildItem -LiteralPath $uninstallRoot -Filter "unins*.exe")
-          if ($uninstallers.Count -ne 1) { throw "Expected exactly one generated uninstaller." }
-          $uninstaller = $uninstallers[0]
-          $uninstall = Start-Process -FilePath $uninstaller.FullName -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/LOG=$output\uninstall.log" -Wait -PassThru
+          $uninstaller = Join-Path $uninstallRoot "uninstall.exe"
+          if (-not (Test-Path -LiteralPath $uninstaller -PathType Leaf)) { throw "Expected the dedicated native uninstaller." }
+          $registryKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\com.triplesidestudio.vst3.mixforge-native-smoke"
+          if (-not (Test-Path -LiteralPath $registryKey)) { throw "Installer did not register the product in Windows Settings > Apps." }
+          $uninstall = Start-Process -FilePath $uninstaller -ArgumentList "--silent", "/LOG=$output\uninstall.log" -Wait -PassThru
           if ($uninstall.ExitCode -ne 0) { throw "Uninstaller smoke test failed with exit code $($uninstall.ExitCode)." }
-          if (Test-Path -LiteralPath $installedBundle) { throw "Uninstaller left the VST3 bundle installed." }
+          $deadline = (Get-Date).AddSeconds(30)
+          while ((Test-Path -LiteralPath $uninstallRoot) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 250 }
+          if (Test-Path -LiteralPath $installedBundle) { throw "Uninstaller left the exact VST3 bundle installed." }
+          if (Test-Path -LiteralPath $registryKey) { throw "Uninstaller left the Windows Apps registration installed." }
+          if (Test-Path -LiteralPath $uninstallRoot) { throw "Uninstaller left its product directory installed." }
 
       - name: Upload Windows installer artifact
         uses: actions/upload-artifact@v4

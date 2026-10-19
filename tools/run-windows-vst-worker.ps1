@@ -9,7 +9,6 @@ param(
     [string]$PythonPath = "C:\Program Files\Python312\python.exe",
     [string]$CMakePath = "C:\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe",
     [string]$DumpbinPath = "C:\BuildTools\VC\Tools\MSVC\14.44.35207\bin\Hostx64\x64\dumpbin.exe",
-    [string]$InnoSetupCompiler = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
     [string]$PlaywrightBrowsersPath = "C:\TripleSideWorker\ms-playwright",
     [ValidateRange(5, 300)][int]$PollSeconds = 15,
     [switch]$Once
@@ -24,7 +23,7 @@ if ([string]::IsNullOrWhiteSpace($WorkerToken)) {
 }
 if ([string]::IsNullOrWhiteSpace($WorkerToken)) { throw "VST_BUILD_WORKER_TOKEN belum diatur." }
 if ([string]::IsNullOrWhiteSpace($WorkerId)) { throw "WorkerId belum diatur." }
-foreach ($RequiredPath in @($NativeRoot, $Vst3SdkDir, $ValidatorPath, $PythonPath, $CMakePath, $DumpbinPath, $InnoSetupCompiler)) {
+foreach ($RequiredPath in @($NativeRoot, $Vst3SdkDir, $ValidatorPath, $PythonPath, $CMakePath, $DumpbinPath)) {
     if (-not (Test-Path -LiteralPath $RequiredPath)) { throw "Path worker tidak ditemukan: $RequiredPath" }
 }
 New-Item -ItemType Directory -Force -Path $WorkRoot | Out-Null
@@ -162,7 +161,6 @@ function Invoke-BuildJob {
             BuildJobs = 1
             PythonPath = $PythonPath
             CMakePath = $CMakePath
-            InnoSetupCompiler = $InnoSetupCompiler
             BuildType = "Release"
         }
         if (Test-Path -LiteralPath $BackgroundPath -PathType Leaf) {

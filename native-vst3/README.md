@@ -25,7 +25,7 @@ Implemented runtime:
 - native Direct2D/DirectWrite editor with custom background, branding, knobs, faders, meters, pads, and piano keyboard
 - interactive UI controls and pad/keyboard hit feedback
 - full component/editor state persistence
-- isolated Windows build, official Steinberg validation, and an Inno Setup installer EXE with a registered uninstaller
+- isolated Windows build, official Steinberg validation, and a repository-owned native WinAPI installer EXE with a registered native uninstaller
 
 Tempo-synced sampler zones use Signalsmith Stretch 1.4.0 and Signalsmith
 Linear 0.6.4 under the MIT License. Their notices are retained under
@@ -63,9 +63,23 @@ All project WAV files, the normalized project metadata, backgrounds, and control
   -Vst3SdkDir C:\path\vst3sdk `
   -PythonPath C:\Python312\python.exe `
   -CMakePath C:\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe `
-  -InnoSetupCompiler "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
   -ValidatorPath C:\path\validator.exe
 ```
+
+The Windows deliverable is a single native, double-clickable setup EXE. The
+repository builds small C++/WinAPI setup and uninstall programs with Visual
+Studio, then `tools/package_windows_installer.py` appends the VST3 bundle as a
+streamable payload with a bounded binary manifest and SHA-256 checksums. Setup
+requests UAC elevation, extracts into a staging directory, replaces only
+`%ProgramFiles%\Common Files\VST3\<Product>.vst3`, and registers the dedicated
+uninstaller under Windows Settings > Apps. Updates use the same exact product
+paths. Uninstall removes only that bundle, its registration, and its product
+directory under `%ProgramData%\TripleSide Studio\Uninstall`.
+
+The distributed setup and uninstaller require neither Python nor a third-party
+installer runtime. Python is used only while assembling the build artifact.
+Code signing remains a separate release requirement: an unsigned native EXE
+can still trigger Microsoft Defender SmartScreen.
 
 For an internal macOS build:
 
@@ -82,6 +96,7 @@ The manual GitHub Actions workflows `.github/workflows/native-vst3-macos.yml`
 and `.github/workflows/native-vst3-windows.yml` run the builders against an
 effect fixture. The macOS workflow verifies both Universal Binary slices,
 creates the PKG and uninstaller app, applies ad-hoc signatures, and uploads the
-distribution ZIP. The Windows workflow produces the setup EXE and its ZIP; Inno
-Setup registers the generated uninstaller in Windows Settings. Neither workflow
-polls or mutates the customer build queue.
+distribution ZIP. The Windows workflow produces the native setup EXE and its
+ZIP, performs a real silent install/uninstall, and verifies removal of the VST3
+bundle, Apps registration, and dedicated uninstaller directory. Neither
+workflow polls or mutates the customer build queue.

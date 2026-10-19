@@ -9,7 +9,6 @@ param(
     [ValidateRange(1, 64)][int]$BuildJobs = 1,
     [string]$PythonPath = "python",
     [string]$CMakePath = "cmake",
-    [string]$InnoSetupCompiler = "",
     [string]$ValidatorPath = "",
     [ValidateSet("Release")][string]$BuildType = "Release"
 )
@@ -51,31 +50,6 @@ function Throw-CapturedFailure {
     param([string]$Message, $Result)
     $Details = if ([string]::IsNullOrWhiteSpace($Result.Output)) { "(subprocess tidak menghasilkan output)" } else { $Result.Output }
     throw "$Message`nExit code: $($Result.ExitCode)`n--- stdout/stderr lengkap ---`n$Details"
-}
-
-function Resolve-InnoSetupCompiler {
-    param([string]$ConfiguredPath)
-    if (-not [string]::IsNullOrWhiteSpace($ConfiguredPath)) {
-        if (-not (Test-Path -LiteralPath $ConfiguredPath -PathType Leaf)) {
-            throw "Inno Setup compiler was not found: $ConfiguredPath"
-        }
-        return (Get-Item -LiteralPath $ConfiguredPath).FullName
-    }
-    $Command = Get-Command ISCC.exe -ErrorAction SilentlyContinue
-    if ($Command) { return $Command.Source }
-    $Candidates = @(
-        (Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"),
-        (Join-Path $env:ProgramFiles "Inno Setup 6\ISCC.exe")
-    )
-    foreach ($Candidate in $Candidates) {
-        if (Test-Path -LiteralPath $Candidate -PathType Leaf) { return $Candidate }
-    }
-    throw "Inno Setup 6 is required to create the Windows installer EXE."
-}
-
-function ConvertTo-InnoValue {
-    param([string]$Value)
-    return $Value.Replace('"', '""')
 }
 
 $ExportArguments = @((Join-Path $RuntimeRoot "tools/export_project.py"), $Spec, "--samples-dir", $SamplesDir, "--output", $ResolvedOutput)
@@ -124,7 +98,7 @@ if ($CompileResult.ExitCode -ne 0) { Throw-CapturedFailure "Kompilasi manifest n
     "-DSMTG_RUN_VST_VALIDATOR=OFF"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-& $CMakePath --build $BuildDir --config $BuildType --target TripleSideNativeInstrument --parallel $BuildJobs
+& $CMakePath --build $BuildDir --config $BuildType --target TripleSideNativeInstrument TripleSideWindowsInstaller TripleSideWindowsUninstaller --parallel $BuildJobs
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 $Bundle = Get-ChildItem -Path $BuildDir -Filter *.vst3 -Directory -Recurse |
@@ -152,46 +126,31 @@ if ([string]::IsNullOrWhiteSpace($Publisher)) { $Publisher = "TripleSide Studio"
 $InstallerSlug = ($ProductBaseName.ToLowerInvariant() -replace '[^a-z0-9]+', '-').Trim('-')
 if ([string]::IsNullOrWhiteSpace($InstallerSlug)) { $InstallerSlug = "plugin" }
 $InstallerId = "com.triplesidestudio.vst3.$InstallerSlug"
-$InstallerCompiler = Resolve-InnoSetupCompiler $InnoSetupCompiler
-$InstallerScript = Join-Path $ResolvedOutput "installer.iss"
 $InstallerBaseName = $ProductBaseName + "-windows-vst3-setup"
-$InnoSource = ConvertTo-InnoValue (Join-Path $Bundle.FullName "*")
-$InnoDestination = ConvertTo-InnoValue ("{commoncf64}\VST3\" + $Bundle.Name)
-$InnoUninstaller = ConvertTo-InnoValue ("{commonappdata}\TripleSide Studio\Uninstall\" + $ProductBaseName)
-$InnoOutput = ConvertTo-InnoValue $ArtifactDir
-$InnoProductName = ConvertTo-InnoValue $ProductBaseName
-$InnoPublisher = ConvertTo-InnoValue $Publisher
-$InnoLines = @(
-    "[Setup]",
-    "AppId=$InstallerId",
-    "AppName=$InnoProductName",
-    "AppVersion=$ProductVersion",
-    "AppPublisher=$InnoPublisher",
-    "DefaultDirName={commoncf64}\VST3",
-    "CreateAppDir=no",
-    "Uninstallable=yes",
-    "UninstallDisplayName=$InnoProductName VST3",
-    "UninstallFilesDir=$InnoUninstaller",
-    "PrivilegesRequired=admin",
-    "ArchitecturesAllowed=x64compatible",
-    "ArchitecturesInstallIn64BitMode=x64compatible",
-    "WizardStyle=modern",
-    "DisableProgramGroupPage=yes",
-    "Compression=lzma2/max",
-    "SolidCompression=yes",
-    "OutputDir=$InnoOutput",
-    "OutputBaseFilename=$InstallerBaseName",
-    "SetupLogging=yes",
-    "CloseApplications=no",
-    "RestartApplications=no",
-    "[Files]",
-    "Source: `"$InnoSource`"; DestDir: `"$InnoDestination`"; Flags: ignoreversion recursesubdirs createallsubdirs"
-)
-[System.IO.File]::WriteAllLines($InstallerScript, $InnoLines, (New-Object System.Text.UTF8Encoding($false)))
-& $InstallerCompiler "/Qp" $InstallerScript
-if ($LASTEXITCODE -ne 0) { throw "Windows installer EXE packaging failed." }
 $InstallerPath = Join-Path $ArtifactDir ($InstallerBaseName + ".exe")
-if (-not (Test-Path -LiteralPath $InstallerPath -PathType Leaf)) { throw "Windows installer EXE was not produced." }
+$InstallerStub = Join-Path $BuildDir "packaging\tripleside-native-setup-stub.exe"
+$UninstallerStub = Join-Path $BuildDir "packaging\tripleside-native-uninstaller.exe"
+foreach ($NativeStub in @($InstallerStub, $UninstallerStub)) {
+    if (-not (Test-Path -LiteralPath $NativeStub -PathType Leaf)) {
+        throw "Native Windows packaging stub was not produced: $NativeStub"
+    }
+}
+$PackagingArguments = @(
+    (Join-Path $RuntimeRoot "tools/package_windows_installer.py"),
+    "--stub", $InstallerStub,
+    "--uninstaller", $UninstallerStub,
+    "--bundle", $Bundle.FullName,
+    "--output", $InstallerPath,
+    "--product-name", $ProductBaseName,
+    "--product-version", $ProductVersion,
+    "--publisher", $Publisher,
+    "--installer-id", $InstallerId,
+    "--verify"
+)
+$PackagingResult = Invoke-CapturedNativeCommand -FilePath $PythonPath -ArgumentList $PackagingArguments
+Write-CapturedOutput $PackagingResult.Output
+if ($PackagingResult.ExitCode -ne 0) { Throw-CapturedFailure "Native Windows installer EXE packaging failed." $PackagingResult }
+if (-not (Test-Path -LiteralPath $InstallerPath -PathType Leaf)) { throw "Native Windows installer EXE was not produced." }
 
 $ZipPath = Join-Path $ArtifactDir ($ProductBaseName + "-windows-vst3-installer.zip")
 if (Test-Path $ZipPath) { Remove-Item $ZipPath -Force }

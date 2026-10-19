@@ -115,3 +115,27 @@ endif()
 if(MSVC)
     target_compile_options(TripleSideNativeInstrument PRIVATE /W4 /permissive- /EHsc /utf-8)
 endif()
+
+if(WIN32)
+    set(TRIPLESIDE_INSTALLER_SUPPORT
+        packaging/windows/InstallerSupport.cpp
+        packaging/windows/InstallerSupport.h)
+    add_executable(TripleSideWindowsInstaller WIN32
+        packaging/windows/InstallerMain.cpp
+        ${TRIPLESIDE_INSTALLER_SUPPORT})
+    add_executable(TripleSideWindowsUninstaller WIN32
+        packaging/windows/UninstallerMain.cpp
+        ${TRIPLESIDE_INSTALLER_SUPPORT})
+    foreach(TRIPLESIDE_PACKAGING_TARGET TripleSideWindowsInstaller TripleSideWindowsUninstaller)
+        target_compile_features(${TRIPLESIDE_PACKAGING_TARGET} PRIVATE cxx_std_20)
+        target_compile_definitions(${TRIPLESIDE_PACKAGING_TARGET} PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
+        target_compile_options(${TRIPLESIDE_PACKAGING_TARGET} PRIVATE /W4 /permissive- /EHsc /utf-8)
+        target_link_options(${TRIPLESIDE_PACKAGING_TARGET} PRIVATE "/MANIFESTUAC:level='requireAdministrator' uiAccess='false'")
+        target_link_libraries(${TRIPLESIDE_PACKAGING_TARGET} PRIVATE advapi32 bcrypt ole32 shell32)
+        set_target_properties(${TRIPLESIDE_PACKAGING_TARGET} PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/packaging"
+            RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/packaging")
+    endforeach()
+    set_target_properties(TripleSideWindowsInstaller PROPERTIES OUTPUT_NAME "tripleside-native-setup-stub")
+    set_target_properties(TripleSideWindowsUninstaller PROPERTIES OUTPUT_NAME "tripleside-native-uninstaller")
+endif()
