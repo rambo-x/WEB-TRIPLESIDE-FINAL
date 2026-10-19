@@ -1,0 +1,93 @@
+name: VST Maker macOS worker
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/5 * * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vst-maker-macos-worker
+  cancel-in-progress: false
+
+jobs:
+  pending:
+    name: Check macOS queue
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      found: ${{ steps.queue.outputs.found }}
+    steps:
+      - id: queue
+        name: Check without claiming a job
+        env:
+          WORKER_TOKEN: ${{ secrets.VST_BUILD_WORKER_TOKEN }}
+        run: |
+          test -n "$WORKER_TOKEN"
+          response="$(curl --fail --silent --show-error \
+            -H "Authorization: Bearer $WORKER_TOKEN" \
+            'https://triplesidestudio.com/api/vst-worker/pending?target_platform=macos')"
+          test "$(jq -r '.pending' <<<"$response")" = true && found=true || found=false
+          echo "found=$found" >>"$GITHUB_OUTPUT"
+
+  build:
+    name: Build queued Universal VST3
+    needs: pending
+    if: needs.pending.outputs.found == 'true'
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - name: Checkout TripleSide
+        uses: actions/checkout@v4
+
+      - name: Checkout Steinberg VST3 SDK
+        uses: actions/checkout@v4
+        with:
+          repository: steinbergmedia/vst3sdk
+          path: .build-deps/vst3sdk
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: native-vst3/tools/requirements-visual.txt
+
+      - name: Cache Playwright Chromium
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/ms-playwright
+          key: macos-playwright-${{ hashFiles('native-vst3/tools/requirements-visual.txt') }}
+
+      - name: Cache compiler objects
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: macos-vst3-worker-${{ runner.arch }}-${{ hashFiles('native-vst3/Source/**', 'native-vst3/CMakeLists.txt') }}
+          restore-keys: |
+            macos-vst3-worker-${{ runner.arch }}-
+
+      - name: Install build dependencies
+        run: |
+          brew list ninja >/dev/null 2>&1 || brew install ninja
+          brew list ccache >/dev/null 2>&1 || brew install ccache
+          python -m pip install -r native-vst3/tools/requirements-visual.txt
+          python -m playwright install chromium
+
+      - name: Claim and build one macOS job
+        env:
+          VST_BUILD_WORKER_TOKEN: ${{ secrets.VST_BUILD_WORKER_TOKEN }}
+          VST_BUILD_API_BASE: https://triplesidestudio.com/api
+          VST_BUILD_WORKER_ID: github-macos-${{ github.run_id }}-${{ github.run_attempt }}
+          VST3_SDK_DIR: ${{ github.workspace }}/.build-deps/vst3sdk
+          CCACHE_DIR: ~/.cache/ccache
+          CCACHE_MAXSIZE: 2G
+        run: tools/run-macos-vst-worker.sh
+
+      - name: Compiler cache statistics
+        if: always()
+        run: ccache --show-stats || true

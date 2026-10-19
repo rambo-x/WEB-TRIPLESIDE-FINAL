@@ -259,7 +259,10 @@ function Invoke-BuildJob {
 
 do {
     try {
-        $Job = Invoke-WorkerJson -Method POST -Path "/vst-worker/claim" -Body @{ worker_id = $WorkerId }
+        $Job = Invoke-WorkerJson -Method POST -Path "/vst-worker/claim" -Body @{
+            worker_id = $WorkerId
+            target_platform = "windows"
+        }
         if ($null -ne $Job) { Invoke-BuildJob $Job }
     }
     catch {
