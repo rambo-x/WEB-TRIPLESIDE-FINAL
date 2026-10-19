@@ -254,6 +254,28 @@ def test_compiles_gain_reduction_meter_with_compressor_target(tmp_path):
     assert 'ControlInfo{"gr", "vu_meter", "Gain Reduction", "Gain Reduction", "ON", "gain_reduction", 0,' in output.read_text(encoding="utf-8")
 
 
+def test_compiles_de_esser_module_and_all_parameters(tmp_path):
+    spec = project_spec()
+    parameters = {
+        "amount": 0.55, "frequency": 0.5, "threshold": 0.58,
+        "range": 0.5, "attack": 0.35, "release": 0.45,
+    }
+    spec["dsp_graph"] = {"version": 2, "mode": "ordered_rack", "source": "custom", "modules": [{
+        "id": "de-esser", "type": "de_esser", "name": "De-Esser", "order": 0,
+        "bypassed": False, "mix": 1, "parameters": parameters,
+    }]}
+    source = tmp_path / "project.json"
+    output = tmp_path / "NativeProject.h"
+    source.write_text(json.dumps(spec), encoding="utf-8")
+
+    MODULE.compile_manifest(source, output)
+
+    result = output.read_text(encoding="utf-8")
+    assert 'DspModuleInfo{"de-esser", "de_esser", "De-Esser"' in result
+    for key in parameters:
+        assert f'"{key}"' in result
+
+
 def test_compiles_panel_button_children_and_function_data(tmp_path):
     spec = project_spec()
     spec["interface"]["controls"] = [
