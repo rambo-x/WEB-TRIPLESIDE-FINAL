@@ -24,6 +24,7 @@ def test_windows_builder_outputs_inno_exe_with_registered_uninstaller():
     script = (ROOT / "build-windows.ps1").read_text(encoding="utf-8")
 
     assert "Resolve-InnoSetupCompiler" in script
+    assert "GetFileNameWithoutExtension($Bundle.Name)" in script
     assert "Uninstallable=yes" in script
     assert "UninstallDisplayName=" in script
     assert "UninstallFilesDir=" in script

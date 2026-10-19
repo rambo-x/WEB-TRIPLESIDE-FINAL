@@ -143,22 +143,23 @@ if (-not [string]::IsNullOrWhiteSpace($ValidatorPath)) {
 
 $ArtifactDir = Join-Path $ResolvedOutput "artifacts"
 New-Item -ItemType Directory -Force -Path $ArtifactDir | Out-Null
+$ProductBaseName = [System.IO.Path]::GetFileNameWithoutExtension($Bundle.Name)
 $ProjectManifest = Get-Content -LiteralPath (Join-Path $GeneratedDir "project.json") -Raw | ConvertFrom-Json
 $ProductVersion = [string]$ProjectManifest.build.version
 if ($ProductVersion -notmatch '^[0-9]+(?:\.[0-9]+){0,3}$') { $ProductVersion = "1.0.0" }
 $Publisher = [string]$ProjectManifest.build.company_name
 if ([string]::IsNullOrWhiteSpace($Publisher)) { $Publisher = "TripleSide Studio" }
-$InstallerSlug = ($Bundle.BaseName.ToLowerInvariant() -replace '[^a-z0-9]+', '-').Trim('-')
+$InstallerSlug = ($ProductBaseName.ToLowerInvariant() -replace '[^a-z0-9]+', '-').Trim('-')
 if ([string]::IsNullOrWhiteSpace($InstallerSlug)) { $InstallerSlug = "plugin" }
 $InstallerId = "com.triplesidestudio.vst3.$InstallerSlug"
 $InstallerCompiler = Resolve-InnoSetupCompiler $InnoSetupCompiler
 $InstallerScript = Join-Path $ResolvedOutput "installer.iss"
-$InstallerBaseName = $Bundle.BaseName + "-windows-vst3-setup"
+$InstallerBaseName = $ProductBaseName + "-windows-vst3-setup"
 $InnoSource = ConvertTo-InnoValue (Join-Path $Bundle.FullName "*")
 $InnoDestination = ConvertTo-InnoValue ("{commoncf64}\VST3\" + $Bundle.Name)
-$InnoUninstaller = ConvertTo-InnoValue ("{commonappdata}\TripleSide Studio\Uninstall\" + $Bundle.BaseName)
+$InnoUninstaller = ConvertTo-InnoValue ("{commonappdata}\TripleSide Studio\Uninstall\" + $ProductBaseName)
 $InnoOutput = ConvertTo-InnoValue $ArtifactDir
-$InnoProductName = ConvertTo-InnoValue $Bundle.BaseName
+$InnoProductName = ConvertTo-InnoValue $ProductBaseName
 $InnoPublisher = ConvertTo-InnoValue $Publisher
 $InnoLines = @(
     "[Setup]",
@@ -192,7 +193,7 @@ if ($LASTEXITCODE -ne 0) { throw "Windows installer EXE packaging failed." }
 $InstallerPath = Join-Path $ArtifactDir ($InstallerBaseName + ".exe")
 if (-not (Test-Path -LiteralPath $InstallerPath -PathType Leaf)) { throw "Windows installer EXE was not produced." }
 
-$ZipPath = Join-Path $ArtifactDir ($Bundle.BaseName + "-windows-vst3-installer.zip")
+$ZipPath = Join-Path $ArtifactDir ($ProductBaseName + "-windows-vst3-installer.zip")
 if (Test-Path $ZipPath) { Remove-Item $ZipPath -Force }
 $NoticesDir = Join-Path $ResolvedOutput "package-notices"
 New-Item -ItemType Directory -Force -Path $NoticesDir | Out-Null
