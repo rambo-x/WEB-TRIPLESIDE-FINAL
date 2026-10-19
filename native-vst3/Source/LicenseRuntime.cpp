@@ -377,6 +377,7 @@ void startOnlineRefreshMac(const std::string& key, const std::string& hardware) 
                 std::lock_guard lock(stateMutex);
                 status = response.find("\"reason\":\"revoked\"") != std::string::npos
                     ? L"Lisensi telah dicabut" : L"Aktivasi perangkat telah di-reset";
+            }
         }
     });
 }
