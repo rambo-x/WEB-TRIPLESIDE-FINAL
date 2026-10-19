@@ -1,6 +1,7 @@
 #include "DspModules.h"
 
 #include <fstream>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -10,6 +11,7 @@ int main(int argc, char** argv) {
     if (argc != 3 && argc != 4) return 2;
     const bool customImpulse = argc == 4 && std::string_view(argv[3]) == "--custom-ir";
     const bool creative = argc == 4 && std::string_view(argv[3]) == "--creative";
+    const bool advanced = argc == 4 && std::string_view(argv[3]) == "--advanced";
     std::ifstream input(argv[1], std::ios::binary | std::ios::ate);
     if (!input) return 3;
     const auto bytes = input.tellg();
@@ -18,7 +20,28 @@ int main(int argc, char** argv) {
     input.read(reinterpret_cast<char*>(samples.data()), bytes);
 
     EffectRack rack;
-    if (creative) {
+    if (advanced) {
+        rack.configure(ProcessSpec{48000.0, 128}, {
+            {RackModuleType::ParametricEq, false, 1.0f, 0.72f, false},
+            {RackModuleType::MultibandCompressor, false, 1.0f, 0.85f, false},
+        });
+        rack.setModuleParameter(0, "mode", 0.0f); rack.setModuleParameter(0, "low_cut_enabled", 1.0f);
+        rack.setModuleParameter(0, "low_cut_frequency", 0.25f); rack.setModuleParameter(0, "low_cut_q", 0.12f);
+        rack.setModuleParameter(0, "low_gain", 0.62f); rack.setModuleParameter(0, "low_frequency", 0.32f); rack.setModuleParameter(0, "low_q", 0.18f);
+        rack.setModuleParameter(0, "mid_frequency", 0.45f); rack.setModuleParameter(0, "mid_q", 0.28f);
+        rack.setModuleParameter(0, "high_gain", 0.42f); rack.setModuleParameter(0, "high_frequency", 0.55f); rack.setModuleParameter(0, "high_q", 0.18f);
+        rack.setModuleParameter(0, "high_cut_enabled", 1.0f); rack.setModuleParameter(0, "high_cut_frequency", 0.82f); rack.setModuleParameter(0, "high_cut_q", 0.12f); rack.setModuleParameter(0, "output", 0.48f);
+        rack.setModuleParameter(1, "low_crossover", 0.48f); rack.setModuleParameter(1, "high_crossover", 0.42f);
+        const char* bands[] = {"low", "mid", "high"};
+        for (const auto* band : bands) {
+            std::string prefix(band); prefix += "_";
+            rack.setModuleParameter(1, (prefix + "threshold").c_str(), 0.4f);
+            rack.setModuleParameter(1, (prefix + "ratio").c_str(), 0.55f);
+            rack.setModuleParameter(1, (prefix + "attack").c_str(), 0.35f);
+            rack.setModuleParameter(1, (prefix + "release").c_str(), 0.45f);
+            rack.setModuleParameter(1, (prefix + "makeup").c_str(), 0.08f);
+        }
+    } else if (creative) {
         rack.configure(ProcessSpec{48000.0, 128}, {
             {RackModuleType::Chorus, false, 1.0f, 0.42f, false},
             {RackModuleType::Flanger, false, 1.0f, 0.31f, false},
@@ -42,7 +65,7 @@ int main(int argc, char** argv) {
         {RackModuleType::CabinetIr, false, 1.0f, 0.88f, false},
         {RackModuleType::OutputTrim, false, 1.0f, 0.66f, false},
     });
-    if (!creative) {
+    if (!creative && !advanced) {
     rack.setModuleParameter(1, "release", 0.2f);
     rack.setModuleParameter(2, "mode", 0.0f);
     rack.setModuleParameter(2, "tight", 0.72f);

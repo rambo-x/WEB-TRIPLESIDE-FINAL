@@ -276,6 +276,32 @@ def test_compiles_de_esser_module_and_all_parameters(tmp_path):
         assert f'"{key}"' in result
 
 
+@pytest.mark.parametrize("module_type,parameters", [
+    ("parametric_eq", {"mode": 1, "low_cut_enabled": 1, "low_cut_frequency": 0.3, "low_cut_q": 0.2,
+        "low_gain": 0.6, "low_frequency": 0.3, "low_q": 0.2, "mid_gain": 0.7, "mid_frequency": 0.5,
+        "mid_q": 0.3, "high_gain": 0.55, "high_frequency": 0.6, "high_q": 0.2,
+        "high_cut_enabled": 1, "high_cut_frequency": 0.8, "high_cut_q": 0.2, "output": 0.5}),
+    ("multiband_compressor", {"amount": 0.65, "low_crossover": 0.48, "high_crossover": 0.42,
+        "low_threshold": 0.58, "low_ratio": 0.2, "low_attack": 0.62, "low_release": 0.5, "low_makeup": 0,
+        "mid_threshold": 0.54, "mid_ratio": 0.26, "mid_attack": 0.5, "mid_release": 0.45, "mid_makeup": 0,
+        "high_threshold": 0.5, "high_ratio": 0.3, "high_attack": 0.38, "high_release": 0.4, "high_makeup": 0}),
+])
+def test_compiles_new_eq_and_multiband_modules(tmp_path, module_type, parameters):
+    spec = project_spec()
+    spec["dsp_graph"] = {"version": 2, "mode": "ordered_rack", "source": "custom", "modules": [{
+        "id": "processor", "type": module_type, "name": module_type, "order": 0,
+        "bypassed": False, "mix": 1, "parameters": parameters,
+    }]}
+    source = tmp_path / "project.json"
+    output = tmp_path / "NativeProject.h"
+    source.write_text(json.dumps(spec), encoding="utf-8")
+    MODULE.compile_manifest(source, output)
+    result = output.read_text(encoding="utf-8")
+    assert f'"{module_type}"' in result
+    for key in parameters:
+        assert f'"{key}"' in result
+
+
 def test_compiles_panel_button_children_and_function_data(tmp_path):
     spec = project_spec()
     spec["interface"]["controls"] = [

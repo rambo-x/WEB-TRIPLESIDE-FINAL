@@ -398,6 +398,7 @@ int main() {
     const RackModuleType creativeTypes[] = {
         RackModuleType::Chorus, RackModuleType::Flanger, RackModuleType::Tremolo,
         RackModuleType::Vibrato, RackModuleType::DigitalDelay, RackModuleType::Reverb, RackModuleType::Shimmer,
+        RackModuleType::ParametricEq, RackModuleType::MultibandCompressor,
     };
     for (const auto type : creativeTypes) {
         EffectRack creative;

@@ -8,7 +8,7 @@ ROOT = Path(__file__).parents[2]
 NATIVE_ROOT = ROOT / "native-vst3"
 
 
-def render_outputs(tmp_path, custom_ir=False, creative=False):
+def render_outputs(tmp_path, custom_ir=False, creative=False, advanced=False):
     input_path = tmp_path / "input.f32"
     native_path = tmp_path / "native.f32"
     browser_path = tmp_path / "browser.f32"
@@ -35,6 +35,9 @@ def render_outputs(tmp_path, custom_ir=False, creative=False):
     if creative:
         native_command.append("--creative")
         browser_command.append("--creative")
+    if advanced:
+        native_command.append("--advanced")
+        browser_command.append("--advanced")
     subprocess.run(native_command, check=True)
     subprocess.run(browser_command, check=True)
     native = struct.unpack(f"<{native_path.stat().st_size // 4}f", native_path.read_bytes())
@@ -65,3 +68,9 @@ def test_new_creative_effects_track_between_browser_and_native(tmp_path):
     correlation, normalized_error = render_outputs(tmp_path, creative=True)
     assert correlation > 0.995
     assert normalized_error < 0.08
+
+
+def test_parametric_eq_and_multiband_track_between_browser_and_native(tmp_path):
+    correlation, normalized_error = render_outputs(tmp_path, advanced=True)
+    assert correlation > 0.9999
+    assert normalized_error < 0.005

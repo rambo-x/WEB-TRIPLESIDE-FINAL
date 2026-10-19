@@ -193,6 +193,53 @@ private:
     SmoothedValue release_{};
 };
 
+class ParametricEq {
+public:
+    void prepare(const ProcessSpec& spec) noexcept;
+    void reset(float normalized) noexcept;
+    void setNormalized(float normalized) noexcept;
+    void setParameter(const char* key, float normalized) noexcept;
+    void processFrame(float& left, float& right) noexcept;
+
+private:
+    struct State { float z1 = 0.0f; float z2 = 0.0f; };
+    struct Coefficients { float b0 = 1.0f; float b1 = 0.0f; float b2 = 0.0f; float a1 = 0.0f; float a2 = 0.0f; };
+    static Coefficients peak(float sampleRate, float frequency, float gainDb, float q) noexcept;
+    static Coefficients cut(float sampleRate, float frequency, float q, bool highPass) noexcept;
+    static float process(float input, const Coefficients& coefficients, State& state) noexcept;
+    void updateCoefficients(float lowCutEnabled, float lowCutFrequency, float lowCutQ,
+        float lowGain, float lowFrequency, float lowQ, float midGain, float midFrequency, float midQ,
+        float highGain, float highFrequency, float highQ, float highCutEnabled, float highCutFrequency, float highCutQ) noexcept;
+
+    double sampleRate_ = 44100.0;
+    std::array<SmoothedValue, 17> controls_{};
+    std::array<Coefficients, 5> coefficients_{};
+    std::array<State, 5> leftState_{};
+    std::array<State, 5> rightState_{};
+    int coefficientCountdown_ = 0;
+};
+
+class MultibandCompressor {
+public:
+    void prepare(const ProcessSpec& spec) noexcept;
+    void reset(float normalized) noexcept;
+    void setNormalized(float normalized) noexcept;
+    void setParameter(const char* key, float normalized) noexcept;
+    void processFrame(float& left, float& right) noexcept;
+
+private:
+    double sampleRate_ = 44100.0;
+    SmoothedValue amount_{};
+    SmoothedValue lowCrossover_{};
+    SmoothedValue highCrossover_{};
+    std::array<SmoothedValue, 5> lowControls_{};
+    std::array<SmoothedValue, 5> midControls_{};
+    std::array<SmoothedValue, 5> highControls_{};
+    float lowLeft_ = 0.0f, lowRight_ = 0.0f;
+    float belowHighLeft_ = 0.0f, belowHighRight_ = 0.0f;
+    std::array<float, 3> envelopes_{};
+};
+
 class StereoWidth {
 public:
     void prepare(const ProcessSpec& spec) noexcept;
@@ -653,6 +700,8 @@ enum class RackModuleType {
     SoftClip,
     LinkedCompressor,
     DeEsser,
+    ParametricEq,
+    MultibandCompressor,
     ToneShaper,
     StereoWidth,
     NoiseGate,
@@ -715,6 +764,8 @@ private:
         SoftClip softClip{};
         LinkedCompressor compressor{};
         DeEsser deEsser{};
+        ParametricEq parametricEq{};
+        MultibandCompressor multibandCompressor{};
         ToneShaper tone{};
         StereoWidth width{};
         NoiseGate noiseGate{};

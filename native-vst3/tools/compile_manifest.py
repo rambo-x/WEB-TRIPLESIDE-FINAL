@@ -18,6 +18,8 @@ NORMALIZED_DSP_PARAMETERS = {
     "soft_clip": {"normalized", "value", "amount", "drive", "character", "output"},
     "linked_compressor": {"normalized", "value", "amount", "compress", "threshold", "ratio", "attack", "release", "makeup"},
     "de_esser": {"normalized", "value", "amount", "frequency", "threshold", "range", "attack", "release"},
+    "parametric_eq": {"normalized", "value", "amount", "mode", "low_cut_enabled", "low_cut_frequency", "low_cut_q", "low_gain", "low_frequency", "low_q", "mid_gain", "mid_frequency", "mid_q", "high_gain", "high_frequency", "high_q", "high_cut_enabled", "high_cut_frequency", "high_cut_q", "output"},
+    "multiband_compressor": {"normalized", "value", "amount", "low_crossover", "high_crossover", "low_threshold", "low_ratio", "low_attack", "low_release", "low_makeup", "mid_threshold", "mid_ratio", "mid_attack", "mid_release", "mid_makeup", "high_threshold", "high_ratio", "high_attack", "high_release", "high_makeup"},
     "tone_shaper": {"normalized", "value", "amount", "tone", "low", "mid", "high"},
     "stereo_width": {"normalized", "value", "amount", "width", "mono_bass"},
     "noise_gate": {"normalized", "value", "amount", "threshold", "release"},

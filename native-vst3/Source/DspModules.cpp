@@ -283,6 +283,150 @@ void DeEsser::processFrame(float& left, float& right) noexcept {
     right -= bandRight_ * (1.0f - gain);
 }
 
+ParametricEq::Coefficients ParametricEq::peak(float sampleRate, float frequency, float gainDb, float q) noexcept {
+    constexpr float pi = 3.14159265358979323846f;
+    const float omega = 2.0f * pi * std::clamp(frequency, 10.0f, sampleRate * 0.45f) / sampleRate;
+    const float cosine = std::cos(omega), sine = std::sin(omega);
+    const float a = std::pow(10.0f, gainDb / 40.0f), alpha = sine / (2.0f * std::max(0.1f, q));
+    const float inverse = 1.0f / (1.0f + alpha / a);
+    return {(1.0f + alpha * a) * inverse, -2.0f * cosine * inverse,
+        (1.0f - alpha * a) * inverse, -2.0f * cosine * inverse, (1.0f - alpha / a) * inverse};
+}
+
+ParametricEq::Coefficients ParametricEq::cut(float sampleRate, float frequency, float q, bool highPass) noexcept {
+    constexpr float pi = 3.14159265358979323846f;
+    const float omega = 2.0f * pi * std::clamp(frequency, 10.0f, sampleRate * 0.45f) / sampleRate;
+    const float cosine = std::cos(omega), alpha = std::sin(omega) / (2.0f * std::max(0.1f, q));
+    const float inverse = 1.0f / (1.0f + alpha);
+    const float sign = highPass ? 1.0f : -1.0f;
+    const float b0 = (1.0f + sign * cosine) * 0.5f * inverse;
+    return {b0, -sign * (1.0f + sign * cosine) * inverse, b0,
+        -2.0f * cosine * inverse, (1.0f - alpha) * inverse};
+}
+
+float ParametricEq::process(float input, const Coefficients& coefficients, State& state) noexcept {
+    const float output = coefficients.b0 * input + state.z1;
+    state.z1 = coefficients.b1 * input - coefficients.a1 * output + state.z2;
+    state.z2 = coefficients.b2 * input - coefficients.a2 * output;
+    return output;
+}
+
+void ParametricEq::prepare(const ProcessSpec& spec) noexcept {
+    sampleRate_ = std::max(1.0, spec.sampleRate);
+    for (auto& control : controls_) control.prepare(sampleRate_, 20.0);
+}
+
+void ParametricEq::reset(float normalized) noexcept {
+    const std::array<float, 17> defaults{0.0f, 0.0f, 0.28f, 0.12f, 0.5f, 0.32f, 0.18f,
+        normalized, 0.45f, 0.28f, 0.5f, 0.55f, 0.18f, 0.0f, 0.78f, 0.12f, 0.5f};
+    for (std::size_t index = 0; index < controls_.size(); ++index) controls_[index].reset(defaults[index]);
+    leftState_ = {}; rightState_ = {}; coefficientCountdown_ = 0;
+}
+
+void ParametricEq::setNormalized(float normalized) noexcept { controls_[7].setTarget(std::clamp(normalized, 0.0f, 1.0f)); }
+
+void ParametricEq::setParameter(const char* key, float normalized) noexcept {
+    if (!key) return;
+    static constexpr const char* keys[] = {"mode", "low_cut_enabled", "low_cut_frequency", "low_cut_q",
+        "low_gain", "low_frequency", "low_q", "mid_gain", "mid_frequency", "mid_q", "high_gain",
+        "high_frequency", "high_q", "high_cut_enabled", "high_cut_frequency", "high_cut_q", "output"};
+    for (std::size_t index = 0; index < controls_.size(); ++index)
+        if (!std::strcmp(key, keys[index])) { controls_[index].setTarget(std::clamp(normalized, 0.0f, 1.0f)); return; }
+}
+
+void ParametricEq::updateCoefficients(float lowCutEnabled, float lowCutFrequency, float lowCutQ,
+    float lowGain, float lowFrequency, float lowQ, float midGain, float midFrequency, float midQ,
+    float highGain, float highFrequency, float highQ, float highCutEnabled, float highCutFrequency, float highCutQ) noexcept {
+    const float rate = static_cast<float>(sampleRate_);
+    coefficients_[0] = lowCutEnabled >= 0.5f ? cut(rate, 20.0f * std::pow(50.0f, lowCutFrequency), 0.5f + lowCutQ * 1.5f, true) : Coefficients{};
+    coefficients_[1] = peak(rate, 40.0f * std::pow(20.0f, lowFrequency), (lowGain - 0.5f) * 24.0f, 0.3f + lowQ * 7.7f);
+    coefficients_[2] = peak(rate, 200.0f * std::pow(40.0f, midFrequency), (midGain - 0.5f) * 24.0f, 0.3f + midQ * 7.7f);
+    coefficients_[3] = peak(rate, 2000.0f * std::pow(9.0f, highFrequency), (highGain - 0.5f) * 24.0f, 0.3f + highQ * 7.7f);
+    coefficients_[4] = highCutEnabled >= 0.5f ? cut(rate, 4000.0f * std::pow(5.0f, highCutFrequency), 0.5f + highCutQ * 1.5f, false) : Coefficients{};
+}
+
+void ParametricEq::processFrame(float& left, float& right) noexcept {
+    std::array<float, 17> values{};
+    for (std::size_t index = 0; index < controls_.size(); ++index) values[index] = controls_[index].next();
+    if (coefficientCountdown_-- <= 0) {
+        updateCoefficients(values[1], values[2], values[3], values[4], values[5], values[6], values[7], values[8],
+            values[9], values[10], values[11], values[12], values[13], values[14], values[15]);
+        coefficientCountdown_ = 15;
+    }
+    auto chain = [&](float sample, std::array<State, 5>& states) {
+        for (std::size_t index = 0; index < coefficients_.size(); ++index) sample = process(sample, coefficients_[index], states[index]);
+        return sample;
+    };
+    const int mode = std::clamp(static_cast<int>(std::lround(values[0] * 2.0f)), 0, 2);
+    if (mode == 0) { left = chain(left, leftState_); right = chain(right, rightState_); }
+    else {
+        float middle = (left + right) * 0.5f, side = (left - right) * 0.5f;
+        if (mode == 1) middle = chain(middle, leftState_); else side = chain(side, rightState_);
+        left = middle + side; right = middle - side;
+    }
+    const float output = std::pow(10.0f, (values[16] - 0.5f) * 24.0f / 20.0f);
+    left *= output; right *= output;
+}
+
+void MultibandCompressor::prepare(const ProcessSpec& spec) noexcept {
+    sampleRate_ = std::max(1.0, spec.sampleRate);
+    amount_.prepare(sampleRate_, 15.0); lowCrossover_.prepare(sampleRate_, 20.0); highCrossover_.prepare(sampleRate_, 20.0);
+    for (auto* controls : {&lowControls_, &midControls_, &highControls_}) for (auto& control : *controls) control.prepare(sampleRate_, 15.0);
+}
+
+void MultibandCompressor::reset(float normalized) noexcept {
+    amount_.reset(std::clamp(normalized, 0.0f, 1.0f)); lowCrossover_.reset(0.48f); highCrossover_.reset(0.42f);
+    const std::array<float, 5> low{0.58f, 0.2f, 0.62f, 0.5f, 0.0f};
+    const std::array<float, 5> mid{0.54f, 0.26f, 0.5f, 0.45f, 0.0f};
+    const std::array<float, 5> high{0.5f, 0.3f, 0.38f, 0.4f, 0.0f};
+    for (std::size_t index = 0; index < 5; ++index) { lowControls_[index].reset(low[index]); midControls_[index].reset(mid[index]); highControls_[index].reset(high[index]); }
+    lowLeft_ = lowRight_ = belowHighLeft_ = belowHighRight_ = 0.0f; envelopes_ = {};
+}
+
+void MultibandCompressor::setNormalized(float normalized) noexcept { amount_.setTarget(std::clamp(normalized, 0.0f, 1.0f)); }
+
+void MultibandCompressor::setParameter(const char* key, float normalized) noexcept {
+    if (!key) return;
+    const float value = std::clamp(normalized, 0.0f, 1.0f);
+    if (!std::strcmp(key, "low_crossover")) { lowCrossover_.setTarget(value); return; }
+    if (!std::strcmp(key, "high_crossover")) { highCrossover_.setTarget(value); return; }
+    std::array<SmoothedValue, 5>* controls = nullptr;
+    const char* suffix = nullptr;
+    if (!std::strncmp(key, "low_", 4)) { controls = &lowControls_; suffix = key + 4; }
+    else if (!std::strncmp(key, "mid_", 4)) { controls = &midControls_; suffix = key + 4; }
+    else if (!std::strncmp(key, "high_", 5)) { controls = &highControls_; suffix = key + 5; }
+    if (!controls || !suffix) return;
+    static constexpr const char* suffixes[] = {"threshold", "ratio", "attack", "release", "makeup"};
+    for (std::size_t index = 0; index < 5; ++index) {
+        if (!std::strcmp(suffix, suffixes[index])) { (*controls)[index].setTarget(value); return; }
+    }
+}
+
+void MultibandCompressor::processFrame(float& left, float& right) noexcept {
+    constexpr float pi = 3.14159265358979323846f;
+    const float amount = amount_.next(), rate = static_cast<float>(sampleRate_);
+    const float lowAlpha = 1.0f - std::exp(-2.0f * pi * (80.0f * std::pow(7.5f, lowCrossover_.next())) / rate);
+    const float highAlpha = 1.0f - std::exp(-2.0f * pi * (1200.0f * std::pow(6.6666667f, highCrossover_.next())) / rate);
+    lowLeft_ += lowAlpha * (left - lowLeft_); lowRight_ += lowAlpha * (right - lowRight_);
+    belowHighLeft_ += highAlpha * (left - belowHighLeft_); belowHighRight_ += highAlpha * (right - belowHighRight_);
+    std::array<float, 3> bandLeft{lowLeft_, belowHighLeft_ - lowLeft_, left - belowHighLeft_};
+    std::array<float, 3> bandRight{lowRight_, belowHighRight_ - lowRight_, right - belowHighRight_};
+    std::array<std::array<SmoothedValue, 5>*, 3> controls{&lowControls_, &midControls_, &highControls_};
+    left = right = 0.0f;
+    for (std::size_t band = 0; band < 3; ++band) {
+        std::array<float, 5> values{};
+        for (std::size_t index = 0; index < 5; ++index) values[index] = (*controls[band])[index].next();
+        const float detector = std::max(std::abs(bandLeft[band]), std::abs(bandRight[band]));
+        const float attack = 0.0001f * std::pow(1000.0f, values[2]), release = 0.02f * std::pow(50.0f, values[3]);
+        const float coefficient = std::exp(-1.0f / ((detector > envelopes_[band] ? attack : release) * rate));
+        envelopes_[band] = coefficient * envelopes_[band] + (1.0f - coefficient) * detector;
+        const float threshold = std::pow(10.0f, (-48.0f + values[0] * 48.0f) / 20.0f), ratio = 1.0f + values[1] * 19.0f;
+        const float reduction = envelopes_[band] > threshold ? std::pow(threshold / envelopes_[band], (1.0f - 1.0f / ratio) * amount) : 1.0f;
+        const float gain = reduction * std::pow(10.0f, values[4] * 18.0f / 20.0f);
+        left += bandLeft[band] * gain; right += bandRight[band] * gain;
+    }
+}
+
 void ToneShaper::reset(float normalized) noexcept {
     lowLeft_ = 0.0f;
     lowRight_ = 0.0f;
@@ -1305,6 +1449,12 @@ void EffectRack::processFrame(float& left, float& right) noexcept {
             case RackModuleType::DeEsser:
                 node.deEsser.processFrame(left, right);
                 break;
+            case RackModuleType::ParametricEq:
+                node.parametricEq.processFrame(left, right);
+                break;
+            case RackModuleType::MultibandCompressor:
+                node.multibandCompressor.processFrame(left, right);
+                break;
             case RackModuleType::ToneShaper:
                 node.tone.processFrame(left, right);
                 break;
@@ -1418,6 +1568,8 @@ void EffectRack::setModuleNormalized(std::size_t index, float normalized) noexce
         case RackModuleType::SoftClip: node.softClip.setNormalized(value); break;
         case RackModuleType::LinkedCompressor: node.compressor.setNormalized(value); break;
         case RackModuleType::DeEsser: node.deEsser.setNormalized(value); break;
+        case RackModuleType::ParametricEq: node.parametricEq.setNormalized(value); break;
+        case RackModuleType::MultibandCompressor: node.multibandCompressor.setNormalized(value); break;
         case RackModuleType::ToneShaper: node.tone.setNormalized(value); break;
         case RackModuleType::StereoWidth: node.width.setNormalized(value); break;
         case RackModuleType::NoiseGate: node.noiseGate.setNormalized(value); break;
@@ -1471,6 +1623,12 @@ void EffectRack::setModuleParameter(std::size_t index, const char* key, float no
             else if (!std::strcmp(key, "range")) node.deEsser.setRange(value);
             else if (!std::strcmp(key, "attack")) node.deEsser.setAttack(value);
             else if (!std::strcmp(key, "release")) node.deEsser.setRelease(value);
+            break;
+        case RackModuleType::ParametricEq:
+            node.parametricEq.setParameter(key, value);
+            break;
+        case RackModuleType::MultibandCompressor:
+            node.multibandCompressor.setParameter(key, value);
             break;
         case RackModuleType::ToneShaper:
             if (!std::strcmp(key, "tone")) setModuleNormalized(index, value);
@@ -1596,6 +1754,8 @@ void EffectRack::setLegacyValue(RackModuleType type, float normalized) noexcept 
             case RackModuleType::SoftClip: node.softClip.setNormalized(value); break;
             case RackModuleType::LinkedCompressor: node.compressor.setNormalized(value); break;
             case RackModuleType::DeEsser: node.deEsser.setNormalized(value); break;
+            case RackModuleType::ParametricEq: node.parametricEq.setNormalized(value); break;
+            case RackModuleType::MultibandCompressor: node.multibandCompressor.setNormalized(value); break;
             case RackModuleType::ToneShaper: node.tone.setNormalized(value); break;
             case RackModuleType::StereoWidth: node.width.setNormalized(value); break;
             case RackModuleType::NoiseGate: node.noiseGate.setNormalized(value); break;
@@ -1628,6 +1788,8 @@ void EffectRack::prepareNode(Node& node, const ProcessSpec& spec) {
         case RackModuleType::SoftClip: node.softClip.prepare(spec); break;
         case RackModuleType::LinkedCompressor: node.compressor.prepare(spec); break;
         case RackModuleType::DeEsser: node.deEsser.prepare(spec); break;
+        case RackModuleType::ParametricEq: node.parametricEq.prepare(spec); break;
+        case RackModuleType::MultibandCompressor: node.multibandCompressor.prepare(spec); break;
         case RackModuleType::ToneShaper: node.tone.prepare(spec); break;
         case RackModuleType::StereoWidth: node.width.prepare(spec); break;
         case RackModuleType::NoiseGate: node.noiseGate.prepare(spec); break;
@@ -1660,6 +1822,8 @@ void EffectRack::resetNode(Node& node) noexcept {
         case RackModuleType::SoftClip: node.softClip.reset(value); break;
         case RackModuleType::LinkedCompressor: node.compressor.reset(value); break;
         case RackModuleType::DeEsser: node.deEsser.reset(value); break;
+        case RackModuleType::ParametricEq: node.parametricEq.reset(value); break;
+        case RackModuleType::MultibandCompressor: node.multibandCompressor.reset(value); break;
         case RackModuleType::ToneShaper: node.tone.reset(value); break;
         case RackModuleType::StereoWidth: node.width.reset(value); break;
         case RackModuleType::NoiseGate: node.noiseGate.reset(value); break;
