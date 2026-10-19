@@ -1,0 +1,83 @@
+name: Native VST3 Windows installer smoke build
+
+on:
+  workflow_dispatch:
+    inputs:
+      visual_render_url:
+        description: Browser visual-render endpoint
+        required: true
+        default: https://triplesidestudio.com/vst-visual-render
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-vst3-windows-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows-installer:
+    name: Windows VST3 installer EXE
+    runs-on: windows-2025
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout TripleSide
+        uses: actions/checkout@v4
+
+      - name: Checkout Steinberg VST3 SDK
+        uses: actions/checkout@v4
+        with:
+          repository: steinbergmedia/vst3sdk
+          path: .build-deps/vst3sdk
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: native-vst3/tools/requirements-visual.txt
+
+      - name: Cache Playwright Chromium
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\ms-playwright
+          key: windows-playwright-${{ hashFiles('native-vst3/tools/requirements-visual.txt') }}
+
+      - name: Install build and packaging dependencies
+        shell: pwsh
+        run: |
+          python -m pip install -r native-vst3/tools/requirements-visual.txt
+          python -m playwright install chromium
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path -LiteralPath $iscc)) {
+            choco install innosetup --yes --no-progress
+          }
+
+      - name: Build VST3 installer
+        shell: pwsh
+        run: |
+          $samples = Join-Path $env:RUNNER_TEMP "tripleside-empty-samples"
+          $output = Join-Path $env:RUNNER_TEMP "tripleside-windows-output"
+          New-Item -ItemType Directory -Force -Path $samples, $output | Out-Null
+          native-vst3/build-windows.ps1 `
+            -Spec native-vst3/tests/fixtures/mixforge-effect.json `
+            -SamplesDir $samples `
+            -OutputDir $output `
+            -Vst3SdkDir "$env:GITHUB_WORKSPACE\.build-deps\vst3sdk" `
+            -VisualRenderUrl "${{ inputs.visual_render_url }}" `
+            -InnoSetupCompiler "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
+            -BuildJobs 2
+
+      - name: Upload Windows installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tripleside-windows-vst3-installer
+          path: |
+            ${{ runner.temp }}/tripleside-windows-output/artifacts/*.exe
+            ${{ runner.temp }}/tripleside-windows-output/artifacts/*.zip
+          if-no-files-found: error
+          retention-days: 7

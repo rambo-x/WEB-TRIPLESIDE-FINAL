@@ -82,6 +82,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: tripleside-macos-vst3-universal
-          path: ${{ runner.temp }}/tripleside-macos-output/artifacts/*.zip
+          path: |
+            ${{ runner.temp }}/tripleside-macos-output/artifacts/*.pkg
+            ${{ runner.temp }}/tripleside-macos-output/artifacts/*.zip
           if-no-files-found: error
           retention-days: 7

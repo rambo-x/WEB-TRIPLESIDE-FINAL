@@ -7,7 +7,10 @@ Universal VST3 (`arm64` + `x86_64`) without JUCE, packages project resources in
 the VST3 bundle, renders the browser-captured control atlases in an `NSView`,
 and supports basic knob, fader, button, pad, and keyboard interaction. The
 macOS path currently uses ad-hoc signing for internal validation; Developer ID
-signing and notarization remain required before customer distribution.
+signing and notarization remain required before customer distribution. Packaging
+produces a system-wide `.pkg` plus a scoped uninstaller `.app`. The uninstaller
+removes only that product's VST3 bundle and installer receipt, leaving presets
+and DAW projects intact.
 
 Implemented runtime:
 
@@ -22,7 +25,7 @@ Implemented runtime:
 - native Direct2D/DirectWrite editor with custom background, branding, knobs, faders, meters, pads, and piano keyboard
 - interactive UI controls and pad/keyboard hit feedback
 - full component/editor state persistence
-- isolated Windows build, official Steinberg validation, and ZIP artifact packaging
+- isolated Windows build, official Steinberg validation, and an Inno Setup installer EXE with a registered uninstaller
 
 Tempo-synced sampler zones use Signalsmith Stretch 1.4.0 and Signalsmith
 Linear 0.6.4 under the MIT License. Their notices are retained under
@@ -60,6 +63,7 @@ All project WAV files, the normalized project metadata, backgrounds, and control
   -Vst3SdkDir C:\path\vst3sdk `
   -PythonPath C:\Python312\python.exe `
   -CMakePath C:\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe `
+  -InnoSetupCompiler "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
   -ValidatorPath C:\path\validator.exe
 ```
 
@@ -74,8 +78,10 @@ For an internal macOS build:
   --visual-render-url https://triplesidestudio.com/vst-visual-render
 ```
 
-The manual GitHub Actions workflow `.github/workflows/native-vst3-macos.yml`
-runs the same builder against an effect fixture. It caches Playwright and
-compiler objects, verifies both Universal Binary slices with `lipo`, applies an
-ad-hoc signature, and uploads the resulting ZIP. It intentionally does not poll
-or mutate the customer build queue.
+The manual GitHub Actions workflows `.github/workflows/native-vst3-macos.yml`
+and `.github/workflows/native-vst3-windows.yml` run the builders against an
+effect fixture. The macOS workflow verifies both Universal Binary slices,
+creates the PKG and uninstaller app, applies ad-hoc signatures, and uploads the
+distribution ZIP. The Windows workflow produces the setup EXE and its ZIP; Inno
+Setup registers the generated uninstaller in Windows Settings. Neither workflow
+polls or mutates the customer build queue.

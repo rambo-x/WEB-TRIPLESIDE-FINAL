@@ -10,6 +10,7 @@ background_image=""
 visual_render_url=""
 visual_browser=""
 validator_path=""
+installer_sign_identity=""
 architectures="arm64;x86_64"
 build_jobs="$(sysctl -n hw.ncpu 2>/dev/null || echo 3)"
 
@@ -17,6 +18,7 @@ usage() {
     echo "Usage: $0 --spec FILE --samples-dir DIR --output-dir DIR --vst3-sdk-dir DIR [options]" >&2
     echo "Options: --background-image FILE --visual-render-url URL --visual-browser FILE" >&2
     echo "         --architectures arm64\;x86_64 --build-jobs N --validator FILE" >&2
+    echo "         --installer-sign-identity 'Developer ID Installer: ...'" >&2
 }
 
 while (($#)); do
@@ -31,6 +33,7 @@ while (($#)); do
         --architectures) architectures="$2"; shift 2 ;;
         --build-jobs) build_jobs="$2"; shift 2 ;;
         --validator) validator_path="$2"; shift 2 ;;
+        --installer-sign-identity) installer_sign_identity="$2"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
         *) echo "Unknown argument: $1" >&2; usage; exit 2 ;;
     esac
@@ -112,14 +115,65 @@ if [[ -n "$validator_path" ]]; then "$validator_path" "$bundle"; fi
 
 artifact_dir="$output_dir/artifacts"
 package_dir="$output_dir/package"
-rm -rf "$package_dir"
-mkdir -p "$artifact_dir" "$package_dir"
-cp -R "$bundle" "$package_dir/"
-cp "$runtime_root/ThirdParty/signalsmith-stretch/LICENSE.txt" "$package_dir/Signalsmith-Stretch-LICENSE.txt"
-cp "$runtime_root/ThirdParty/signalsmith-linear/LICENSE.txt" "$package_dir/Signalsmith-Linear-LICENSE.txt"
 bundle_name="$(basename "$bundle" .vst3)"
-zip_path="$artifact_dir/${bundle_name}-macos-vst3-universal.zip"
+package_slug="$(printf '%s' "$bundle_name" | tr '[:upper:]_' '[:lower:]-' | tr -cd 'a-z0-9-')"
+[[ -n "$package_slug" ]] || package_slug="plugin"
+package_id="com.triplesidestudio.vst3.${package_slug}"
+package_version="$(python3 - "$generated_dir/project.json" <<'PY'
+import json, re, sys
+value = str((json.load(open(sys.argv[1], encoding="utf-8")).get("build") or {}).get("version") or "1.0.0")
+print(value if re.fullmatch(r"[0-9]+(?:\.[0-9]+){0,3}", value) else "1.0.0")
+PY
+)"
+
+rm -rf "$package_dir"
+mkdir -p "$artifact_dir" "$package_dir/pkg-root/Library/Audio/Plug-Ins/VST3"
+cp -R "$bundle" "$package_dir/pkg-root/Library/Audio/Plug-Ins/VST3/"
+
+pkg_path="$artifact_dir/${bundle_name}-macos-installer.pkg"
+pkg_args=(
+    --root "$package_dir/pkg-root"
+    --identifier "$package_id"
+    --version "$package_version"
+    --ownership recommended
+    --install-location /
+)
+if [[ -n "$installer_sign_identity" ]]; then pkg_args+=(--sign "$installer_sign_identity"); fi
+rm -f "$pkg_path"
+pkgbuild "${pkg_args[@]}" "$pkg_path"
+pkgutil --check-signature "$pkg_path" || [[ -z "$installer_sign_identity" ]]
+
+uninstaller="$package_dir/Uninstall ${bundle_name}.app"
+mkdir -p "$uninstaller/Contents/MacOS" "$uninstaller/Contents/Resources"
+cp "$runtime_root/packaging/macos/uninstall.applescript" "$uninstaller/Contents/Resources/uninstall.applescript"
+cat > "$uninstaller/Contents/MacOS/uninstall" <<LAUNCHER
+#!/bin/sh
+exec /usr/bin/osascript "\$(dirname "\$0")/../Resources/uninstall.applescript" "/Library/Audio/Plug-Ins/VST3/${bundle_name}.vst3" "${package_id}" "${bundle_name}"
+LAUNCHER
+chmod 755 "$uninstaller/Contents/MacOS/uninstall"
+cat > "$uninstaller/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleExecutable</key><string>uninstall</string>
+<key>CFBundleIdentifier</key><string>${package_id}.uninstaller</string>
+<key>CFBundleName</key><string>Uninstall ${bundle_name}</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleShortVersionString</key><string>${package_version}</string>
+</dict></plist>
+PLIST
+plutil -lint "$uninstaller/Contents/Info.plist"
+codesign --force --deep --sign - "$uninstaller"
+codesign --verify --deep --strict "$uninstaller"
+
+distribution_dir="$package_dir/distribution"
+mkdir -p "$distribution_dir"
+cp "$pkg_path" "$distribution_dir/"
+cp -R "$uninstaller" "$distribution_dir/"
+cp "$runtime_root/ThirdParty/signalsmith-stretch/LICENSE.txt" "$distribution_dir/Signalsmith-Stretch-LICENSE.txt"
+cp "$runtime_root/ThirdParty/signalsmith-linear/LICENSE.txt" "$distribution_dir/Signalsmith-Linear-LICENSE.txt"
+zip_path="$artifact_dir/${bundle_name}-macos-installer-and-uninstaller.zip"
 rm -f "$zip_path"
-ditto -c -k --sequesterRsrc "$package_dir/" "$zip_path"
+ditto -c -k --sequesterRsrc "$distribution_dir/" "$zip_path"
 shasum -a 256 "$zip_path"
 printf '%s\n' "$zip_path"

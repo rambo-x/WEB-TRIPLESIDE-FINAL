@@ -9,6 +9,7 @@ param(
     [ValidateRange(1, 64)][int]$BuildJobs = 1,
     [string]$PythonPath = "python",
     [string]$CMakePath = "cmake",
+    [string]$InnoSetupCompiler = "",
     [string]$ValidatorPath = "",
     [ValidateSet("Release")][string]$BuildType = "Release"
 )
@@ -50,6 +51,31 @@ function Throw-CapturedFailure {
     param([string]$Message, $Result)
     $Details = if ([string]::IsNullOrWhiteSpace($Result.Output)) { "(subprocess tidak menghasilkan output)" } else { $Result.Output }
     throw "$Message`nExit code: $($Result.ExitCode)`n--- stdout/stderr lengkap ---`n$Details"
+}
+
+function Resolve-InnoSetupCompiler {
+    param([string]$ConfiguredPath)
+    if (-not [string]::IsNullOrWhiteSpace($ConfiguredPath)) {
+        if (-not (Test-Path -LiteralPath $ConfiguredPath -PathType Leaf)) {
+            throw "Inno Setup compiler was not found: $ConfiguredPath"
+        }
+        return (Get-Item -LiteralPath $ConfiguredPath).FullName
+    }
+    $Command = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+    if ($Command) { return $Command.Source }
+    $Candidates = @(
+        (Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"),
+        (Join-Path $env:ProgramFiles "Inno Setup 6\ISCC.exe")
+    )
+    foreach ($Candidate in $Candidates) {
+        if (Test-Path -LiteralPath $Candidate -PathType Leaf) { return $Candidate }
+    }
+    throw "Inno Setup 6 is required to create the Windows installer EXE."
+}
+
+function ConvertTo-InnoValue {
+    param([string]$Value)
+    return $Value.Replace('"', '""')
 }
 
 $ExportArguments = @((Join-Path $RuntimeRoot "tools/export_project.py"), $Spec, "--samples-dir", $SamplesDir, "--output", $ResolvedOutput)
@@ -117,12 +143,61 @@ if (-not [string]::IsNullOrWhiteSpace($ValidatorPath)) {
 
 $ArtifactDir = Join-Path $ResolvedOutput "artifacts"
 New-Item -ItemType Directory -Force -Path $ArtifactDir | Out-Null
-$ZipPath = Join-Path $ArtifactDir ($Bundle.BaseName + "-windows-vst3-native.zip")
+$ProjectManifest = Get-Content -LiteralPath (Join-Path $GeneratedDir "project.json") -Raw | ConvertFrom-Json
+$ProductVersion = [string]$ProjectManifest.build.version
+if ($ProductVersion -notmatch '^[0-9]+(?:\.[0-9]+){0,3}$') { $ProductVersion = "1.0.0" }
+$Publisher = [string]$ProjectManifest.build.company_name
+if ([string]::IsNullOrWhiteSpace($Publisher)) { $Publisher = "TripleSide Studio" }
+$InstallerSlug = ($Bundle.BaseName.ToLowerInvariant() -replace '[^a-z0-9]+', '-').Trim('-')
+if ([string]::IsNullOrWhiteSpace($InstallerSlug)) { $InstallerSlug = "plugin" }
+$InstallerId = "com.triplesidestudio.vst3.$InstallerSlug"
+$InstallerCompiler = Resolve-InnoSetupCompiler $InnoSetupCompiler
+$InstallerScript = Join-Path $ResolvedOutput "installer.iss"
+$InstallerBaseName = $Bundle.BaseName + "-windows-vst3-setup"
+$InnoSource = ConvertTo-InnoValue (Join-Path $Bundle.FullName "*")
+$InnoDestination = ConvertTo-InnoValue ("{commoncf64}\VST3\" + $Bundle.Name)
+$InnoUninstaller = ConvertTo-InnoValue ("{commonappdata}\TripleSide Studio\Uninstall\" + $Bundle.BaseName)
+$InnoOutput = ConvertTo-InnoValue $ArtifactDir
+$InnoProductName = ConvertTo-InnoValue $Bundle.BaseName
+$InnoPublisher = ConvertTo-InnoValue $Publisher
+$InnoLines = @(
+    "[Setup]",
+    "AppId=$InstallerId",
+    "AppName=$InnoProductName",
+    "AppVersion=$ProductVersion",
+    "AppPublisher=$InnoPublisher",
+    "DefaultDirName={commoncf64}\VST3",
+    "CreateAppDir=no",
+    "Uninstallable=yes",
+    "UninstallDisplayName=$InnoProductName VST3",
+    "UninstallFilesDir=$InnoUninstaller",
+    "PrivilegesRequired=admin",
+    "ArchitecturesAllowed=x64compatible",
+    "ArchitecturesInstallIn64BitMode=x64compatible",
+    "WizardStyle=modern",
+    "DisableProgramGroupPage=yes",
+    "Compression=lzma2/max",
+    "SolidCompression=yes",
+    "OutputDir=$InnoOutput",
+    "OutputBaseFilename=$InstallerBaseName",
+    "SetupLogging=yes",
+    "CloseApplications=no",
+    "RestartApplications=no",
+    "[Files]",
+    "Source: `"$InnoSource`"; DestDir: `"$InnoDestination`"; Flags: ignoreversion recursesubdirs createallsubdirs"
+)
+[System.IO.File]::WriteAllLines($InstallerScript, $InnoLines, (New-Object System.Text.UTF8Encoding($false)))
+& $InstallerCompiler "/Qp" $InstallerScript
+if ($LASTEXITCODE -ne 0) { throw "Windows installer EXE packaging failed." }
+$InstallerPath = Join-Path $ArtifactDir ($InstallerBaseName + ".exe")
+if (-not (Test-Path -LiteralPath $InstallerPath -PathType Leaf)) { throw "Windows installer EXE was not produced." }
+
+$ZipPath = Join-Path $ArtifactDir ($Bundle.BaseName + "-windows-vst3-installer.zip")
 if (Test-Path $ZipPath) { Remove-Item $ZipPath -Force }
 $NoticesDir = Join-Path $ResolvedOutput "package-notices"
 New-Item -ItemType Directory -Force -Path $NoticesDir | Out-Null
 Copy-Item -LiteralPath (Join-Path $RuntimeRoot "ThirdParty/signalsmith-stretch/LICENSE.txt") -Destination (Join-Path $NoticesDir "Signalsmith-Stretch-LICENSE.txt") -Force
 Copy-Item -LiteralPath (Join-Path $RuntimeRoot "ThirdParty/signalsmith-linear/LICENSE.txt") -Destination (Join-Path $NoticesDir "Signalsmith-Linear-LICENSE.txt") -Force
-& tar.exe -a -c -f $ZipPath -C $Bundle.Parent.FullName $Bundle.Name -C $NoticesDir "Signalsmith-Stretch-LICENSE.txt" "Signalsmith-Linear-LICENSE.txt"
+& tar.exe -a -c -f $ZipPath -C $ArtifactDir ([System.IO.Path]::GetFileName($InstallerPath)) -C $NoticesDir "Signalsmith-Stretch-LICENSE.txt" "Signalsmith-Linear-LICENSE.txt"
 if ($LASTEXITCODE -ne 0) { throw "Native VST3 ZIP packaging failed." }
 Write-Output $ZipPath
