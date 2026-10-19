@@ -35,3 +35,18 @@ def test_macos_runtime_uses_cocoa_and_bundle_resources_without_juce():
     assert "dladdr" in instrument
     assert "JUCE" not in cmake
     assert "JUCE" not in view
+
+
+def test_macos_queue_has_offset_schedule_and_server_watchdog():
+    workflow = (REPOSITORY / ".github/workflows/vst-macos-worker.yml").read_text(
+        encoding="utf-8"
+    )
+    dispatcher = (REPOSITORY / "tools/dispatch-macos-vst-worker.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "cron: '2-57/5 * * * *'" in workflow
+    assert "Check without claiming a job" in workflow
+    assert '"target_platform": "macos"' in dispatcher
+    assert "gh_bin workflow run vst-macos-worker.yml" in dispatcher
+    assert 'status == "queued"' in dispatcher

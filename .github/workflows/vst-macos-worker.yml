@@ -3,7 +3,8 @@ name: VST Maker macOS worker
 on:
   workflow_dispatch:
   schedule:
-    - cron: '*/5 * * * *'
+    # Avoid the top-of-hour scheduler congestion documented by GitHub Actions.
+    - cron: '2-57/5 * * * *'
 
 permissions:
   contents: read
