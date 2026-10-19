@@ -179,9 +179,9 @@ bool buildCustomImpulse(const WavFile& source,const project::ImpulseResponseInfo
 }
 NativeInstrument::NativeInstrument() {
     for(size_t i=0;i<prismFrequencies.size();++i){
-        prismFrequencies[i]=static_cast<float>(std::clamp(std::log(std::max(10.f,project::kPrismBandFrequencies[i])/10.f)/std::log(3000.f),0.0,1.0));
+        prismFrequencies[i]=static_cast<float>(std::clamp<double>(std::log(std::max(10.f,project::kPrismBandFrequencies[i])/10.f)/std::log(3000.f),0.0,1.0));
         prismGains[i]=project::kPrismBandGains[i];
-        prismQs[i]=static_cast<float>(std::clamp(std::log(std::max(.025f,project::kPrismBandQs[i])/.025f)/std::log(1600.f),0.0,1.0));
+        prismQs[i]=static_cast<float>(std::clamp<double>(std::log(std::max(.025f,project::kPrismBandQs[i])/.025f)/std::log(1600.f),0.0,1.0));
         prismEnabled[i]=project::kPrismBandEnabled[i];
     }
     for(size_t i=0;i<project::kDspModules.size();++i){moduleMixValues[i].store(project::kDspModules[i].mix,std::memory_order_relaxed);moduleBypassValues[i].store(project::kDspModules[i].bypassed,std::memory_order_relaxed);compressorGainReductions[i].store(0,std::memory_order_relaxed);}
@@ -318,7 +318,13 @@ ParamID NativeInstrument::prismParameterFor(int band,int slot) const noexcept {
     return gainIds[band];
 }
 float NativeInstrument::prismBandValue(int band,int slot) const noexcept {
-    const auto id=prismParameterFor(band,slot);return id==kNoParamId?.5f:static_cast<float>(getParamNormalized(id));
+    if(band<0||band>=5)return .5f;
+    const auto index=static_cast<size_t>(band);
+    if(slot==0)return prismFrequencies[index];
+    if(slot==2)return prismQs[index];
+    if(slot!=1||band==0)return .5f;
+    if constexpr(project::kHasPrismModule)return prismGains[index];
+    switch(band){case 1:return drive;case 2:return compress;case 3:return width;case 4:return space;default:return .5f;}
 }
 bool NativeInstrument::prismBandEnabled(int band) const noexcept {
     return (project::kIsPrismEq||project::kHasPrismModule)&&band>=0&&band<5&&prismEnabled[static_cast<size_t>(band)];
