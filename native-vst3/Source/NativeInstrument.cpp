@@ -625,13 +625,13 @@ tresult PLUGIN_API NativeInstrument::process(ProcessData&data){
         float sl=0,sr=0;
         if constexpr(project::kIsEffect){const float dryL=inL?inL[i]:0,dryR=inR?inR[i]:dryL;processEffectFrame(dryL,dryR,sl,sr);}
         else{applyEventsAt(data.inputEvents,event,i);renderFrame(sl,sr,gp);if(instrumentUsesDspRack)effectRack.processFrame(sl,sr);else applyToneAndSpace(sl,sr);if(mute&&!solo)sl=sr=0;instrumentMasterGain.processFrame(sl,sr);}
-        applyMasterPan(sl,sr);l[i]=sl;r[i]=sr;const auto analysisIndex=analysisWrite.fetch_add(1,std::memory_order_relaxed),analysisSlot=static_cast<size_t>(analysisIndex%kAnalysisSampleCount);analysisSamplesLeft[analysisSlot].store(sl,std::memory_order_relaxed);analysisSamplesRight[analysisSlot].store(sr,std::memory_order_relaxed);peakL=std::max(peakL,std::abs(sl));peakR=std::max(peakR,std::abs(sr));energyL+=sl*sl;energyR+=sr*sr;
+        applyMasterPan(sl,sr);l[i]=sl;r[i]=sr;const auto analysisIndex=analysisWrite.fetch_add(1,std::memory_order_relaxed);const auto analysisSlot=static_cast<size_t>(analysisIndex%kAnalysisSampleCount);analysisSamplesLeft[analysisSlot].store(sl,std::memory_order_relaxed);analysisSamplesRight[analysisSlot].store(sr,std::memory_order_relaxed);peakL=std::max(peakL,std::abs(sl));peakR=std::max(peakR,std::abs(sr));energyL+=sl*sl;energyR+=sr*sr;
     }
     peaks[0]=peakL;peaks[1]=peakR;rms[0]=std::sqrt(energyL/data.numSamples);rms[1]=std::sqrt(energyR/data.numSamples);for(size_t g=0;g<gp.size();++g)groupPeaks[g]=gp[g];const float rackActive=1.f-effectBypassMix.current();for(size_t module=0;module<compressorGainReductions.size();++module)compressorGainReductions[module].store(rackActive*effectRack.gainReduction(module),std::memory_order_relaxed);data.outputs[0].silenceFlags=(peakL<1e-8f&&peakR<1e-8f)?std::numeric_limits<uint64>::max():0;return kResultOk;
 }
 
 void NativeInstrument::copyAnalysisSamples(float*destination,std::size_t count,int channel)const noexcept{
-    if(!destination||!count)return;count=std::min(count,kAnalysisSampleCount);const auto end=analysisWrite.load(std::memory_order_acquire);const auto available=static_cast<std::size_t>(std::min<std::uint64_t>(end,count)),missing=count-available,start=end-available;
+    if(!destination||!count)return;count=std::min(count,kAnalysisSampleCount);const auto end=analysisWrite.load(std::memory_order_acquire);const auto available=static_cast<std::size_t>(std::min<std::uint64_t>(end,count));const auto missing=count-available;const auto start=end-available;
     std::fill(destination,destination+missing,0.f);for(std::size_t i=0;i<available;++i){const auto slot=static_cast<size_t>((start+i)%kAnalysisSampleCount);const auto left=analysisSamplesLeft[slot].load(std::memory_order_relaxed),right=analysisSamplesRight[slot].load(std::memory_order_relaxed);destination[missing+i]=channel==0?left:channel==1?right:(left+right)*.5f;}
 }
 
