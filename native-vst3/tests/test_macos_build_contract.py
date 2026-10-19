@@ -10,7 +10,7 @@ def test_macos_builder_is_universal_cached_and_queue_independent():
     workflow = (REPOSITORY / ".github/workflows/native-vst3-macos.yml").read_text(encoding="utf-8")
 
     assert 'architectures="arm64;x86_64"' in script
-    assert 'lipo -verify_arch "$architecture"' in script
+    assert 'lipo "$module" -verify_arch "$architecture"' in script
     assert "codesign --verify --deep --strict" in script
     assert "ccache" in script
     assert "workflow_dispatch:" in workflow

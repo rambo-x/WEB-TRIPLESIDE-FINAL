@@ -103,7 +103,7 @@ done
 [[ -n "$module" && -f "$module" ]] || { echo "VST3 Mach-O module was not produced" >&2; exit 1; }
 
 for architecture in ${architectures//;/ }; do
-    lipo -verify_arch "$architecture" "$module"
+    lipo "$module" -verify_arch "$architecture"
 done
 
 codesign --force --deep --sign - "$bundle"
