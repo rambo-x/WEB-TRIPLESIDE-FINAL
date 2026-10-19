@@ -230,8 +230,8 @@ def test_compiles_mono_and_stereo_meter_modes(tmp_path):
     MODULE.compile_manifest(source, output)
 
     result = output.read_text(encoding="utf-8")
-    assert '"classic", "stereo", "space-grotesk", 0xF4F4F5, true, true}' in result
-    assert '"classic", "mono", "space-grotesk", 0xF4F4F5, true, true}' in result
+    assert '"classic", "stereo", "space-grotesk", 0xF4F4F5, true, false, true}' in result
+    assert '"classic", "mono", "space-grotesk", 0xF4F4F5, true, false, true}' in result
     assert "const char* meterMode;" in result
 
 
@@ -547,7 +547,7 @@ def test_compiles_static_knob_assets_and_variant(tmp_path):
 
     result = output.read_text(encoding="utf-8")
     assert 'ControlInfo{"spectrum", "knob", "Spectrum"' in result
-    assert '"modern-spectrum", "mono", "space-grotesk", 0xF4F4F5, true, true}' in result
+    assert '"modern-spectrum", "mono", "space-grotesk", 0xF4F4F5, true, false, true}' in result
     assert 'kModernSpectrumKnobFile = "modern-spectrum-knob-v2.png"' in result
     assert 'kStudioScallopKnobFile = "studio-scallop-knob-64x128-v2.png"' in result
     assert 'kBlackPrecisionKnobFile = "black-precision-knob-64x128-v1.png"' in result
@@ -630,23 +630,23 @@ def test_css_procedural_knobs_override_legacy_filmstrip_style(tmp_path):
     MODULE.compile_manifest(source, output)
 
     result = output.read_text(encoding="utf-8")
-    assert '"studio-scallop", "mono", "space-grotesk", 0xF4F4F5, true, false}' in result
-    assert '"graphite-ridge", "mono", "space-grotesk", 0xF4F4F5, true, false}' in result
-    assert '"chicken-head-clean", "mono", "space-grotesk", 0xF4F4F5, true, false}' in result
-    assert '"orbit-encoder", "mono", "space-grotesk", 0xF4F4F5, true, false}' in result
-    assert '"ivory-lever", "mono", "space-grotesk", 0xF4F4F5, true, false}' in result
-    assert '"pan-chicken-head-clean", "mono", "space-grotesk", 0xF4F4F5, true, false}' in result
-    assert '"pan-ivory-lever", "mono", "space-grotesk", 0xF4F4F5, true, false}' in result
-    assert '"pan-ring-chicken-head-clean", "mono", "space-grotesk", 0xF4F4F5, true, false}' in result
-    assert '"pan-ring-ivory-lever", "mono", "space-grotesk", 0xF4F4F5, true, false}' in result
-    assert '"black-dome", "mono", "space-grotesk", 0xF4F4F5, true, false}' in result
+    assert '"studio-scallop", "mono", "space-grotesk", 0xF4F4F5, true, false, false}' in result
+    assert '"graphite-ridge", "mono", "space-grotesk", 0xF4F4F5, true, false, false}' in result
+    assert '"chicken-head-clean", "mono", "space-grotesk", 0xF4F4F5, true, false, false}' in result
+    assert '"orbit-encoder", "mono", "space-grotesk", 0xF4F4F5, true, false, false}' in result
+    assert '"ivory-lever", "mono", "space-grotesk", 0xF4F4F5, true, false, false}' in result
+    assert '"pan-chicken-head-clean", "mono", "space-grotesk", 0xF4F4F5, true, false, false}' in result
+    assert '"pan-ivory-lever", "mono", "space-grotesk", 0xF4F4F5, true, false, false}' in result
+    assert '"pan-ring-chicken-head-clean", "mono", "space-grotesk", 0xF4F4F5, true, false, false}' in result
+    assert '"pan-ring-ivory-lever", "mono", "space-grotesk", 0xF4F4F5, true, false, false}' in result
+    assert '"black-dome", "mono", "space-grotesk", 0xF4F4F5, true, false, false}' in result
     for variant in (
         "regent-white", "regent-green", "regent-red", "regent-blue", "regent-brown", "regent-black", "regent-gray",
         "regent-white-green", "regent-white-red", "regent-white-blue", "regent-white-brown", "regent-white-black", "regent-white-gray",
     ):
-        assert f'"{variant}", "mono", "space-grotesk", 0xF4F4F5, true, false}}' in result
-    assert '"pan-black-dome", "mono", "space-grotesk", 0xF4F4F5, true, false}' in result
-    assert '"pan-ring-black-dome", "mono", "space-grotesk", 0xF4F4F5, true, false}' in result
+        assert f'"{variant}", "mono", "space-grotesk", 0xF4F4F5, true, false, false}}' in result
+    assert '"pan-black-dome", "mono", "space-grotesk", 0xF4F4F5, true, false, false}' in result
+    assert '"pan-ring-black-dome", "mono", "space-grotesk", 0xF4F4F5, true, false, false}' in result
 
 
 def test_uses_safe_master_headroom_without_a_volume_control(tmp_path):
@@ -877,6 +877,30 @@ def test_native_manifest_accepts_96_controls_and_rejects_97(tmp_path):
         raise AssertionError("expected 97 controls to exceed the native manifest limit")
 
 
+def test_native_manifest_allows_three_bundled_prism_context_controls(tmp_path):
+    spec = project_spec()
+    spec.update({"plugin_kind": "effect", "samples": [], "sampler_map": [], "sampler_groups": []})
+    spec["interface"]["controls"] = [
+        {"id": f"control-{index}", "kind": "knob", "label": f"K{index}", "parameter": "tone"}
+        for index in range(95)
+    ] + [{
+        "id": "analyzer", "kind": "spectrum", "label": "Spectrum", "parameter": "output_level",
+        "component_variant": "realtime-spectrum", "prism_control_mode": "contextual",
+    }] + [{
+        "id": f"context-{name}", "kind": "knob", "label": name.title(), "parameter": f"prism_{name}",
+        "prism_context": name, "prism_owner_id": "analyzer",
+    } for name in ("frequency", "gain", "q")]
+    source = tmp_path / "project.json"
+    output = tmp_path / "NativeProject.h"
+    source.write_text(json.dumps(spec), encoding="utf-8")
+
+    MODULE.compile_manifest(source, output)
+
+    result = output.read_text(encoding="utf-8")
+    assert "std::array<ControlInfo, 99> kControls" in result
+    assert "kPrismContextualEnabled = true" in result
+
+
 def test_compiles_prism_eq_native_dsp_profile(tmp_path):
     spec = project_spec()
     spec.update({
@@ -890,7 +914,7 @@ def test_compiles_prism_eq_native_dsp_profile(tmp_path):
     })
     spec["interface"]["controls"].append({
         "id": "low-cut", "kind": "knob", "label": "Low Cut", "parameter": "tone",
-        "value": 20, "frequency": 30000, "q": 40,
+        "value": 20, "frequency": 30000, "q": 40, "spectrum_band": True,
     })
     source = tmp_path / "project.json"
     output = tmp_path / "NativeProject.h"
@@ -901,6 +925,39 @@ def test_compiles_prism_eq_native_dsp_profile(tmp_path):
     result = output.read_text(encoding="utf-8")
     assert "kIsEffect = true" in result
     assert "kIsPrismEq = true" in result
+    assert "kHasPrismModule = false" in result
     assert 'kVstCategory = "Fx|EQ|Stereo"' in result
     assert "kPrismLowCutFrequency = 30000.0f" in result
     assert "kPrismLowCutQ = 40.0f" in result
+    assert "kPrismBandFrequencies" in result
+    assert "kPrismBandQs" in result
+    assert "kPrismBandEnabled" in result
+    assert 'true, true}' in next(line for line in result.splitlines() if 'ControlInfo{"low-cut"' in line)
+
+
+def test_explicit_prism_module_enables_contextual_native_routing(tmp_path):
+    spec = project_spec()
+    spec.update({"plugin_kind": "effect", "project_template": "prismeq", "samples": [], "sampler_map": [], "sampler_groups": []})
+    prism = {"id": "prism", "type": "prism_eq", "name": "Prism", "order": 0, "bypassed": False, "mix": 1, "parameters": {"band_1_enabled": 1}}
+    spec["engine_modules"] = [prism]
+    spec["dsp_graph"] = {"version": 2, "mode": "ordered_rack", "source": "project", "modules": [prism]}
+    spec["interface"]["controls"] = [{
+        "id": "analyzer", "kind": "spectrum", "label": "Spectrum", "parameter": "output_level",
+        "component_variant": "realtime-spectrum", "prism_control_mode": "contextual",
+    }] + [{
+        "id": f"context-{name}", "kind": "knob", "label": name.title(), "parameter": f"prism_{name}",
+        "module_id": "prism", "prism_context": name, "prism_owner_id": "analyzer",
+    } for name in ("frequency", "gain", "q")]
+    source = tmp_path / "project.json"
+    output = tmp_path / "NativeProject.h"
+    source.write_text(json.dumps(spec), encoding="utf-8")
+
+    MODULE.compile_manifest(source, output)
+
+    result = output.read_text(encoding="utf-8")
+    assert "kIsPrismEq = false" in result
+    assert "kHasPrismModule = true" in result
+    assert "kPrismContextualEnabled = true" in result
+    assert '"prism_frequency", 0' in result
+    assert '"prism_gain", 0' in result
+    assert '"prism_q", 0' in result

@@ -368,6 +368,67 @@ void ParametricEq::processFrame(float& left, float& right) noexcept {
     left *= output; right *= output;
 }
 
+PrismEq::Coefficients PrismEq::peak(float sampleRate, float frequency, float gainDb, float q) noexcept {
+    constexpr float pi = 3.14159265358979323846f;
+    const float omega = 2.0f * pi * std::clamp(frequency, 10.0f, sampleRate * 0.45f) / sampleRate;
+    const float cosine = std::cos(omega), sine = std::sin(omega), a = std::pow(10.0f, gainDb / 40.0f);
+    const float alpha = sine / (2.0f * std::max(0.1f, q)), inverse = 1.0f / (1.0f + alpha / a);
+    return {(1.0f + alpha * a) * inverse, -2.0f * cosine * inverse, (1.0f - alpha * a) * inverse,
+        -2.0f * cosine * inverse, (1.0f - alpha / a) * inverse};
+}
+
+PrismEq::Coefficients PrismEq::highPass(float sampleRate, float frequency, float q) noexcept {
+    constexpr float pi = 3.14159265358979323846f;
+    const float omega = 2.0f * pi * std::clamp(frequency, 10.0f, sampleRate * 0.45f) / sampleRate;
+    const float cosine = std::cos(omega), alpha = std::sin(omega) / (2.0f * std::max(0.1f, q)), inverse = 1.0f / (1.0f + alpha);
+    const float b0 = (1.0f + cosine) * 0.5f * inverse;
+    return {b0, -(1.0f + cosine) * inverse, b0, -2.0f * cosine * inverse, (1.0f - alpha) * inverse};
+}
+
+float PrismEq::process(float input, const Coefficients& coefficients, State& state) noexcept {
+    const float output = coefficients.b0 * input + state.z1;
+    state.z1 = coefficients.b1 * input - coefficients.a1 * output + state.z2;
+    state.z2 = coefficients.b2 * input - coefficients.a2 * output;
+    return output;
+}
+
+void PrismEq::prepare(const ProcessSpec& spec) noexcept {
+    sampleRate_ = std::max(1.0, spec.sampleRate);
+    for (auto& band : controls_) for (auto& control : band) control.prepare(sampleRate_, 20.0);
+}
+
+void PrismEq::reset(float) noexcept {
+    constexpr float defaults[5][4] = {{0.f,.201f,.5f,.453f},{0.f,.31f,.42f,.452f},{0.f,.562f,.48f,.478f},{0.f,.735f,.54f,.486f},{0.f,.859f,.32f,.452f}};
+    for (std::size_t band=0;band<5;++band) for (std::size_t value=0;value<4;++value) controls_[band][value].reset(defaults[band][value]);
+    coefficients_={}; leftState_={}; rightState_={}; coefficientCountdown_=0;
+}
+
+void PrismEq::setNormalized(float normalized) noexcept { controls_[2][2].setTarget(std::clamp(normalized,0.0f,1.0f)); }
+
+void PrismEq::setParameter(const char* key, float normalized) noexcept {
+    if (!key || std::strncmp(key,"band_",5)) return;
+    const int band=key[5]-'1';
+    if (band<0 || band>=5 || key[6]!='_') return;
+    const char* suffix=key+7; int slot=-1;
+    if(!std::strcmp(suffix,"enabled"))slot=0;else if(!std::strcmp(suffix,"frequency"))slot=1;else if(!std::strcmp(suffix,"gain"))slot=2;else if(!std::strcmp(suffix,"q"))slot=3;
+    if(slot>=0)controls_[static_cast<std::size_t>(band)][static_cast<std::size_t>(slot)].setTarget(std::clamp(normalized,0.0f,1.0f));
+}
+
+void PrismEq::processFrame(float& left, float& right) noexcept {
+    float values[5][4]{};
+    for(std::size_t band=0;band<5;++band)for(std::size_t value=0;value<4;++value)values[band][value]=controls_[band][value].next();
+    if(coefficientCountdown_--<=0){
+        for(std::size_t band=0;band<5;++band){
+            if(values[band][0]<.5f){coefficients_[band]={};continue;}
+            const float frequency=10.f*std::pow(3000.f,values[band][1]);
+            const float q=.025f*std::pow(1600.f,values[band][3]);
+            coefficients_[band]=band?peak(static_cast<float>(sampleRate_),frequency,(values[band][2]-.5f)*24.f,q):highPass(static_cast<float>(sampleRate_),frequency,q);
+        }
+        coefficientCountdown_=15;
+    }
+    for(std::size_t band=0;band<5;++band){left=process(left,coefficients_[band],leftState_[band]);right=process(right,coefficients_[band],rightState_[band]);}
+}
+
 void MultibandCompressor::prepare(const ProcessSpec& spec) noexcept {
     sampleRate_ = std::max(1.0, spec.sampleRate);
     amount_.prepare(sampleRate_, 15.0); lowCrossover_.prepare(sampleRate_, 20.0); highCrossover_.prepare(sampleRate_, 20.0);
@@ -1449,6 +1510,9 @@ void EffectRack::processFrame(float& left, float& right) noexcept {
             case RackModuleType::DeEsser:
                 node.deEsser.processFrame(left, right);
                 break;
+            case RackModuleType::PrismEq:
+                node.prismEq.processFrame(left, right);
+                break;
             case RackModuleType::ParametricEq:
                 node.parametricEq.processFrame(left, right);
                 break;
@@ -1568,6 +1632,7 @@ void EffectRack::setModuleNormalized(std::size_t index, float normalized) noexce
         case RackModuleType::SoftClip: node.softClip.setNormalized(value); break;
         case RackModuleType::LinkedCompressor: node.compressor.setNormalized(value); break;
         case RackModuleType::DeEsser: node.deEsser.setNormalized(value); break;
+        case RackModuleType::PrismEq: node.prismEq.setNormalized(value); break;
         case RackModuleType::ParametricEq: node.parametricEq.setNormalized(value); break;
         case RackModuleType::MultibandCompressor: node.multibandCompressor.setNormalized(value); break;
         case RackModuleType::ToneShaper: node.tone.setNormalized(value); break;
@@ -1623,6 +1688,9 @@ void EffectRack::setModuleParameter(std::size_t index, const char* key, float no
             else if (!std::strcmp(key, "range")) node.deEsser.setRange(value);
             else if (!std::strcmp(key, "attack")) node.deEsser.setAttack(value);
             else if (!std::strcmp(key, "release")) node.deEsser.setRelease(value);
+            break;
+        case RackModuleType::PrismEq:
+            node.prismEq.setParameter(key, value);
             break;
         case RackModuleType::ParametricEq:
             node.parametricEq.setParameter(key, value);
@@ -1754,6 +1822,7 @@ void EffectRack::setLegacyValue(RackModuleType type, float normalized) noexcept 
             case RackModuleType::SoftClip: node.softClip.setNormalized(value); break;
             case RackModuleType::LinkedCompressor: node.compressor.setNormalized(value); break;
             case RackModuleType::DeEsser: node.deEsser.setNormalized(value); break;
+            case RackModuleType::PrismEq: node.prismEq.setNormalized(value); break;
             case RackModuleType::ParametricEq: node.parametricEq.setNormalized(value); break;
             case RackModuleType::MultibandCompressor: node.multibandCompressor.setNormalized(value); break;
             case RackModuleType::ToneShaper: node.tone.setNormalized(value); break;
@@ -1788,6 +1857,7 @@ void EffectRack::prepareNode(Node& node, const ProcessSpec& spec) {
         case RackModuleType::SoftClip: node.softClip.prepare(spec); break;
         case RackModuleType::LinkedCompressor: node.compressor.prepare(spec); break;
         case RackModuleType::DeEsser: node.deEsser.prepare(spec); break;
+        case RackModuleType::PrismEq: node.prismEq.prepare(spec); break;
         case RackModuleType::ParametricEq: node.parametricEq.prepare(spec); break;
         case RackModuleType::MultibandCompressor: node.multibandCompressor.prepare(spec); break;
         case RackModuleType::ToneShaper: node.tone.prepare(spec); break;
@@ -1822,6 +1892,7 @@ void EffectRack::resetNode(Node& node) noexcept {
         case RackModuleType::SoftClip: node.softClip.reset(value); break;
         case RackModuleType::LinkedCompressor: node.compressor.reset(value); break;
         case RackModuleType::DeEsser: node.deEsser.reset(value); break;
+        case RackModuleType::PrismEq: node.prismEq.reset(value); break;
         case RackModuleType::ParametricEq: node.parametricEq.reset(value); break;
         case RackModuleType::MultibandCompressor: node.multibandCompressor.reset(value); break;
         case RackModuleType::ToneShaper: node.tone.reset(value); break;

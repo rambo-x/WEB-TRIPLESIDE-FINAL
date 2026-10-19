@@ -90,8 +90,8 @@ def test_native_runtime_applies_and_persists_master_pan():
     assert "applyMasterPan(float&, float&)" in instrument_header
     assert "masterPan.next()*2.f-1.f" in instrument_source
     assert "applyMasterPan(sl,sr)" in instrument_source
-    assert "version>3" in instrument_source
-    assert "writeInt32u(3)" in instrument_source
+    assert "version>5" in instrument_source
+    assert "writeInt32u(5)" in instrument_source
     assert "b.writeFloat(pan)" in instrument_source
 
 
@@ -411,3 +411,30 @@ def test_shared_preview_live_overlays_support_pure_fft_and_stereo_vectorscope():
     assert "drawVectorscope" in view
     assert "vectorscopeCorrelation+=(correlation-vectorscopeCorrelation)*.18f" in view
     assert "constexpr float gridFrequencies[]" in view
+
+
+def test_prism_contextual_bands_route_runtime_parameters_and_migrate_state_v4():
+    header = (SOURCE_DIR / "NativeInstrument.h").read_text(encoding="utf-8")
+    instrument = (SOURCE_DIR / "NativeInstrument.cpp").read_text(encoding="utf-8")
+    windows_view = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+    mac_view = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
+
+    assert "kPrismFrequencyBaseId=200" in header
+    assert "kPrismQBaseId=210" in header
+    assert "kPrismGainBaseId=220" in header
+    assert "kPrismEnabledBaseId=230" in header
+    assert "id>=kPrismFrequencyBaseId&&id<kPrismFrequencyBaseId+5" in instrument
+    assert "id>=kPrismQBaseId&&id<kPrismQBaseId+5" in instrument
+    assert "version>5" in instrument
+    assert "b.writeInt32u(5)" in instrument
+    assert "else prismFrequencies[0]=tone" in instrument
+    assert "applyPrismRackParameter" in instrument
+    assert "isPrismContextParameter(control.parameter)" in instrument
+    assert "project::kControls[i].spectrumBand" in windows_view
+    assert "displayedParameter" in windows_view
+    assert "hitPrismBand" in windows_view
+    assert "!project::kPrismContextualEnabled" in windows_view
+    assert "project::kControls[index].spectrumBand" in mac_view
+    assert "displayedParameter" in mac_view
+    assert "prismBandAt" in mac_view
+    assert "project::kPrismContextualEnabled" in mac_view

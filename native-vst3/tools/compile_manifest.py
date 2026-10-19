@@ -120,17 +120,28 @@ MAX_DSP_PARAMETERS_PER_MODULE = 48
 def compile_manifest(spec_path: Path, output_path: Path) -> None:
     spec = json.loads(spec_path.read_text(encoding="utf-8"))
     is_effect = spec.get("plugin_kind") == "effect"
-    is_prism_eq = is_effect and (spec.get("dsp_profile") == "prism_eq" or spec.get("project_template") == "prismeq")
+    source_dsp_modules = spec.get("engine_modules") or spec.get("dsp_graph", {}).get("modules") or []
+    has_prism_module = any(str(module.get("type") or "").replace("-", "_") == "prism_eq" for module in source_dsp_modules)
+    is_prism_eq = is_effect and not has_prism_module and (spec.get("dsp_profile") == "prism_eq" or spec.get("project_template") == "prismeq")
     samples, zones = spec.get("samples") or [], spec.get("sampler_map") or []
     impulses = spec.get("impulse_responses") or []
     groups = [] if is_effect else (spec.get("sampler_groups") or [{"id": "sampler-1", "name": "Sampler 1"}])
     interface = spec.get("interface") or {}; controls = interface.get("controls") or []
+    prism_contextual_enabled = any(
+        str(control.get("kind") or "") == "spectrum"
+        and str(control.get("component_variant") or "realtime-spectrum") == "realtime-spectrum"
+        and str(control.get("prism_control_mode") or "direct") == "contextual"
+        for control in controls
+    )
     presets = spec.get("presets") or []
     # Legacy MIDI CC maps are intentionally ignored. The panel is now a groove browser.
     midi_mappings = []
     midi_sequences = spec.get("midi_sequences") or []
     dsp_graph = spec.get("dsp_graph") or {"version": 2, "mode": "ordered_rack", "source": "legacy_spec", "modules": []}
     dsp_modules = dsp_graph.get("modules") or []
+    prism_module_index = next((index for index, module in enumerate(dsp_modules) if str(module.get("type") or "").replace("-", "_") == "prism_eq"), -1)
+    prism_module = dsp_modules[prism_module_index] if prism_module_index >= 0 else {}
+    prism_parameters = prism_module.get("parameters") or {}
     if dsp_graph.get("version") != 2:
         fail("native VST3 requires DSP graph contract version 2")
     if dsp_graph.get("mode") not in {"ordered_rack", "instrument_post_fx", "instrument_sources", "instrument_serial_rack"}:
@@ -139,7 +150,8 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
         if samples or zones: fail("native audio effect must not contain samples or mapping zones")
     elif (not samples or not zones) and not any(str(module.get("type") or "") == "wave_generator" and not module.get("bypassed", False) for module in dsp_modules):
         fail("native VST3 instrument requires a sample mapping or an active wave generator")
-    if len(samples) > 128 or len(zones) > 128 or len(groups) > 16 or len(controls) > 96 or len(dsp_modules) > 128 or len(impulses) > 16 or len(presets) > 128 or len(midi_mappings) > 128 or len(midi_sequences) > 16: fail("native VST3 project exceeds a supported collection limit")
+    ordinary_controls = [control for control in controls if str(control.get("parameter") or "") not in {"prism_frequency", "prism_gain", "prism_q"}]
+    if len(samples) > 128 or len(zones) > 128 or len(groups) > 16 or len(ordinary_controls) > 96 or len(controls) > 99 or len(dsp_modules) > 128 or len(impulses) > 16 or len(presets) > 128 or len(midi_mappings) > 128 or len(midi_sequences) > 16: fail("native VST3 project exceeds a supported collection limit")
 
     dsp_module_ids = {}
     for index, module in enumerate(dsp_modules):
@@ -332,6 +344,7 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
             cpp_string(control.get("text_font") or "space-grotesk"),
             f"0x{text_color_rgb:06X}",
             cpp_bool(control.get("show_correlation_meter", True)),
+            cpp_bool(control.get("spectrum_band", False)),
             cpp_bool(
                 control.get("component_variant") not in {"chicken-head-clean", "orbit-encoder", "studio-scallop", "graphite-ridge", "ivory-lever", "black-dome", "regent-cap", "regent-white", "regent-green", "regent-red", "regent-blue", "regent-brown", "regent-black", "regent-gray", "regent-white-green", "regent-white-red", "regent-white-blue", "regent-white-brown", "regent-white-black", "regent-white-gray", "pan-chicken-head-clean", "pan-ivory-lever", "pan-ring-chicken-head-clean", "pan-ring-ivory-lever", "pan-black-dome", "pan-ring-black-dome"}
                 and (control.get("component_style") if control.get("component_style") in ("css", "filmstrip") else interface.get("component_style") or "filmstrip") == "filmstrip"
@@ -472,7 +485,7 @@ namespace tripleside::project {{
 struct SampleInfo {{ const char* resourceFile; }};
 struct GroupInfo {{ const char* id; const char* name; float volume; float pan; bool mute; bool solo; }};
 struct ZoneInfo {{ int sampleIndex, groupIndex, articulationIndex, micIndex, roundRobinSet, rootPitch, lowPitch, highPitch, velocityLow, velocityHigh, roundRobin; float sampleStart, sampleEnd, loopStart, loopEnd, fadeInMs, fadeOutMs, loopCrossfadeMs; int tuneSemitones; float tuneCents, gainDb, pan; bool loopEnabled, tempoSync; float sourceBpm; std::array<int, 16> chokeTargetPitches; int chokeTargetCount; }};
-struct ControlInfo {{ const char* id; const char* kind; const char* label; const char* offLabel; const char* onLabel; const char* parameter; int moduleIndex; float x, y; int width, height; float value, opacity; unsigned int colorRgb; bool showBackground; int notePitch, keyCount; const char* labelPosition; int labelGap; const char* variant; const char* meterMode; const char* textFont; unsigned int textColorRgb; bool showCorrelationMeter; bool useFilmstrip; }};
+struct ControlInfo {{ const char* id; const char* kind; const char* label; const char* offLabel; const char* onLabel; const char* parameter; int moduleIndex; float x, y; int width, height; float value, opacity; unsigned int colorRgb; bool showBackground; int notePitch, keyCount; const char* labelPosition; int labelGap; const char* variant; const char* meterMode; const char* textFont; unsigned int textColorRgb; bool showCorrelationMeter; bool spectrumBand; bool useFilmstrip; }};
 struct PanelControlInfo {{ int parentPanelIndex; const char* panelType; float panelX, panelY, panelWidth, panelHeight; }};
 struct PresetInfo {{ const char* id; const char* name; bool factory; int valueOffset, valueCount, groupOffset, groupCount, moduleOffset, moduleCount; }};
 struct PresetValueInfo {{ int controlIndex; float value; }};
@@ -498,6 +511,9 @@ inline constexpr unsigned kAccentRgb = 0x{accent_rgb:06X};
 inline constexpr unsigned kUiRgb = 0x{ui_rgb:06X};
 inline constexpr bool kIsEffect = {cpp_bool(is_effect)};
 inline constexpr bool kIsPrismEq = {cpp_bool(is_prism_eq)};
+inline constexpr bool kHasPrismModule = {cpp_bool(has_prism_module)};
+inline constexpr int kPrismModuleIndex = {prism_module_index};
+inline constexpr bool kPrismContextualEnabled = {cpp_bool(prism_contextual_enabled)};
 inline constexpr bool kReverbEnabled = {cpp_bool(effects.get("reverb", False))};
 inline constexpr bool kDelayEnabled = {cpp_bool(effects.get("delay", False))};
 inline constexpr bool kChorusEnabled = {cpp_bool(effects.get("chorus", False))};
@@ -539,7 +555,11 @@ inline constexpr bool kPrismLowBodyEnabled = {cpp_bool(has_parameter_control(spe
 inline constexpr bool kPrismMidFocusEnabled = {cpp_bool(has_parameter_control(spec, "compress"))};
 inline constexpr bool kPrismPresenceEnabled = {cpp_bool(has_parameter_control(spec, "width"))};
 inline constexpr bool kPrismAirEnabled = {cpp_bool(has_parameter_control(spec, "space"))};
-inline constexpr const char* kVstCategory = {cpp_string("Fx|EQ|Stereo" if is_prism_eq else "Fx|Dynamics|Stereo" if is_effect else "Instrument|Synth" if any(str(module.get('type') or '') == 'wave_generator' and not module.get('bypassed', False) for module in dsp_modules) else "Instrument|Sampler")};
+inline constexpr std::array<float,5> kPrismBandFrequencies = {{{', '.join(cpp_float(10 * (3000 ** clamp(prism_parameters.get(f'band_{band}_frequency'), 0, 1, 0.5))) for band in range(1, 6)) if has_prism_module else 'kPrismLowCutFrequency, kPrismLowBodyFrequency, kPrismMidFocusFrequency, kPrismPresenceFrequency, kPrismAirFrequency'}}};
+inline constexpr std::array<float,5> kPrismBandGains = {{{', '.join(cpp_float(clamp(prism_parameters.get(f'band_{band}_gain'), 0, 1, 0.5)) for band in range(1, 6)) if has_prism_module else '0.5f, kDefaultDrive, kDefaultCompress, kDefaultWidth, kDefaultSpace'}}};
+inline constexpr std::array<float,5> kPrismBandQs = {{{', '.join(cpp_float(.025 * (1600 ** clamp(prism_parameters.get(f'band_{band}_q'), 0, 1, 0.5))) for band in range(1, 6)) if has_prism_module else 'kPrismLowCutQ, kPrismLowBodyQ, kPrismMidFocusQ, kPrismPresenceQ, kPrismAirQ'}}};
+inline constexpr std::array<bool,5> kPrismBandEnabled = {{{', '.join(cpp_bool(clamp(prism_parameters.get(f'band_{band}_enabled'), 0, 1, 0) >= .5) for band in range(1, 6)) if has_prism_module else 'kPrismLowCutEnabled, kPrismLowBodyEnabled, kPrismMidFocusEnabled, kPrismPresenceEnabled, kPrismAirEnabled'}}};
+inline constexpr const char* kVstCategory = {cpp_string("Fx|EQ|Stereo" if is_prism_eq or has_prism_module else "Fx|Dynamics|Stereo" if is_effect else "Instrument|Synth" if any(str(module.get('type') or '') == 'wave_generator' and not module.get('bypassed', False) for module in dsp_modules) else "Instrument|Sampler")};
 inline constexpr const char* kTemplate = {cpp_string(interface.get("template") or "studio")};
 inline constexpr int kDspGraphVersion = 2;
 inline constexpr const char* kDspGraphMode = {cpp_string(dsp_graph.get("mode"))};

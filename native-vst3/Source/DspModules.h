@@ -219,6 +219,27 @@ private:
     int coefficientCountdown_ = 0;
 };
 
+class PrismEq {
+public:
+    void prepare(const ProcessSpec& spec) noexcept;
+    void reset(float normalized) noexcept;
+    void setNormalized(float normalized) noexcept;
+    void setParameter(const char* key, float normalized) noexcept;
+    void processFrame(float& left, float& right) noexcept;
+
+private:
+    struct State { float z1 = 0.0f; float z2 = 0.0f; };
+    struct Coefficients { float b0 = 1.0f; float b1 = 0.0f; float b2 = 0.0f; float a1 = 0.0f; float a2 = 0.0f; };
+    static Coefficients peak(float sampleRate, float frequency, float gainDb, float q) noexcept;
+    static Coefficients highPass(float sampleRate, float frequency, float q) noexcept;
+    static float process(float input, const Coefficients& coefficients, State& state) noexcept;
+    double sampleRate_ = 44100.0;
+    std::array<std::array<SmoothedValue, 4>, 5> controls_{};
+    std::array<Coefficients, 5> coefficients_{};
+    std::array<State, 5> leftState_{}, rightState_{};
+    int coefficientCountdown_ = 0;
+};
+
 class MultibandCompressor {
 public:
     void prepare(const ProcessSpec& spec) noexcept;
@@ -700,6 +721,7 @@ enum class RackModuleType {
     SoftClip,
     LinkedCompressor,
     DeEsser,
+    PrismEq,
     ParametricEq,
     MultibandCompressor,
     ToneShaper,
@@ -764,6 +786,7 @@ private:
         SoftClip softClip{};
         LinkedCompressor compressor{};
         DeEsser deEsser{};
+        PrismEq prismEq{};
         ParametricEq parametricEq{};
         MultibandCompressor multibandCompressor{};
         ToneShaper tone{};

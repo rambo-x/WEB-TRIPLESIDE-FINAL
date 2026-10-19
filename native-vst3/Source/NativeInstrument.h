@@ -20,6 +20,7 @@ enum ParameterIds : Steinberg::Vst::ParamID {
     kMuteId=105, kSoloId=106, kArticulationId=107, kMicId=108,
     kInputId=109, kDriveId=110, kCompressId=111, kWidthId=112, kMixId=113,
     kOutputId=114, kBypassId=115, kSustainId=116, kPitchBendId=117, kModulationId=118, kPanId=119,
+    kPrismFrequencyBaseId=200, kPrismQBaseId=210, kPrismGainBaseId=220, kPrismEnabledBaseId=230,
     kGroupBaseId=1000, kModuleControlBaseId=10000
 };
 inline Steinberg::Vst::ParamID groupParameterId(int group, int slot) { return kGroupBaseId + group * 4 + slot; }
@@ -61,6 +62,9 @@ public:
     double analysisSampleRate() const noexcept { return hostSampleRate; }
     Steinberg::Vst::ParamID parameterFor(const char*) const noexcept;
     Steinberg::Vst::ParamID parameterForControl(std::size_t) const noexcept;
+    Steinberg::Vst::ParamID prismParameterFor(int band, int slot) const noexcept;
+    float prismBandValue(int band, int slot) const noexcept;
+    bool prismBandEnabled(int band) const noexcept;
     void applyModulePresetValue(std::size_t, const char*, float) noexcept;
     float modulePresetValue(std::size_t, const char*) const noexcept;
     static std::filesystem::path resourceDirectory();
@@ -83,7 +87,7 @@ private:
     struct UiNote { int pitch=60, velocity=100; bool on=true; };
     void loadResources(); void applyParameterChanges(Steinberg::Vst::IParameterChanges*);
     void applyParameterValue(Steinberg::Vst::ParamID, float) noexcept;
-    void applyModuleControl(std::size_t, float) noexcept;
+    void applyModuleControl(std::size_t, float) noexcept; void applyPrismRackParameter(int,int,float) noexcept;
     void applyEventsAt(Steinberg::Vst::IEventList*, Steinberg::int32&, int); void drainEditorNotes();
     void setMidiNoteActive(int pitch, bool on) noexcept;
     void setSustain(bool on) noexcept;
@@ -107,6 +111,7 @@ private:
     std::array<std::atomic<unsigned>, 128> activeMidiNotes{};
     float filterLeft=0, filterRight=0;
     StereoBiquad prismLowCut, prismLowBody, prismMidFocus, prismPresence, prismAir;
+    std::array<float,5> prismFrequencies{}, prismGains{}, prismQs{}; std::array<bool,5> prismEnabled{};
     double hostSampleRate=44100, hostTempoBpm=project::kFallbackTempoBpm, smoothedTempoBpm=project::kFallbackTempoBpm; float volume=project::kDefaultVolume, tone=project::kDefaultTone, attack=project::kDefaultAttack, releaseAmount=project::kDefaultRelease, space=project::kDefaultSpace;
     float input=project::kDefaultInput, drive=project::kDefaultDrive, compress=project::kDefaultCompress, width=project::kDefaultWidth, mix=project::kDefaultMix, output=project::kDefaultOutput, pan=project::kDefaultPan;
     dsp::StereoGain instrumentMasterGain{dsp::GainLaw::Linear};

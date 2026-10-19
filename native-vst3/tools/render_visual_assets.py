@@ -85,6 +85,14 @@ def bounds(rect, padding, width, height):
     return dict(x=x, y=y, width=max(1, right-x), height=max(1, bottom-y))
 
 
+def hidden_prism_context(control, controls):
+    if control.get('prism_context') not in {'frequency', 'gain', 'q'}:
+        return False
+    owner = str(control.get('prism_owner_id') or '')
+    analyzer = next((item for item in controls if str(item.get('id') or '') == owner), None)
+    return not analyzer or analyzer.get('prism_control_mode') != 'contextual'
+
+
 def render(spec_path, url, browser=None):
     spec = json.loads(spec_path.read_text(encoding='utf-8'))
     ui = spec['interface']
@@ -191,6 +199,13 @@ def render(spec_path, url, browser=None):
                 hit = element.bounding_box()
                 rect = bounds(hit, 24, width, height)
                 kind = control['kind']
+                if hidden_prism_context(control, controls):
+                    filename = f'visual_control_{index}.png'
+                    Image.new('RGBA', (rect['width'], rect['height']), (0, 0, 0, 0)).save(assets/filename)
+                    manifest['controls'].append(dict(file=filename, rect=rect, hit=hit, frames=1, columns=1))
+                    element.evaluate("e => e.classList.remove('vst-target')")
+                    print(f'Keeping hidden Prism context layout {index+1}/{len(controls)}: {kind}', flush=True)
+                    continue
                 uses_backdrop = element.evaluate("""e => [e, ...e.querySelectorAll('*')].some(node => {
                     const style = getComputedStyle(node);
                     return (style.backdropFilter && style.backdropFilter !== 'none') ||

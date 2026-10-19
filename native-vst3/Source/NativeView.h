@@ -41,6 +41,7 @@ private:
     void mouseDown(float,float); void mouseMove(float,float); void mouseUp();
     void mouseDoubleClick(float,float); void mouseWheel(float,float,int); float neutralControlValue(int) const;
     void setParameter(Steinberg::uint32,float);
+    Steinberg::uint32 displayedParameter(size_t) const; int prismContextSlot(size_t) const; int hitPrismBand(float,float) const; void updatePrismBandFromPoint(int,float,float);
     struct UserPreset;
     HWND hwnd=nullptr; Microsoft::WRL::ComPtr<ID2D1Factory> factory; Microsoft::WRL::ComPtr<ID2D1RenderTarget> target;
     void drawVisualCanvas();
@@ -55,7 +56,7 @@ private:
     Microsoft::WRL::ComPtr<IDWriteFactory> writeFactory; Microsoft::WRL::ComPtr<IDWriteTextFormat> textFormat,brandFormat,brandMetaFormat,brandTagFormat,smallFormat,meterFormat,meterLabelFormat;
     Microsoft::WRL::ComPtr<IDWriteInMemoryFontFileLoader> brandFontLoader; std::vector<Microsoft::WRL::ComPtr<IDWriteFontFile>> embeddedFontFiles; Microsoft::WRL::ComPtr<IDWriteFontCollection1> brandFontCollection;
     Microsoft::WRL::ComPtr<IWICImagingFactory> wicFactory; Microsoft::WRL::ComPtr<ID2D1Bitmap> background,knobFilmstrip,pultecKnobFilmstrip,modernSpectrumKnob,studioScallopKnob,blackPrecisionKnob,crimsonWingKnob,blackCrimsonWingKnob,regentWhiteWingKnob,graphiteRidgeKnob,buttonFilmstrip,faderFilmstrip,meterFilmstrip;
-    int activeControl=-1,activeNote=-1,wheelControl=-1,wheelRemainder=0; float dragStartY=0,dragStartValue=0; D2D1_RECT_F currentLabelControlRect{};
+    int activeControl=-1,activeNote=-1,wheelControl=-1,wheelRemainder=0,selectedPrismBand=0,dragPrismBand=-1; float dragStartY=0,dragStartValue=0; D2D1_RECT_F currentLabelControlRect{};
     int openPanelIndex=-1, panelDragMode=0, selectedMidiSequence=0, midiDragCandidate=-1; float panelRuntimeX=50,panelRuntimeY=52,panelRuntimeWidth=88,panelRuntimeHeight=78,panelDragX=0,panelDragY=0,midiDragX=0,midiDragY=0;
     std::map<int,std::array<float,4>> panelRuntimeBounds;
     struct UserPreset { std::wstring name; std::vector<float> values,groups,moduleValues; }; std::vector<UserPreset> userPresets; bool userPresetsLoaded=false;

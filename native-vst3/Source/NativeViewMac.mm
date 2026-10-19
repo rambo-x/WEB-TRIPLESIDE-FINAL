@@ -25,14 +25,30 @@ bool interactiveKind(const char* kind) {
         || equals(kind, "keyboard");
 }
 
-float displayedValue(NativeInstrument& instrument, std::size_t index) {
+int prismContextSlot(std::size_t index) {
+    if ((!project::kIsPrismEq && !project::kHasPrismModule) || index >= project::kControls.size()) return -1;
+    const auto* parameter = project::kControls[index].parameter;
+    return equals(parameter, "prism_frequency") ? 0 : equals(parameter, "prism_gain") ? 1 : equals(parameter, "prism_q") ? 2 : -1;
+}
+
+bool controlVisible(std::size_t index) {
+    if (index >= project::kControls.size() || project::kControls[index].spectrumBand) return false;
+    return prismContextSlot(index) < 0 || project::kPrismContextualEnabled;
+}
+
+ParamID displayedParameter(NativeInstrument& instrument, std::size_t index, NSInteger selectedPrismBand) {
+    const int slot = prismContextSlot(index);
+    return slot >= 0 ? instrument.prismParameterFor(static_cast<int>(selectedPrismBand), slot) : instrument.parameterForControl(index);
+}
+
+float displayedValue(NativeInstrument& instrument, std::size_t index, NSInteger selectedPrismBand) {
     const auto& control = project::kControls[index];
     if (equals(control.kind, "gain_meter") || equals(control.kind, "vu_meter")) {
         if (control.meterMode && std::strcmp(control.meterMode, "gain_reduction") == 0)
             return std::clamp(instrument.gainReduction(control.moduleIndex), 0.f, 1.f);
         return std::clamp(std::max(instrument.outputPeak(0), instrument.outputPeak(1)) * 1.5f, 0.f, 1.f);
     }
-    const auto parameter = instrument.parameterForControl(index);
+    const auto parameter = displayedParameter(instrument, index, selectedPrismBand);
     return parameter == kNoParamId ? std::clamp(control.value, 0.f, 1.f)
                                    : static_cast<float>(instrument.getParamNormalized(parameter));
 }
@@ -49,9 +65,11 @@ NSImage* loadResourceImage(NSString* filename) {
 using tripleside::native::NativeInstrument;
 using tripleside::native::LicenseRuntime;
 using tripleside::native::displayedValue;
+using tripleside::native::displayedParameter;
 using tripleside::native::equals;
 using tripleside::native::interactiveKind;
 using tripleside::native::loadResourceImage;
+using tripleside::native::kPrismEnabledBaseId;
 using Steinberg::Vst::kNoParamId;
 namespace project = tripleside::project;
 
@@ -64,6 +82,8 @@ namespace project = tripleside::project;
     CGFloat _dragStartY;
     float _dragStartValue;
     NSInteger _activeNote;
+    NSInteger _selectedPrismBand;
+    NSInteger _dragPrismBand;
 }
 - (instancetype)initWithFrame:(NSRect)frame instrument:(NativeInstrument*)instrument;
 @end
@@ -77,6 +97,10 @@ namespace project = tripleside::project;
         _images = [NSMutableDictionary dictionary];
         _dragControl = -1;
         _activeNote = -1;
+        _selectedPrismBand = 0;
+        while (_selectedPrismBand < 5 && !_instrument->prismBandEnabled(static_cast<int>(_selectedPrismBand))) ++_selectedPrismBand;
+        if (_selectedPrismBand >= 5) _selectedPrismBand = 0;
+        _dragPrismBand = -1;
         __weak TripleSideNativeMacView* weakSelf = self;
         _timer = [NSTimer scheduledTimerWithTimeInterval:(1.0 / 30.0) repeats:YES block:^(NSTimer*) {
             [weakSelf setNeedsDisplay:YES];
@@ -158,10 +182,46 @@ namespace project = tripleside::project;
     const auto controlCount = std::min(project::kControls.size(), project::kVisualControls.size());
     for (std::size_t index = 0; index < controlCount; ++index) {
         const auto& visual = project::kVisualControls[index];
-        if (!visual.file || !*visual.file || visual.frames <= 0) continue;
-        const auto value = displayedValue(*_instrument, index);
+        if (!controlVisible(index) || !visual.file || !*visual.file || visual.frames <= 0) continue;
+        const auto value = displayedValue(*_instrument, index, _selectedPrismBand);
         const auto frame = static_cast<NSInteger>(std::lround(value * std::max(0, visual.frames - 1)));
         [self drawAtlas:[self imageNamed:visual.file] file:visual frame:frame];
+    }
+
+    if constexpr (project::kIsPrismEq || project::kHasPrismModule) {
+        for (std::size_t index = 0; index < project::kControls.size(); ++index) {
+            if (!equals(project::kControls[index].kind, "spectrum") || equals(project::kControls[index].variant, "pure-spectrum")) continue;
+            const auto& visual = project::kVisualControls[index];
+            const NSRect spectrum = NSMakeRect(visual.hx, visual.hy, visual.hw, visual.hh);
+            float frequencies[5]{}, qs[5]{}, gains[5]{};
+            for (int band = 0; band < 5; ++band) {
+                frequencies[band] = 10.f * std::pow(3000.f, _instrument->prismBandValue(band, 0));
+                qs[band] = .025f * std::pow(1600.f, _instrument->prismBandValue(band, 2));
+                gains[band] = band ? (_instrument->prismBandValue(band, 1) - .5f) * 24.f : 0.f;
+            }
+            NSBezierPath* response = [NSBezierPath bezierPath];
+            for (int point = 0; point < 240; ++point) {
+                const float frequency = 10.f * std::pow(3000.f, point / 239.f);
+                const float ratio = frequency / std::max(10.f, frequencies[0]);
+                float db = _instrument->prismBandEnabled(0) ? std::clamp(20.f * std::log10(std::max(1e-6f, (ratio * ratio) / std::sqrt(std::pow(1.f - ratio * ratio, 2.f) + std::pow(ratio / qs[0], 2.f)))), -72.f, 36.f) : 0.f;
+                for (int band = 1; band < 5; ++band) if (_instrument->prismBandEnabled(band)) {
+                    const float spread = std::clamp(.85f / std::sqrt(qs[band]), .06f, 3.5f);
+                    db += gains[band] * std::exp(-.5f * std::pow(std::log(frequency / frequencies[band]) / spread, 2.f));
+                }
+                const NSPoint curvePoint = NSMakePoint(NSMinX(spectrum) + NSWidth(spectrum) * point / 239.f, std::clamp<CGFloat>(NSMidY(spectrum) - db * NSHeight(spectrum) / 36.f, NSMinY(spectrum) + 3, NSMaxY(spectrum) - 3));
+                if (!point) [response moveToPoint:curvePoint]; else [response lineToPoint:curvePoint];
+            }
+            [[NSColor colorWithCalibratedRed:.13 green:.83 blue:.93 alpha:1] setStroke];
+            response.lineWidth = 2.2;
+            [response stroke];
+            for (int band = 0; band < 5; ++band) if (_instrument->prismBandEnabled(band)) {
+                const NSPoint node = NSMakePoint(NSMinX(spectrum) + NSWidth(spectrum) * _instrument->prismBandValue(band, 0), NSMidY(spectrum) - gains[band] * NSHeight(spectrum) / 36.f);
+                NSBezierPath* dot = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(node.x - (band == _selectedPrismBand ? 7 : 5), node.y - (band == _selectedPrismBand ? 7 : 5), band == _selectedPrismBand ? 14 : 10, band == _selectedPrismBand ? 14 : 10)];
+                [(band == _selectedPrismBand ? NSColor.whiteColor : [NSColor colorWithCalibratedRed:.13 green:.83 blue:.93 alpha:1]) setFill];
+                [dot fill];
+            }
+            break;
+        }
     }
 
     for (const auto& key : project::kVisualKeys) {
@@ -223,6 +283,7 @@ namespace project = tripleside::project;
 - (NSInteger)controlAt:(NSPoint)point {
     for (NSInteger index = static_cast<NSInteger>(project::kControls.size()) - 1; index >= 0; --index) {
         const auto& control = project::kControls[static_cast<std::size_t>(index)];
+        if (!controlVisible(static_cast<std::size_t>(index))) continue;
         if (!interactiveKind(control.kind)) continue;
         if (static_cast<std::size_t>(index) < project::kVisualControls.size()) {
             const auto& visual = project::kVisualControls[static_cast<std::size_t>(index)];
@@ -237,6 +298,34 @@ namespace project = tripleside::project;
     return -1;
 }
 
+- (NSInteger)prismBandAt:(NSPoint)point {
+    if constexpr (!project::kIsPrismEq && !project::kHasPrismModule) return -1;
+    for (std::size_t index = 0; index < project::kControls.size(); ++index) {
+        if (!equals(project::kControls[index].kind, "spectrum") || equals(project::kControls[index].variant, "pure-spectrum")) continue;
+        const auto& visual = project::kVisualControls[index];
+        const NSRect spectrum = NSMakeRect(visual.hx, visual.hy, visual.hw, visual.hh);
+        for (int band = 4; band >= 0; --band) if (_instrument->prismBandEnabled(band)) {
+            const float gain = band ? (_instrument->prismBandValue(band, 1) - .5f) * 24.f : 0.f;
+            const NSPoint node = NSMakePoint(NSMinX(spectrum) + NSWidth(spectrum) * _instrument->prismBandValue(band, 0), NSMidY(spectrum) - gain * NSHeight(spectrum) / 36.f);
+            if (std::hypot(point.x - node.x, point.y - node.y) <= 12.) return band;
+        }
+    }
+    return -1;
+}
+
+- (void)updatePrismBand:(NSInteger)band point:(NSPoint)point {
+    for (std::size_t index = 0; index < project::kControls.size(); ++index) {
+        if (!equals(project::kControls[index].kind, "spectrum") || equals(project::kControls[index].variant, "pure-spectrum")) continue;
+        const auto& visual = project::kVisualControls[index];
+        const NSRect spectrum = NSMakeRect(visual.hx, visual.hy, visual.hw, visual.hh);
+        auto setParameter = [&](ParamID parameter, float value) { if (parameter != kNoParamId) { _instrument->beginEdit(parameter); _instrument->setParamNormalized(parameter, std::clamp(value, 0.f, 1.f)); _instrument->performEdit(parameter, std::clamp(value, 0.f, 1.f)); _instrument->endEdit(parameter); } };
+        setParameter(_instrument->prismParameterFor(static_cast<int>(band), 0), static_cast<float>((point.x - NSMinX(spectrum)) / std::max<CGFloat>(1, NSWidth(spectrum))));
+        if (band > 0) setParameter(_instrument->prismParameterFor(static_cast<int>(band), 1), static_cast<float>(.5 + (NSMidY(spectrum) - point.y) / std::max<CGFloat>(1, NSHeight(spectrum)) * 1.5));
+        break;
+    }
+    [self setNeedsDisplay:YES];
+}
+
 - (NSInteger)keyboardPitchAt:(NSPoint)point control:(NSInteger)controlIndex {
     for (const auto& key : project::kVisualKeys) {
         if (key.control != controlIndex) continue;
@@ -248,7 +337,7 @@ namespace project = tripleside::project;
 
 - (void)setControl:(NSInteger)index value:(float)value {
     if (index < 0 || static_cast<std::size_t>(index) >= project::kControls.size()) return;
-    const auto parameter = _instrument->parameterForControl(static_cast<std::size_t>(index));
+    const auto parameter = displayedParameter(*_instrument, static_cast<std::size_t>(index), _selectedPrismBand);
     if (parameter == kNoParamId) return;
     value = std::clamp(value, 0.f, 1.f);
     _instrument->beginEdit(parameter);
@@ -275,6 +364,27 @@ namespace project = tripleside::project;
             return;
         }
     }
+    if (event.clickCount >= 2 && (project::kIsPrismEq || project::kHasPrismModule)) {
+        for (std::size_t index = 0; index < project::kControls.size(); ++index) {
+            if (!equals(project::kControls[index].kind, "spectrum") || equals(project::kControls[index].variant, "pure-spectrum")) continue;
+            const auto& visual = project::kVisualControls[index];
+            if (!NSPointInRect(point, NSMakeRect(visual.hx, visual.hy, visual.hw, visual.hh))) continue;
+            for (NSInteger band = 0; band < 5; ++band) if (!_instrument->prismBandEnabled(static_cast<int>(band))) {
+                _selectedPrismBand = band;
+                const auto enabled = kPrismEnabledBaseId + static_cast<ParamID>(band);
+                _instrument->beginEdit(enabled); _instrument->setParamNormalized(enabled, 1); _instrument->performEdit(enabled, 1); _instrument->endEdit(enabled);
+                [self updatePrismBand:band point:point];
+                return;
+            }
+            return;
+        }
+    }
+    _dragPrismBand = [self prismBandAt:point];
+    if (_dragPrismBand >= 0) {
+        _selectedPrismBand = _dragPrismBand;
+        [self updatePrismBand:_dragPrismBand point:point];
+        return;
+    }
     _dragControl = [self controlAt:point];
     if (_dragControl < 0) return;
     const auto& control = project::kControls[static_cast<std::size_t>(_dragControl)];
@@ -287,7 +397,7 @@ namespace project = tripleside::project;
         _instrument->queueEditorNote(static_cast<int>(_activeNote), 112, true);
         _dragControl = -1;
     } else {
-        const auto parameter = _instrument->parameterForControl(static_cast<std::size_t>(_dragControl));
+        const auto parameter = displayedParameter(*_instrument, static_cast<std::size_t>(_dragControl), _selectedPrismBand);
         _dragStartValue = parameter == kNoParamId ? control.value
                                                   : static_cast<float>(_instrument->getParamNormalized(parameter));
         _dragStartY = point.y;
@@ -299,6 +409,10 @@ namespace project = tripleside::project;
 }
 
 - (void)mouseDragged:(NSEvent*)event {
+    if (_dragPrismBand >= 0) {
+        [self updatePrismBand:_dragPrismBand point:[self designPoint:[self convertPoint:event.locationInWindow fromView:nil]]];
+        return;
+    }
     if (_dragControl < 0) return;
     const NSPoint point = [self designPoint:[self convertPoint:event.locationInWindow fromView:nil]];
     [self setControl:_dragControl value:_dragStartValue + static_cast<float>((_dragStartY - point.y) / 150.)];
@@ -311,13 +425,38 @@ namespace project = tripleside::project;
         _activeNote = -1;
     }
     _dragControl = -1;
+    _dragPrismBand = -1;
+}
+
+- (void)keyDown:(NSEvent*)event {
+    if ((event.keyCode == 51 || event.keyCode == 117) && (project::kIsPrismEq || project::kHasPrismModule) && _instrument->prismBandEnabled(static_cast<int>(_selectedPrismBand))) {
+        const auto enabled = kPrismEnabledBaseId + static_cast<ParamID>(_selectedPrismBand);
+        _instrument->beginEdit(enabled); _instrument->setParamNormalized(enabled, 0); _instrument->performEdit(enabled, 0); _instrument->endEdit(enabled);
+        for (NSInteger distance = 1; distance < 5; ++distance) {
+            const NSInteger lower = _selectedPrismBand - distance, upper = _selectedPrismBand + distance;
+            if (lower >= 0 && _instrument->prismBandEnabled(static_cast<int>(lower))) { _selectedPrismBand = lower; break; }
+            if (upper < 5 && _instrument->prismBandEnabled(static_cast<int>(upper))) { _selectedPrismBand = upper; break; }
+        }
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    [super keyDown:event];
 }
 
 - (void)scrollWheel:(NSEvent*)event {
     const NSPoint point = [self designPoint:[self convertPoint:event.locationInWindow fromView:nil]];
+    const NSInteger band = [self prismBandAt:point];
+    if (band >= 0) {
+        _selectedPrismBand = band;
+        const auto parameter = _instrument->prismParameterFor(static_cast<int>(band), 2);
+        const auto current = static_cast<float>(_instrument->getParamNormalized(parameter));
+        _instrument->beginEdit(parameter); _instrument->setParamNormalized(parameter, std::clamp(current + static_cast<float>(event.scrollingDeltaY * .01), 0.f, 1.f)); _instrument->performEdit(parameter, _instrument->getParamNormalized(parameter)); _instrument->endEdit(parameter);
+        [self setNeedsDisplay:YES];
+        return;
+    }
     const NSInteger index = [self controlAt:point];
     if (index < 0 || !equals(project::kControls[static_cast<std::size_t>(index)].kind, "knob")) return;
-    const auto parameter = _instrument->parameterForControl(static_cast<std::size_t>(index));
+    const auto parameter = displayedParameter(*_instrument, static_cast<std::size_t>(index), _selectedPrismBand);
     if (parameter == kNoParamId) return;
     const auto current = static_cast<float>(_instrument->getParamNormalized(parameter));
     [self setControl:index value:current + static_cast<float>(event.scrollingDeltaY * .01)];

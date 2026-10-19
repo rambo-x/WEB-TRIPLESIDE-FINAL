@@ -14,6 +14,7 @@
 #include <cstdio>
 #include <cstring>
 #include <limits>
+#include <string>
 #if defined(_WIN32)
 #include <windows.h>
 #elif defined(__APPLE__)
@@ -69,12 +70,14 @@ bool hasControlParameter(const char* parameter){
         return control.parameter&&std::strcmp(control.parameter,parameter)==0;
     });
 }
+bool isPrismContextParameter(const char* parameter){return parameter&&(!std::strcmp(parameter,"prism_frequency")||!std::strcmp(parameter,"prism_gain")||!std::strcmp(parameter,"prism_q"));}
 dsp::RackModuleType rackModuleType(const char* type){
     if(!type)return dsp::RackModuleType::Unknown;
     if(!std::strcmp(type,"input_trim"))return dsp::RackModuleType::InputTrim;
     if(!std::strcmp(type,"soft_clip"))return dsp::RackModuleType::SoftClip;
     if(!std::strcmp(type,"linked_compressor"))return dsp::RackModuleType::LinkedCompressor;
     if(!std::strcmp(type,"de_esser"))return dsp::RackModuleType::DeEsser;
+    if(!std::strcmp(type,"prism_eq"))return dsp::RackModuleType::PrismEq;
     if(!std::strcmp(type,"parametric_eq"))return dsp::RackModuleType::ParametricEq;
     if(!std::strcmp(type,"multiband_compressor"))return dsp::RackModuleType::MultibandCompressor;
     if(!std::strcmp(type,"tone_shaper"))return dsp::RackModuleType::ToneShaper;
@@ -104,6 +107,7 @@ bool isPrimaryRackParameter(dsp::RackModuleType type,const char* key){
     if(type==dsp::RackModuleType::SoftClip)return!std::strcmp(key,"drive");
     if(type==dsp::RackModuleType::LinkedCompressor)return!std::strcmp(key,"compress");
     if(type==dsp::RackModuleType::DeEsser)return!std::strcmp(key,"amount");
+    if(type==dsp::RackModuleType::PrismEq)return!std::strcmp(key,"band_3_gain");
     if(type==dsp::RackModuleType::ParametricEq)return!std::strcmp(key,"mid_gain");
     if(type==dsp::RackModuleType::MultibandCompressor)return!std::strcmp(key,"amount");
     if(type==dsp::RackModuleType::ToneShaper)return!std::strcmp(key,"tone");
@@ -174,6 +178,12 @@ bool buildCustomImpulse(const WavFile& source,const project::ImpulseResponseInfo
 }
 }
 NativeInstrument::NativeInstrument() {
+    for(size_t i=0;i<prismFrequencies.size();++i){
+        prismFrequencies[i]=static_cast<float>(std::clamp(std::log(std::max(10.f,project::kPrismBandFrequencies[i])/10.f)/std::log(3000.f),0.0,1.0));
+        prismGains[i]=project::kPrismBandGains[i];
+        prismQs[i]=static_cast<float>(std::clamp(std::log(std::max(.025f,project::kPrismBandQs[i])/.025f)/std::log(1600.f),0.0,1.0));
+        prismEnabled[i]=project::kPrismBandEnabled[i];
+    }
     for(size_t i=0;i<project::kDspModules.size();++i){moduleMixValues[i].store(project::kDspModules[i].mix,std::memory_order_relaxed);moduleBypassValues[i].store(project::kDspModules[i].bypassed,std::memory_order_relaxed);compressorGainReductions[i].store(0,std::memory_order_relaxed);}
     for(size_t i=0;i<project::kDspParameters.size();++i)moduleParameterValues[i].store(project::kDspParameters[i].value,std::memory_order_relaxed);
 }
@@ -193,6 +203,11 @@ tresult PLUGIN_API NativeInstrument::initialize(FUnknown* context) {
             parameters.addParameter(STR16("Low Cut"),STR16("Hz"),0,project::kDefaultTone,ParameterInfo::kCanAutomate,kToneId);
             parameters.addParameter(STR16("Presence"),STR16("dB"),0,project::kDefaultWidth,ParameterInfo::kCanAutomate,kWidthId);
             parameters.addParameter(STR16("Air"),STR16("dB"),0,project::kDefaultSpace,ParameterInfo::kCanAutomate,kSpaceId);
+            if constexpr(project::kPrismLowCutEnabled){parameters.addParameter(STR16("Band 1 Frequency"),STR16("Hz"),0,prismFrequencies[0],ParameterInfo::kCanAutomate,kPrismFrequencyBaseId);parameters.addParameter(STR16("Band 1 Q"),nullptr,0,prismQs[0],ParameterInfo::kCanAutomate,kPrismQBaseId);}
+            if constexpr(project::kPrismLowBodyEnabled){parameters.addParameter(STR16("Band 2 Frequency"),STR16("Hz"),0,prismFrequencies[1],ParameterInfo::kCanAutomate,kPrismFrequencyBaseId+1);parameters.addParameter(STR16("Band 2 Q"),nullptr,0,prismQs[1],ParameterInfo::kCanAutomate,kPrismQBaseId+1);}
+            if constexpr(project::kPrismMidFocusEnabled){parameters.addParameter(STR16("Band 3 Frequency"),STR16("Hz"),0,prismFrequencies[2],ParameterInfo::kCanAutomate,kPrismFrequencyBaseId+2);parameters.addParameter(STR16("Band 3 Q"),nullptr,0,prismQs[2],ParameterInfo::kCanAutomate,kPrismQBaseId+2);}
+            if constexpr(project::kPrismPresenceEnabled){parameters.addParameter(STR16("Band 4 Frequency"),STR16("Hz"),0,prismFrequencies[3],ParameterInfo::kCanAutomate,kPrismFrequencyBaseId+3);parameters.addParameter(STR16("Band 4 Q"),nullptr,0,prismQs[3],ParameterInfo::kCanAutomate,kPrismQBaseId+3);}
+            if constexpr(project::kPrismAirEnabled){parameters.addParameter(STR16("Band 5 Frequency"),STR16("Hz"),0,prismFrequencies[4],ParameterInfo::kCanAutomate,kPrismFrequencyBaseId+4);parameters.addParameter(STR16("Band 5 Q"),nullptr,0,prismQs[4],ParameterInfo::kCanAutomate,kPrismQBaseId+4);}
         }else{
             parameters.addParameter(STR16("Drive"),nullptr,0,project::kDefaultDrive,ParameterInfo::kCanAutomate,kDriveId);
             parameters.addParameter(STR16("Compress"),nullptr,0,project::kDefaultCompress,ParameterInfo::kCanAutomate,kCompressId);
@@ -225,10 +240,17 @@ tresult PLUGIN_API NativeInstrument::initialize(FUnknown* context) {
     parameters.addParameter(STR16("Articulation"), nullptr, std::max<int>(0,project::kArticulations.size()-1), 0, ParameterInfo::kCanAutomate|ParameterInfo::kIsList, kArticulationId);
     parameters.addParameter(STR16("Mic Position"), nullptr, std::max<int>(0,project::kMicPositions.size()-1), 0, ParameterInfo::kCanAutomate|ParameterInfo::kIsList, kMicId);
     }
+    if constexpr(project::kHasPrismModule){for(size_t band=0;band<5;++band){
+        const auto number=std::to_string(band+1);String frequency(("Band "+number+" Frequency").c_str(),kCP_Utf8),gain(("Band "+number+" Gain").c_str(),kCP_Utf8),q(("Band "+number+" Q").c_str(),kCP_Utf8),enabled(("Band "+number+" Enabled").c_str(),kCP_Utf8);
+        parameters.addParameter(frequency.text16(),STR16("Hz"),0,prismFrequencies[band],ParameterInfo::kCanAutomate,kPrismFrequencyBaseId+static_cast<ParamID>(band));
+        parameters.addParameter(gain.text16(),STR16("dB"),0,prismGains[band],ParameterInfo::kCanAutomate,kPrismGainBaseId+static_cast<ParamID>(band));
+        parameters.addParameter(q.text16(),nullptr,0,prismQs[band],ParameterInfo::kCanAutomate,kPrismQBaseId+static_cast<ParamID>(band));
+        parameters.addParameter(enabled.text16(),nullptr,1,prismEnabled[band]?1:0,ParameterInfo::kCanAutomate,kPrismEnabledBaseId+static_cast<ParamID>(band));
+    }}
     for(size_t i=0;i<project::kControls.size();++i){
         const auto&control=project::kControls[i];
         moduleControlValues[i]=control.value;
-        if(control.moduleIndex<0||!isModuleControlKind(control.kind))continue;
+        if(control.moduleIndex<0||!isModuleControlKind(control.kind)||isPrismContextParameter(control.parameter))continue;
         String title(project::kDspModules[static_cast<size_t>(control.moduleIndex)].name,kCP_Utf8);title.append(STR16(" · "));String label(control.label,kCP_Utf8);title.append(label.text16());
         const int32 steps=!std::strcmp(control.kind,"button")||!std::strcmp(control.kind,"mute")||!std::strcmp(control.kind,"solo")?1:0;
         parameters.addParameter(title.text16(),nullptr,steps,control.value,ParameterInfo::kCanAutomate,kModuleControlBaseId+static_cast<ParamID>(i));
@@ -282,8 +304,24 @@ ParamID NativeInstrument::parameterFor(const char* name) const noexcept {
 ParamID NativeInstrument::parameterForControl(size_t index) const noexcept {
     if(index>=project::kControls.size())return kNoParamId;
     const auto&control=project::kControls[index];
+    if(isPrismContextParameter(control.parameter))return kNoParamId;
     if(control.moduleIndex>=0&&isModuleControlKind(control.kind))return kModuleControlBaseId+static_cast<ParamID>(index);
     return parameterFor(control.parameter);
+}
+ParamID NativeInstrument::prismParameterFor(int band,int slot) const noexcept {
+    if((!project::kIsPrismEq&&!project::kHasPrismModule)||band<0||band>=5)return kNoParamId;
+    if(slot==0)return kPrismFrequencyBaseId+static_cast<ParamID>(band);
+    if(slot==2)return kPrismQBaseId+static_cast<ParamID>(band);
+    if(slot!=1||band==0)return kNoParamId;
+    if constexpr(project::kHasPrismModule)return kPrismGainBaseId+static_cast<ParamID>(band);
+    constexpr ParamID gainIds[]={kToneId,kDriveId,kCompressId,kWidthId,kSpaceId};
+    return gainIds[band];
+}
+float NativeInstrument::prismBandValue(int band,int slot) const noexcept {
+    const auto id=prismParameterFor(band,slot);return id==kNoParamId?.5f:static_cast<float>(getParamNormalized(id));
+}
+bool NativeInstrument::prismBandEnabled(int band) const noexcept {
+    return (project::kIsPrismEq||project::kHasPrismModule)&&band>=0&&band<5&&prismEnabled[static_cast<size_t>(band)];
 }
 float NativeInstrument::gainReduction(int moduleIndex) const noexcept {
     if(moduleIndex>=0&&moduleIndex<static_cast<int>(compressorGainReductions.size()))return compressorGainReductions[static_cast<size_t>(moduleIndex)].load(std::memory_order_relaxed);
@@ -295,6 +333,13 @@ void NativeInstrument::applyModuleControl(size_t index,float value) noexcept {
     if(control.moduleIndex<0||control.moduleIndex>=static_cast<int>(project::kDspModules.size()))return;
     moduleControlValues[index]=clamp01(value);
     applyModulePresetValue(static_cast<size_t>(control.moduleIndex),control.parameter,value);
+}
+void NativeInstrument::applyPrismRackParameter(int band,int slot,float value) noexcept {
+    if constexpr(!project::kHasPrismModule)return;
+    if(band<0||band>=5||project::kPrismModuleIndex<0)return;
+    const char* suffix=slot==0?"frequency":slot==1?"gain":slot==2?"q":"enabled";
+    const auto key="band_"+std::to_string(band+1)+"_"+suffix;
+    applyModulePresetValue(static_cast<size_t>(project::kPrismModuleIndex),key.c_str(),value);
 }
 void NativeInstrument::applyModulePresetValue(size_t moduleIndex,const char*parameter,float value) noexcept {
     if(moduleIndex>=project::kDspModules.size()||!parameter||!std::isfinite(value))return;
@@ -359,7 +404,11 @@ float NativeInstrument::modulePresetValue(size_t moduleIndex,const char*paramete
 }
 void NativeInstrument::applyParameterValue(ParamID id,float v) noexcept {
     v=clamp01(v);
-    if(id==kVolumeId){volume=v;instrumentMasterGain.setNormalized(v);}
+    if(id>=kPrismFrequencyBaseId&&id<kPrismFrequencyBaseId+5){const int band=static_cast<int>(id-kPrismFrequencyBaseId);prismFrequencies[static_cast<size_t>(band)]=v;applyPrismRackParameter(band,0,v);}
+    else if(id>=kPrismQBaseId&&id<kPrismQBaseId+5){const int band=static_cast<int>(id-kPrismQBaseId);prismQs[static_cast<size_t>(band)]=v;applyPrismRackParameter(band,2,v);}
+    else if(id>=kPrismGainBaseId&&id<kPrismGainBaseId+5){const int band=static_cast<int>(id-kPrismGainBaseId);prismGains[static_cast<size_t>(band)]=v;applyPrismRackParameter(band,1,v);}
+    else if(id>=kPrismEnabledBaseId&&id<kPrismEnabledBaseId+5){const int band=static_cast<int>(id-kPrismEnabledBaseId);prismEnabled[static_cast<size_t>(band)]=v>=.5f;applyPrismRackParameter(band,3,v);}
+    else if(id==kVolumeId){volume=v;instrumentMasterGain.setNormalized(v);}
     else if(id==kToneId){tone=v;effectRack.setTone(v);instrumentSaturation.setNormalized(v);}
     else if(id==kAttackId)attack=v;
     else if(id==kReleaseId)releaseAmount=v;
@@ -591,11 +640,13 @@ void NativeInstrument::updatePrismEq(){
     auto normalize=[](StereoBiquad&f,float b0,float b1,float b2,float a0,float a1,float a2){f.b0=b0/a0;f.b1=b1/a0;f.b2=b2/a0;f.a1=a1/a0;f.a2=a2/a0;};
     auto highPass=[&](StereoBiquad&f,float frequency,float q){const float w=2*pi*std::clamp(frequency,10.f,sampleRate*.45f)/sampleRate,c=std::cos(w),s=std::sin(w),a=s/(2*q);normalize(f,(1+c)*.5f,-(1+c),(1+c)*.5f,1+a,-2*c,1-a);};
     auto peak=[&](StereoBiquad&f,float frequency,float gainDb,float q){const float A=std::pow(10.f,gainDb/40.f),w=2*pi*std::clamp(frequency,10.f,sampleRate*.45f)/sampleRate,c=std::cos(w),s=std::sin(w),a=s/(2*q);normalize(f,1+a*A,-2*c,1-a*A,1+a/A,-2*c,1-a/A);};
-    if constexpr(project::kPrismLowCutEnabled)highPass(prismLowCut,10.f*std::pow(3000.f,tone),project::kPrismLowCutQ);else prismLowCut={};
-    if constexpr(project::kPrismLowBodyEnabled)peak(prismLowBody,project::kPrismLowBodyFrequency,(drive-.5f)*24.f,project::kPrismLowBodyQ);else prismLowBody={};
-    if constexpr(project::kPrismMidFocusEnabled)peak(prismMidFocus,project::kPrismMidFocusFrequency,(compress-.5f)*24.f,project::kPrismMidFocusQ);else prismMidFocus={};
-    if constexpr(project::kPrismPresenceEnabled)peak(prismPresence,project::kPrismPresenceFrequency,(width-.5f)*24.f,project::kPrismPresenceQ);else prismPresence={};
-    if constexpr(project::kPrismAirEnabled)peak(prismAir,project::kPrismAirFrequency,(space-.5f)*24.f,project::kPrismAirQ);else prismAir={};
+    const auto frequency=[&](size_t band){return 10.f*std::pow(3000.f,std::clamp(prismFrequencies[band],0.f,1.f));};
+    const auto q=[&](size_t band){return .025f*std::pow(1600.f,std::clamp(prismQs[band],0.f,1.f));};
+    if constexpr(project::kPrismLowCutEnabled)highPass(prismLowCut,frequency(0),q(0));else prismLowCut={};
+    if constexpr(project::kPrismLowBodyEnabled)peak(prismLowBody,frequency(1),(drive-.5f)*24.f,q(1));else prismLowBody={};
+    if constexpr(project::kPrismMidFocusEnabled)peak(prismMidFocus,frequency(2),(compress-.5f)*24.f,q(2));else prismMidFocus={};
+    if constexpr(project::kPrismPresenceEnabled)peak(prismPresence,frequency(3),(width-.5f)*24.f,q(3));else prismPresence={};
+    if constexpr(project::kPrismAirEnabled)peak(prismAir,frequency(4),(space-.5f)*24.f,q(4));else prismAir={};
 }
 void NativeInstrument::processEffectFrame(float dryL,float dryR,float&l,float&r){if constexpr(!project::kIsPrismEq){l=dryL;r=dryR;effectRack.processFrame(l,r);}else{float inputDryL=dryL,inputDryR=dryR;effectInputTrim.processFrame(inputDryL,inputDryR);l=inputDryL;r=inputDryR;StereoBiquad*filters[]={&prismLowCut,&prismLowBody,&prismMidFocus,&prismPresence,&prismAir};for(auto*f:filters){l=f->process(l,0);r=f->process(r,1);}effectMix.processFrame(inputDryL,inputDryR,l,r);effectOutputTrim.processFrame(l,r);}const float bypassMix=effectBypassMix.next();l+=(dryL-l)*bypassMix;r+=(dryR-r)*bypassMix;}
 void NativeInstrument::applyMasterPan(float&l,float&r)noexcept{const float position=masterPan.next()*2.f-1.f;if(position>0.f)l*=std::cos(position*pi*.5f);else if(position<0.f)r*=std::cos(-position*pi*.5f);}
@@ -644,22 +695,34 @@ void NativeInstrument::copyAnalysisSamples(float*destination,std::size_t count,i
 }
 
 tresult PLUGIN_API NativeInstrument::setState(IBStream*s){
-    if(!s)return kResultFalse;IBStreamer b(s,kLittleEndian);uint32 magic=0,version=0;if(!b.readInt32u(magic)||!b.readInt32u(version)||magic!=0x54535633||version<1||version>3)return kResultFalse;
+    if(!s)return kResultFalse;IBStreamer b(s,kLittleEndian);uint32 magic=0,version=0;if(!b.readInt32u(magic)||!b.readInt32u(version)||magic!=0x54535633||version<1||version>5)return kResultFalse;
     std::array<float,9>v{};for(auto&x:v)if(!b.readFloat(x))return kResultFalse;
     if constexpr(project::kIsEffect){input=clamp01(v[0]);drive=clamp01(v[1]);compress=clamp01(v[2]);tone=clamp01(v[3]);width=clamp01(v[4]);space=clamp01(v[5]);mix=clamp01(v[6]);output=clamp01(v[7]);bypass=v[8]>=.5f;}else{volume=clamp01(v[0]);tone=clamp01(v[1]);attack=clamp01(v[2]);releaseAmount=clamp01(v[3]);space=clamp01(v[4]);mute=hasControlParameter("mute")&&v[5]>=.5f;solo=hasControlParameter("solo")&&v[6]>=.5f;v[5]=mute?1.f:0.f;v[6]=solo?1.f:0.f;
     articulation=project::kArticulations.size()>1?std::lround(clamp01(v[7])*(project::kArticulations.size()-1)):0;mic=project::kMicPositions.size()>1?std::lround(clamp01(v[8])*(project::kMicPositions.size()-1)):0;
     }if constexpr(project::kIsEffect){effectBypassMix.reset(bypass?1.0f:0.0f);effectInputTrim.reset(input);effectMix.reset(mix);effectOutputTrim.reset(output);effectRack.setInput(input);effectRack.setDrive(drive);effectRack.setCompress(compress);effectRack.setTone(tone);effectRack.setWidth(width);effectRack.setSpace(space);effectRack.setDryWet(mix);effectRack.setOutput(output);effectRack.reset();}else{instrumentMasterGain.reset(volume);instrumentSaturation.reset(tone);instrumentChorus.reset(space);instrumentDelay.reset(space);instrumentReverb.reset(space);effectRack.setTone(tone);effectRack.setSpace(space);effectRack.reset();}ParamID effectIds[]={kInputId,kDriveId,kCompressId,kToneId,kWidthId,kSpaceId,kMixId,kOutputId,kBypassId};ParamID instrumentIds[]={kVolumeId,kToneId,kAttackId,kReleaseId,kSpaceId,kMuteId,kSoloId,kArticulationId,kMicId};auto*ids=project::kIsEffect?effectIds:instrumentIds;for(int i=0;i<9;++i)setParamNormalized(ids[i],clamp01(v[i]));if constexpr(!project::kIsEffect){setSustain(project::kDefaultSustain);setParamNormalized(kSustainId,project::kDefaultSustain?1:0);}
     for(size_t g=0;g<project::kGroups.size();++g){float values[4]{};for(auto&x:values)if(!b.readFloat(x))return kResultFalse;groupVolumes[g]=clamp01(values[0]);groupPans[g]=clamp01(values[1])*2-1;groupMutes[g]=values[2]>=.5f;groupSolos[g]=values[3]>=.5f;for(int slot=0;slot<4;++slot)setParamNormalized(groupParameterId(static_cast<int>(g),slot),clamp01(values[slot]));}
-    if(version>=2){uint32 count=0;if(!b.readInt32u(count)||count>4096)return kResultFalse;for(uint32 i=0;i<count;++i){float value=0;if(!b.readFloat(value))return kResultFalse;if(i<project::kControls.size()&&project::kControls[i].moduleIndex>=0){const float normalized=clamp01(value);setParamNormalized(kModuleControlBaseId+i,normalized);applyModuleControl(i,normalized);}}}
+    if(version>=2){uint32 count=0;if(!b.readInt32u(count)||count>4096)return kResultFalse;for(uint32 i=0;i<count;++i){float value=0;if(!b.readFloat(value))return kResultFalse;if(i<project::kControls.size()&&project::kControls[i].moduleIndex>=0&&!isPrismContextParameter(project::kControls[i].parameter)){const float normalized=clamp01(value);setParamNormalized(kModuleControlBaseId+i,normalized);applyModuleControl(i,normalized);}}}
     pan=project::kDefaultPan;if(version>=3&&!b.readFloat(pan))return kResultFalse;pan=clamp01(pan);masterPan.reset(pan);setParamNormalized(kPanId,pan);
+    if constexpr(project::kIsPrismEq||project::kHasPrismModule){
+        if(version>=5){for(auto&value:prismFrequencies)if(!b.readFloat(value))return kResultFalse;for(auto&value:prismGains)if(!b.readFloat(value))return kResultFalse;for(auto&value:prismQs)if(!b.readFloat(value))return kResultFalse;for(auto&enabled:prismEnabled){float value=0;if(!b.readFloat(value))return kResultFalse;enabled=value>=.5f;}}
+        else if constexpr(project::kIsPrismEq){if(version>=4){for(auto&value:prismFrequencies)if(!b.readFloat(value))return kResultFalse;for(auto&value:prismQs)if(!b.readFloat(value))return kResultFalse;}else prismFrequencies[0]=tone;}
+        for(size_t band=0;band<5;++band){
+            prismFrequencies[band]=clamp01(prismFrequencies[band]);prismGains[band]=clamp01(prismGains[band]);prismQs[band]=clamp01(prismQs[band]);
+            const auto frequencyId=kPrismFrequencyBaseId+static_cast<ParamID>(band),qId=kPrismQBaseId+static_cast<ParamID>(band);setParamNormalized(frequencyId,prismFrequencies[band]);setParamNormalized(qId,prismQs[band]);applyParameterValue(frequencyId,prismFrequencies[band]);applyParameterValue(qId,prismQs[band]);
+            if constexpr(project::kHasPrismModule){const auto gainId=kPrismGainBaseId+static_cast<ParamID>(band),enabledId=kPrismEnabledBaseId+static_cast<ParamID>(band);setParamNormalized(gainId,prismGains[band]);setParamNormalized(enabledId,prismEnabled[band]?1.f:0.f);applyParameterValue(gainId,prismGains[band]);applyParameterValue(enabledId,prismEnabled[band]?1.f:0.f);}
+        }
+        if constexpr(project::kIsPrismEq)updatePrismEq();
+    }
     return kResultOk;
 }
 tresult PLUGIN_API NativeInstrument::getState(IBStream*s){
-    if(!s)return kResultFalse;IBStreamer b(s,kLittleEndian);if(!b.writeInt32u(0x54535633)||!b.writeInt32u(3))return kResultFalse;
+    if(!s)return kResultFalse;IBStreamer b(s,kLittleEndian);if(!b.writeInt32u(0x54535633)||!b.writeInt32u(5))return kResultFalse;
     float articulationValue=project::kArticulations.size()>1?(float)articulation/(project::kArticulations.size()-1):0,micValue=project::kMicPositions.size()>1?(float)mic/(project::kMicPositions.size()-1):0;
     float instrumentValues[]={volume,tone,attack,releaseAmount,space,mute?1.f:0.f,solo?1.f:0.f,articulationValue,micValue};float effectValues[]={input,drive,compress,tone,width,space,mix,output,bypass?1.f:0.f};auto*values=project::kIsEffect?effectValues:instrumentValues;for(int i=0;i<9;++i)if(!b.writeFloat(values[i]))return kResultFalse;
     for(size_t g=0;g<project::kGroups.size();++g){float values[]={groupVolumes[g],(groupPans[g]+1)*.5f,groupMutes[g]?1.f:0.f,groupSolos[g]?1.f:0.f};for(float x:values)if(!b.writeFloat(x))return kResultFalse;}
-    if(!b.writeInt32u(static_cast<uint32>(moduleControlValues.size())))return kResultFalse;for(float value:moduleControlValues)if(!b.writeFloat(value))return kResultFalse;if(!b.writeFloat(pan))return kResultFalse;return kResultOk;
+    if(!b.writeInt32u(static_cast<uint32>(moduleControlValues.size())))return kResultFalse;for(float value:moduleControlValues)if(!b.writeFloat(value))return kResultFalse;if(!b.writeFloat(pan))return kResultFalse;
+    if constexpr(project::kIsPrismEq||project::kHasPrismModule){for(float value:prismFrequencies)if(!b.writeFloat(value))return kResultFalse;for(int band=0;band<5;++band)if(!b.writeFloat(prismBandValue(band,1)))return kResultFalse;for(float value:prismQs)if(!b.writeFloat(value))return kResultFalse;for(int band=0;band<5;++band)if(!b.writeFloat(prismBandEnabled(band)?1.f:0.f))return kResultFalse;}
+    return kResultOk;
 }
 tresult PLUGIN_API NativeInstrument::setEditorState(IBStream*s){return setState(s);} tresult PLUGIN_API NativeInstrument::getEditorState(IBStream*s){return getState(s);}
 IPlugView* PLUGIN_API NativeInstrument::createView(FIDString name){return name&&std::strcmp(name,ViewType::kEditor)==0?new NativeView(*this):nullptr;}
