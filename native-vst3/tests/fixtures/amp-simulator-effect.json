@@ -1,0 +1,52 @@
+{
+  "schema_version": "1.0",
+  "plugin_kind": "effect",
+  "project_template": "basicfx",
+  "dsp_profile": "standard",
+  "name": "TripleSide Original Amp Simulator Smoke",
+  "instrument": { "type": "Audio Effect", "polyphony": 8 },
+  "branding": { "manufacturer_name": "TripleSide Studio", "tagline": "ORIGINAL AMP DSP INTERNAL VALIDATION", "font": "space-grotesk", "font_size": 24, "x": 50, "y": 9, "align": "center" },
+  "interface": {
+    "template": "studio",
+    "accent_color": "#f43f5e",
+    "canvas_width": 900,
+    "canvas_height": 540,
+    "background": { "url": null, "fit": "cover", "opacity": 100, "x": 50, "y": 50, "width": 100, "height": 100 },
+    "controls": [
+      { "id": "gate-threshold", "kind": "knob", "label": "Gate Threshold", "parameter": "threshold", "module_id": "gate", "x": 12, "y": 35, "width": 112, "height": 122, "value": 40 },
+      { "id": "gate-release", "kind": "knob", "label": "Gate Release", "parameter": "release", "module_id": "gate", "x": 22, "y": 35, "width": 112, "height": 122, "value": 50 },
+      { "id": "od-drive", "kind": "knob", "label": "OD Drive", "parameter": "drive", "module_id": "drive", "x": 34, "y": 35, "width": 112, "height": 122, "value": 60 },
+      { "id": "od-tone", "kind": "knob", "label": "OD Tone", "parameter": "tone", "module_id": "drive", "x": 44, "y": 35, "width": 112, "height": 122, "value": 55 },
+      { "id": "od-level", "kind": "knob", "label": "OD Level", "parameter": "level", "module_id": "drive", "x": 54, "y": 35, "width": 112, "height": 122, "value": 50 },
+      { "id": "amp-gain", "kind": "knob", "label": "Amp Gain", "parameter": "gain", "module_id": "amp", "x": 18, "y": 58, "width": 112, "height": 122, "value": 55 },
+      { "id": "amp-bass", "kind": "knob", "label": "Bass", "parameter": "bass", "module_id": "amp", "x": 30, "y": 58, "width": 112, "height": 122, "value": 60 },
+      { "id": "amp-mid", "kind": "knob", "label": "Mid", "parameter": "mid", "module_id": "amp", "x": 42, "y": 58, "width": 112, "height": 122, "value": 45 },
+      { "id": "amp-treble", "kind": "knob", "label": "Treble", "parameter": "treble", "module_id": "amp", "x": 54, "y": 58, "width": 112, "height": 122, "value": 65 },
+      { "id": "amp-presence", "kind": "knob", "label": "Presence", "parameter": "presence", "module_id": "amp", "x": 66, "y": 58, "width": 112, "height": 122, "value": 40 },
+      { "id": "amp-master", "kind": "knob", "label": "Master", "parameter": "master", "module_id": "amp", "x": 78, "y": 58, "width": 112, "height": 122, "value": 75 },
+      { "id": "cab-voice", "kind": "knob", "label": "Cabinet", "parameter": "cabinet", "module_id": "cab", "x": 35, "y": 78, "width": 112, "height": 122, "value": 50 },
+      { "id": "cab-mic", "kind": "knob", "label": "Mic", "parameter": "mic_position", "module_id": "cab", "x": 48, "y": 78, "width": 112, "height": 122, "value": 55 },
+      { "id": "cab-resonance", "kind": "knob", "label": "Resonance", "parameter": "resonance", "module_id": "cab", "x": 61, "y": 78, "width": 112, "height": 122, "value": 50 },
+      { "id": "cab-level", "kind": "knob", "label": "Cab Level", "parameter": "level", "module_id": "cab", "x": 74, "y": 78, "width": 112, "height": 122, "value": 50 }
+    ]
+  },
+  "dsp_graph": {
+    "version": 2,
+    "mode": "ordered_rack",
+    "source": "internal_amp_smoke",
+    "modules": [
+      { "id": "input", "type": "input_trim", "name": "Input", "parentId": null, "order": 0, "bypassed": false, "mix": 1, "parameters": { "input": 0.5 } },
+      { "id": "gate", "type": "noise_gate", "name": "Gate", "parentId": null, "order": 10, "bypassed": false, "mix": 1, "parameters": { "threshold": 0.4, "release": 0.5 } },
+      { "id": "drive", "type": "amp_overdrive", "name": "Overdrive", "parentId": null, "order": 20, "bypassed": false, "mix": 1, "parameters": { "drive": 0.6, "tone": 0.55, "level": 0.5 } },
+      { "id": "amp", "type": "amp_model", "name": "Original Amp", "parentId": null, "order": 30, "bypassed": false, "mix": 1, "parameters": { "gain": 0.55, "bass": 0.6, "mid": 0.45, "treble": 0.65, "presence": 0.4, "master": 0.75 } },
+      { "id": "cab", "type": "cabinet_ir", "name": "Built-in Cabinet", "parentId": null, "order": 40, "bypassed": false, "mix": 1, "parameters": { "cabinet": 0.5, "mic_position": 0.55, "resonance": 0.5, "level": 0.5 } },
+      { "id": "output", "type": "output_trim", "name": "Output", "parentId": null, "order": 50, "bypassed": false, "mix": 1, "parameters": { "output": 0.75 } }
+    ]
+  },
+  "effects": {},
+  "sampler_groups": [],
+  "samples": [],
+  "sampler_map": [],
+  "sample_packaging": { "mode": "private_object_storage", "monolith": false },
+  "build": { "company_name": "TripleSide Studio", "version": "1.0.0", "formats": ["VST3"], "platforms": ["windows"] }
+}

@@ -1,0 +1,56 @@
+{
+  "schema_version": "1.0",
+  "plugin_kind": "effect",
+  "project_template": "basicfx",
+  "dsp_profile": "standard",
+  "name": "Creative Effects Native Smoke",
+  "instrument": { "type": "Audio Effect", "polyphony": 8 },
+  "branding": {
+    "manufacturer_name": "TripleSide Studio",
+    "tagline": "CREATIVE DSP INTERNAL VALIDATION",
+    "font": "space-grotesk",
+    "font_size": 24,
+    "x": 50,
+    "y": 10,
+    "align": "center"
+  },
+  "interface": {
+    "template": "studio",
+    "accent_color": "#e11d48",
+    "canvas_width": 900,
+    "canvas_height": 540,
+    "background": { "url": null, "fit": "cover", "opacity": 100, "x": 50, "y": 50, "width": 100, "height": 100 },
+    "controls": [
+      { "id": "chorus-mix", "kind": "knob", "label": "Chorus", "parameter": "mix", "module_id": "chorus", "x": 14, "y": 48, "width": 96, "height": 108, "value": 35, "show_background": false },
+      { "id": "flanger-mix", "kind": "knob", "label": "Flanger", "parameter": "mix", "module_id": "flanger", "x": 26, "y": 48, "width": 96, "height": 108, "value": 42, "show_background": false },
+      { "id": "tremolo-mix", "kind": "knob", "label": "Tremolo", "parameter": "mix", "module_id": "tremolo", "x": 38, "y": 48, "width": 96, "height": 108, "value": 100, "show_background": false },
+      { "id": "vibrato-mix", "kind": "knob", "label": "Vibrato", "parameter": "mix", "module_id": "vibrato", "x": 50, "y": 48, "width": 96, "height": 108, "value": 100, "show_background": false },
+      { "id": "delay-mix", "kind": "knob", "label": "Digital Delay", "parameter": "mix", "module_id": "digital-delay", "x": 62, "y": 48, "width": 96, "height": 108, "value": 28, "show_background": false },
+      { "id": "reverb-mix", "kind": "knob", "label": "Reverb", "parameter": "mix", "module_id": "reverb", "x": 74, "y": 48, "width": 96, "height": 108, "value": 25, "show_background": false },
+      { "id": "shimmer-mix", "kind": "knob", "label": "Shimmer", "parameter": "mix", "module_id": "shimmer", "x": 86, "y": 48, "width": 96, "height": 108, "value": 30, "show_background": false },
+      { "id": "bypass", "kind": "button", "label": "Bypass", "parameter": "bypass", "module_id": null, "x": 50, "y": 72, "width": 108, "height": 76, "value": 0, "show_background": false },
+      { "id": "meter", "kind": "gain_meter", "label": "Output", "parameter": "output_level", "module_id": null, "x": 50, "y": 88, "width": 300, "height": 72, "value": 0, "show_background": false }
+    ]
+  },
+  "dsp_graph": {
+    "version": 2,
+    "mode": "ordered_rack",
+    "source": "internal_smoke",
+    "modules": [
+      { "id": "silk-bloom", "type": "silk_bloom", "name": "Silk Bloom Boutique Amp", "order": 5, "bypassed": false, "mix": 1, "parameters": { "mode": 0.5, "pickup": 0.5, "gain": 0.46, "touch": 0.72, "bass": 0.48, "mid": 0.58, "treble": 0.54, "presence": 0.38, "sag": 0.42, "master": 0.7 } },
+      { "id": "chorus", "type": "chorus", "name": "Studio Chorus", "order": 10, "bypassed": false, "mix": 1, "parameters": { "mix": 0.35, "rate": 0.38, "depth": 0.58, "delay": 0.48, "feedback": 0.35, "stereo": 0.75 } },
+      { "id": "flanger", "type": "flanger", "name": "Through-Zero Flanger", "order": 20, "bypassed": false, "mix": 1, "parameters": { "mix": 0.42, "rate": 0.32, "depth": 0.62, "manual": 0.38, "feedback": 0.68, "stereo": 0.6 } },
+      { "id": "tremolo", "type": "tremolo", "name": "Stereo Tremolo", "order": 30, "bypassed": false, "mix": 1, "parameters": { "mix": 1, "rate": 0.48, "depth": 0.7, "shape": 0.35, "stereo": 0.5 } },
+      { "id": "vibrato", "type": "vibrato", "name": "True Vibrato", "order": 40, "bypassed": false, "mix": 1, "parameters": { "mix": 1, "rate": 0.45, "depth": 0.45, "stereo": 0.4 } },
+      { "id": "digital-delay", "type": "digital_delay", "name": "Early Digital Delay", "order": 50, "bypassed": false, "mix": 1, "parameters": { "mix": 0.28, "time": 0.62, "feedback": 0.38, "tone": 0.58, "character": 0.72, "stereo": 0.35 } },
+      { "id": "reverb", "type": "reverb", "name": "True Reverb", "order": 60, "bypassed": false, "mix": 1, "parameters": { "mix": 0.25, "mode": 0.33, "size": 0.58, "decay": 0.52, "damping": 0.55, "pre_delay": 0.18, "modulation": 0.22 } },
+      { "id": "shimmer", "type": "shimmer", "name": "Shimmer Reverb", "order": 70, "bypassed": false, "mix": 1, "parameters": { "mix": 0.3, "size": 0.68, "decay": 0.68, "damping": 0.48, "pre_delay": 0.22, "shimmer": 0.5 } }
+    ]
+  },
+  "effects": {},
+  "sampler_groups": [],
+  "samples": [],
+  "sampler_map": [],
+  "sample_packaging": { "mode": "private_object_storage", "monolith": false },
+  "build": { "company_name": "TripleSide Studio", "version": "1.0.0", "formats": ["VST3"], "platforms": ["windows"] }
+}

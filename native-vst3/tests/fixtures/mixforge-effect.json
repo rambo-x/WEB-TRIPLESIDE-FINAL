@@ -1,0 +1,40 @@
+{
+  "schema_version": "1.0",
+  "plugin_kind": "effect",
+  "name": "MixForge Native Smoke",
+  "instrument": { "type": "Audio Effect", "polyphony": 8 },
+  "branding": {
+    "manufacturer_name": "TripleSide Studio",
+    "tagline": "STEREO COLOR & DYNAMICS",
+    "font": "space-grotesk",
+    "font_size": 27,
+    "x": 50,
+    "y": 8,
+    "align": "center"
+  },
+  "interface": {
+    "template": "mixforge",
+    "accent_color": "#c98b5b",
+    "canvas_width": 1024,
+    "canvas_height": 576,
+    "background": { "url": null, "fit": "cover", "opacity": 100, "x": 50, "y": 50, "width": 100, "height": 100 },
+    "controls": [
+      { "id": "input", "kind": "knob", "label": "Input", "parameter": "input", "x": 13, "y": 43, "width": 104, "height": 116, "value": 50, "show_background": false },
+      { "id": "drive", "kind": "knob", "label": "Drive", "parameter": "drive", "x": 25, "y": 43, "width": 104, "height": 116, "value": 24, "show_background": false },
+      { "id": "compress", "kind": "knob", "label": "Compress", "parameter": "compress", "x": 37, "y": 43, "width": 104, "height": 116, "value": 32, "show_background": false },
+      { "id": "tone", "kind": "knob", "label": "Tone", "parameter": "tone", "x": 49, "y": 43, "width": 104, "height": 116, "value": 50, "show_background": false },
+      { "id": "width", "kind": "knob", "label": "Width", "parameter": "width", "x": 61, "y": 43, "width": 104, "height": 116, "value": 50, "show_background": false },
+      { "id": "space", "kind": "knob", "label": "Space", "parameter": "space", "x": 73, "y": 43, "width": 104, "height": 116, "value": 18, "show_background": false },
+      { "id": "mix", "kind": "knob", "label": "Mix", "parameter": "mix", "x": 85, "y": 43, "width": 104, "height": 116, "value": 100, "show_background": false },
+      { "id": "output", "kind": "knob", "label": "Output", "parameter": "output", "x": 94, "y": 43, "width": 104, "height": 116, "value": 75, "show_background": false },
+      { "id": "bypass", "kind": "button", "label": "Bypass", "parameter": "bypass", "x": 10, "y": 83, "width": 96, "height": 76, "value": 0, "show_background": false },
+      { "id": "meter", "kind": "gain_meter", "label": "Stereo Output", "parameter": "output_level", "x": 68, "y": 83, "width": 520, "height": 82, "value": 0, "show_background": false }
+    ]
+  },
+  "effects": {},
+  "sampler_groups": [],
+  "samples": [],
+  "sampler_map": [],
+  "sample_packaging": { "mode": "private_object_storage", "monolith": false },
+  "build": { "company_name": "TripleSide Studio", "version": "1.0.0", "formats": ["VST3"], "platforms": ["windows"] }
+}

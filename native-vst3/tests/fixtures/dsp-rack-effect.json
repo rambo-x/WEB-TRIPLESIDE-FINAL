@@ -1,0 +1,66 @@
+{
+  "schema_version": "1.0",
+  "plugin_kind": "effect",
+  "project_template": "basicfx",
+  "dsp_profile": "standard",
+  "name": "DSP Rack Rich Parameters Smoke",
+  "instrument": { "type": "Audio Effect", "polyphony": 8 },
+  "branding": {
+    "manufacturer_name": "TripleSide Studio",
+    "tagline": "RICH DSP PARAMETERS INTERNAL VALIDATION",
+    "font": "space-grotesk",
+    "font_size": 24,
+    "x": 50,
+    "y": 9,
+    "align": "center"
+  },
+  "interface": {
+    "template": "studio",
+    "accent_color": "#e11d48",
+    "canvas_width": 900,
+    "canvas_height": 540,
+    "background": { "url": null, "fit": "cover", "opacity": 100, "x": 50, "y": 50, "width": 100, "height": 100 },
+    "controls": [
+      { "id": "drive", "kind": "knob", "label": "Drive A", "parameter": "drive", "module_id": "clip-a", "x": 25, "y": 45, "width": 112, "height": 122, "value": 35, "show_background": false },
+      { "id": "character", "kind": "knob", "label": "Character", "parameter": "character", "module_id": "clip-a", "x": 35, "y": 45, "width": 112, "height": 122, "value": 60, "show_background": false },
+      { "id": "clip-output", "kind": "knob", "label": "Clip Output", "parameter": "output", "module_id": "clip-a", "x": 45, "y": 45, "width": 112, "height": 122, "value": 50, "show_background": false },
+      { "id": "threshold", "kind": "knob", "label": "Threshold", "parameter": "threshold", "module_id": "comp-a", "x": 20, "y": 60, "width": 112, "height": 122, "value": 42, "show_background": false },
+      { "id": "ratio", "kind": "knob", "label": "Ratio", "parameter": "ratio", "module_id": "comp-a", "x": 30, "y": 60, "width": 112, "height": 122, "value": 30, "show_background": false },
+      { "id": "attack", "kind": "knob", "label": "Attack", "parameter": "attack", "module_id": "comp-a", "x": 40, "y": 60, "width": 112, "height": 122, "value": 25, "show_background": false },
+      { "id": "release", "kind": "knob", "label": "Release", "parameter": "release", "module_id": "comp-a", "x": 50, "y": 60, "width": 112, "height": 122, "value": 48, "show_background": false },
+      { "id": "makeup", "kind": "knob", "label": "Makeup", "parameter": "makeup", "module_id": "comp-a", "x": 60, "y": 60, "width": 112, "height": 122, "value": 12, "show_background": false },
+      { "id": "low", "kind": "knob", "label": "Low", "parameter": "low", "module_id": "tone-a", "x": 30, "y": 72, "width": 112, "height": 122, "value": 55, "show_background": false },
+      { "id": "mid", "kind": "knob", "label": "Mid", "parameter": "mid", "module_id": "tone-a", "x": 40, "y": 72, "width": 112, "height": 122, "value": 46, "show_background": false },
+      { "id": "high", "kind": "knob", "label": "High", "parameter": "high", "module_id": "tone-a", "x": 50, "y": 72, "width": 112, "height": 122, "value": 58, "show_background": false },
+      { "id": "width", "kind": "knob", "label": "Width", "parameter": "width", "module_id": "width-a", "x": 45, "y": 45, "width": 112, "height": 122, "value": 62, "show_background": false },
+      { "id": "mono-bass", "kind": "knob", "label": "Mono Bass", "parameter": "mono_bass", "module_id": "width-a", "x": 55, "y": 45, "width": 112, "height": 122, "value": 38, "show_background": false },
+      { "id": "delay-time", "kind": "knob", "label": "Delay Time", "parameter": "time", "module_id": "delay-a", "x": 60, "y": 72, "width": 112, "height": 122, "value": 35, "show_background": false },
+      { "id": "feedback", "kind": "knob", "label": "Feedback", "parameter": "feedback", "module_id": "delay-a", "x": 70, "y": 72, "width": 112, "height": 122, "value": 32, "show_background": false },
+      { "id": "crossfeed", "kind": "knob", "label": "Crossfeed", "parameter": "crossfeed", "module_id": "delay-a", "x": 80, "y": 72, "width": 112, "height": 122, "value": 80, "show_background": false },
+      { "id": "delay-filter", "kind": "knob", "label": "Delay Filter", "parameter": "filter", "module_id": "delay-a", "x": 90, "y": 72, "width": 112, "height": 122, "value": 70, "show_background": false },
+      { "id": "node-mix", "kind": "knob", "label": "Width Mix", "parameter": "module_mix", "module_id": "width-a", "x": 65, "y": 45, "width": 112, "height": 122, "value": 80, "show_background": false },
+      { "id": "node-bypass", "kind": "button", "label": "Width Bypass", "parameter": "bypass", "module_id": "width-a", "x": 82, "y": 45, "width": 108, "height": 76, "value": 0, "show_background": false },
+      { "id": "output", "kind": "knob", "label": "Output", "parameter": "output", "module_id": "output-a", "x": 50, "y": 76, "width": 112, "height": 122, "value": 75, "show_background": false },
+      { "id": "meter", "kind": "gain_meter", "label": "Stereo Output", "parameter": "output_level", "module_id": null, "x": 78, "y": 78, "width": 240, "height": 82, "value": 0, "show_background": false }
+    ]
+  },
+  "dsp_graph": {
+    "version": 2,
+    "mode": "ordered_rack",
+    "source": "internal_smoke",
+    "modules": [
+      { "id": "clip-a", "type": "soft_clip", "name": "Clip A", "parentId": null, "order": 10, "bypassed": false, "mix": 1.0, "parameters": { "drive": 0.35 } },
+      { "id": "comp-a", "type": "linked_compressor", "name": "Compressor A", "parentId": null, "order": 20, "bypassed": false, "mix": 1.0, "parameters": { "compress": 0.35, "threshold": 0.42, "ratio": 0.3, "attack": 0.25, "release": 0.48, "makeup": 0.12 } },
+      { "id": "tone-a", "type": "tone_shaper", "name": "Tone A", "parentId": null, "order": 30, "bypassed": false, "mix": 1.0, "parameters": { "tone": 0.5, "low": 0.55, "mid": 0.46, "high": 0.58 } },
+      { "id": "width-a", "type": "stereo_width", "name": "Width A", "parentId": null, "order": 40, "bypassed": false, "mix": 0.8, "parameters": { "width": 0.62, "mono_bass": 0.38 } },
+      { "id": "delay-a", "type": "cross_delay", "name": "Delay A", "parentId": null, "order": 50, "bypassed": false, "mix": 0.6, "parameters": { "space": 0.3, "time": 0.35, "feedback": 0.32, "crossfeed": 0.8, "filter": 0.7 } },
+      { "id": "output-a", "type": "output_trim", "name": "Output A", "parentId": null, "order": 60, "bypassed": false, "mix": 1.0, "parameters": { "output": 0.75 } }
+    ]
+  },
+  "effects": {},
+  "sampler_groups": [],
+  "samples": [],
+  "sampler_map": [],
+  "sample_packaging": { "mode": "private_object_storage", "monolith": false },
+  "build": { "company_name": "TripleSide Studio", "version": "1.0.0", "formats": ["VST3"], "platforms": ["windows"] }
+}

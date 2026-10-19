@@ -1,0 +1,84 @@
+{
+  "name": "Panel Button Smoke",
+  "plugin_kind": "effect",
+  "project_template": "basicfx",
+  "visual_contract": { "version": 1, "mode": "shared_preview" },
+  "branding": {
+    "manufacturer_name": "TripleSide Studio",
+    "tagline": "FUNCTION PANEL",
+    "font": "outfit",
+    "font_size": 24,
+    "x": 18,
+    "y": 13,
+    "align": "left"
+  },
+  "build": { "company_name": "TripleSide Studio", "version": "1.0.0" },
+  "sample_packaging": { "mode": "private_object_storage", "monolith": false },
+  "instrument": { "polyphony": 8 },
+  "effects": {},
+  "interface": {
+    "template": "studio",
+    "component_style": "css",
+    "ui_color": "#09090b",
+    "accent_color": "#e11d48",
+    "canvas_width": 760,
+    "canvas_height": 480,
+    "background": { "url": null, "fit": "cover", "opacity": 0, "x": 50, "y": 50, "width": 100, "height": 100 },
+    "controls": [
+      {
+        "id": "preset-panel",
+        "kind": "panel_button",
+        "label": "PRESETS",
+        "parameter": "visual",
+        "x": 18,
+        "y": 48,
+        "value": 0,
+        "width": 148,
+        "height": 64,
+        "component_style": "css",
+        "component_variant": "preset-browser",
+        "panel_type": "preset_browser",
+        "panel_x": 50,
+        "panel_y": 52,
+        "panel_width": 88,
+        "panel_height": 78
+      },
+      {
+        "id": "panel-tone",
+        "kind": "knob",
+        "label": "TONE",
+        "parameter": "tone",
+        "parent_panel_id": "preset-panel",
+        "x": 22,
+        "y": 55,
+        "value": 60,
+        "width": 112,
+        "height": 122,
+        "component_style": "css",
+        "component_variant": "classic"
+      },
+      {
+        "id": "output",
+        "kind": "knob",
+        "label": "OUTPUT",
+        "parameter": "output",
+        "x": 78,
+        "y": 48,
+        "value": 75,
+        "width": 112,
+        "height": 122,
+        "component_style": "css",
+        "component_variant": "classic"
+      }
+    ]
+  },
+  "dsp_graph": { "version": 2, "mode": "ordered_rack", "source": "project", "modules": [] },
+  "sampler_groups": [],
+  "presets": [
+    { "id": "bright", "name": "Bright", "category": "factory", "control_values": { "panel-tone": 82 }, "group_values": {} }
+  ],
+  "midi_mappings": [],
+  "midi_sequences": [],
+  "samples": [],
+  "sampler_map": []
+}

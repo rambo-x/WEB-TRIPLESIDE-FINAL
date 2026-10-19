@@ -1,0 +1,394 @@
+from pathlib import Path
+
+
+SOURCE_DIR = Path(__file__).parents[1] / "Source"
+
+
+def test_hidden_master_mute_and_solo_cannot_be_restored():
+    source = (SOURCE_DIR / "NativeInstrument.cpp").read_text(encoding="utf-8")
+
+    assert 'mute=hasControlParameter("mute")&&v>=.5f' in source
+    assert 'solo=hasControlParameter("solo")&&v>=.5f' in source
+    assert 'v[5]=mute?1.f:0.f;v[6]=solo?1.f:0.f' in source
+
+
+def test_native_view_uses_real_midi_activity_and_boolean_pad_state():
+    header = (SOURCE_DIR / "NativeView.h").read_text(encoding="utf-8")
+    source = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+
+    assert "drawPad(const D2D1_RECT_F&,bool," in header
+    assert "instrument.isNoteActive(c.notePitch)" in source
+    assert "instrument.isNoteActive(n)" in source
+    assert 'equals(currentControlVariant,"hit-effect")' in source
+    assert 'equals(currentControlVariant,"diffuse-hit")' in source
+    assert 'equals(currentControlVariant,"smooth-diffuse-hit")' in source
+    assert "if(hitPad&&!active)return" in source
+    assert "CreateRadialGradientBrush" in source
+    assert "c.opacity<.999f" in source
+    assert 'equals(c.kind,"text")' in source
+
+
+def test_embedded_resource_loader_supports_rc_quoted_names():
+    source = (SOURCE_DIR / "EmbeddedResource.cpp").read_text(encoding="utf-8")
+
+    assert "quotedName[0] = L'\"'" in source
+    assert "quotedName[length + 1] = L'\"'" in source
+    assert "FindResourceW(module, quotedName.data()" in source
+
+
+def test_native_runtime_maps_sustain_and_matches_preview_keyboard_origin():
+    instrument_header = (SOURCE_DIR / "NativeInstrument.h").read_text(encoding="utf-8")
+    instrument_source = (SOURCE_DIR / "NativeInstrument.cpp").read_text(encoding="utf-8")
+    view_source = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+
+    assert "public Steinberg::Vst::IMidiMapping" in instrument_header
+    assert "controller==kCtrlSustainOnOff" in instrument_source
+    assert "if(!sustain)v.releasing=true" in instrument_source
+    assert "project::kDefaultSustain||on" in instrument_source
+    assert "sustain=project::kDefaultSustain" in instrument_source
+    assert "new StringListParameter" in instrument_source
+    assert 'appendString(STR16("Off"))' in instrument_source
+    assert 'appendString(STR16("On"))' in instrument_source
+    assert "defaultNormalizedValue=sustainDefault" in instrument_source
+    assert "if(voice.active&&!voice.held)voice.releasing=true" in instrument_source
+    assert "return std::clamp(36,0,127-count+1)" in view_source
+    assert 'L"C%d",n/12-1' in view_source
+    assert "drawKeyboard(keyboardContentRect(r),c.keyCount)" in view_source
+    assert "cy=(r.top+r.bottom)/2+16" in view_source
+
+
+def test_native_runtime_maps_pitch_bend_and_modulation_with_expression_dsp():
+    instrument_header = (SOURCE_DIR / "NativeInstrument.h").read_text(encoding="utf-8")
+    instrument_source = (SOURCE_DIR / "NativeInstrument.cpp").read_text(encoding="utf-8")
+    view_source = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+
+    assert "kPitchBendId=117" in instrument_header
+    assert "kModulationId=118" in instrument_header
+    assert "controller==kPitchBend" in instrument_source
+    assert "controller==kCtrlModWheel" in instrument_source
+    assert "project::kPitchBendEnabled" in instrument_source
+    assert "project::kModulationEnabled" in instrument_source
+    assert "(smoothedPitchBend-.5f)*4.f" in instrument_source
+    assert "smoothedPitchBend+=bendAlpha*(pitchBend-smoothedPitchBend)" in instrument_source
+    assert "-1./(.003*hostSampleRate)" in instrument_source
+    assert "std::sin(modulationPhase)*modulation*.5f" in instrument_source
+    assert "v.position+=v.increment*expressionRate" in instrument_source
+    assert 'equals(project::kControls[activeControl].parameter,"pitch_bend")' in view_source
+    assert "setParameter(kPitchBendId,.5f)" in view_source
+    assert 'equals(currentControlVariant,"pitch-bend-led")' in view_source
+    assert 'equals(currentControlVariant,"modulation-led")' in view_source
+    assert "currentControlColor" in view_source
+    assert "const auto track=D2D1::RoundedRect" in view_source
+    assert "const int count=18" not in view_source
+
+
+def test_native_runtime_applies_and_persists_master_pan():
+    instrument_header = (SOURCE_DIR / "NativeInstrument.h").read_text(encoding="utf-8")
+    instrument_source = (SOURCE_DIR / "NativeInstrument.cpp").read_text(encoding="utf-8")
+
+    assert "kPanId=119" in instrument_header
+    assert "applyMasterPan(float&, float&)" in instrument_header
+    assert "masterPan.next()*2.f-1.f" in instrument_source
+    assert "applyMasterPan(sl,sr)" in instrument_source
+    assert "version>3" in instrument_source
+    assert "writeInt32u(3)" in instrument_source
+    assert "b.writeFloat(pan)" in instrument_source
+
+
+def test_native_gain_reduction_meter_reads_compressor_dsp():
+    instrument_header = (SOURCE_DIR / "NativeInstrument.h").read_text(encoding="utf-8")
+    view_source = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+    dsp_header = (SOURCE_DIR / "DspModules.h").read_text(encoding="utf-8")
+    dsp_source = (SOURCE_DIR / "DspModules.cpp").read_text(encoding="utf-8")
+
+    assert "float gainReduction(int moduleIndex = -1)" in instrument_header
+    assert 'equals(c.parameter,"gain_reduction")' in view_source
+    assert "effectiveGainReduction" in dsp_header
+    assert "float EffectRack::gainReduction" in dsp_source
+
+
+def test_shared_preview_meters_keep_browser_visuals_and_independent_stereo_levels():
+    header = (SOURCE_DIR / "NativeView.h").read_text(encoding="utf-8")
+    source = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+
+    assert "drawVisualSpriteRegion" in header
+    assert 'if(equals(c.kind,"spectrum"))drawControl(i);else drawVisualControl(i)' in source
+    assert 'equals(c.meterMode,"stereo")&&s.mlw>0' in source
+    assert "instrument.outputPeak(0)*scale" in source
+    assert "instrument.outputPeak(1)*scale" in source
+    assert "elapsed/16.6667f" in source
+
+
+def test_preview_brand_uses_the_native_behind_controls_layering():
+    css = (Path(__file__).parents[2] / "frontend/src/pages/VstMakerPreview.css").read_text(encoding="utf-8")
+    brand_rule = css.rsplit(".maker-plugin-canvas__brand-object {", 1)[1].split("}", 1)[0]
+
+    assert "z-index: 1;" in brand_rule
+
+
+def test_native_runtime_renders_polyphonic_wave_generator():
+    header = (SOURCE_DIR / "NativeInstrument.h").read_text(encoding="utf-8")
+    source = (SOURCE_DIR / "NativeInstrument.cpp").read_text(encoding="utf-8")
+
+    assert "struct OscVoice" in header
+    assert "std::array<OscVoice, project::kPolyphony> oscillatorVoices" in header
+    assert "configureWaveGenerator()" in source
+    assert 'std::strcmp(module.type,"wave_generator")' in source
+    assert "shape==3" in source
+    assert "wavePulseWidth" in source
+    assert "polyBlep" in source
+    assert "waveGlide" in source
+    assert "glideSamplesRemaining" in header
+    assert "setWavePitchTarget" in source
+    assert "seconds*hostSampleRate" in source
+    assert "(v.targetPitch-v.currentPitch)/static_cast<double>(v.glideSamplesRemaining)" in source
+    assert "std::exp(-1/(glideSeconds*hostSampleRate))" not in source
+    assert "waveVibratoDepth" in source
+    assert "waveFilterCutoff" in source
+    assert "waveUnisonVoices" in source
+    assert 'std::strcmp(parameter,"osc2_enabled")' in source
+    assert 'p("osc2_enabled",waveOsc2Level>0?1.f:0.f)' in source
+    assert "waveOsc2Enabled=false" in header
+    assert 'p("voice_mode",0)' in source
+    assert "waveRetrigger" in source
+    assert "waveVelocityGain(velocity,waveVelocitySensitivity,waveVelocityCurve,waveVelocityMinLevel)" in source
+    assert "waveNotePriority" not in source
+
+
+def test_native_css_controls_and_branding_follow_preview_tokens():
+    header = (SOURCE_DIR / "NativeView.h").read_text(encoding="utf-8")
+    source = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+
+    assert 'family=L"Georgia"' in source
+    assert "upper(wide(TS_PRODUCT_NAME))" in source
+    assert "SetCharacterSpacing" in source
+    assert "brandMetaFormat" in header
+    assert "brandTagFormat" in header
+    assert "IDWriteInMemoryFontFileLoader" in header
+    assert "CreateInMemoryFontFileReference" in source
+    assert "static_cast<DWRITE_FONT_WEIGHT>(650)" in source
+    assert "target->SetTransform(designTransform())" in source
+    assert "designPoint(x,y)" in source
+    assert "GetClientRect(hwnd,&client)" in source
+    assert "D2D1::RectF(0,0" in source
+    assert "rgb(0x414149)" in source
+    assert "rgb(0x24242a)" in source
+    assert "rgb(0x101013)" in source
+    assert 'L"−20   −10   −3   0   +3"' in source
+    assert "rgb(0xf5be5a,.28f)" in source
+    assert 'DrawTextW(L"VU",2' in source
+
+
+def test_native_knobs_support_preview_neutral_reset_and_mouse_wheel():
+    header = (SOURCE_DIR / "NativeView.h").read_text(encoding="utf-8")
+    source = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+
+    assert "wc.style=CS_DBLCLKS" in source
+    assert "case WM_LBUTTONDBLCLK" in source
+    assert "case WM_MOUSEWHEEL" in source
+    assert "mouseDoubleClick(float,float)" in header
+    assert "mouseWheel(float,float,int)" in header
+    assert "neutralControlValue(int) const" in header
+    assert 'equals(parameter,"volume")||equals(parameter,"mix")' in source
+    assert 'equals(parameter,"output")' in source
+    assert 'equals(parameter,"attack")||equals(parameter,"release")' in source
+    assert "current+steps*.01f" in source
+
+
+def test_native_component_labels_apply_saved_position_presets():
+    header = (SOURCE_DIR / "NativeView.h").read_text(encoding="utf-8")
+    source = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+
+    assert 'currentLabelPosition="top-left"' in header
+    assert "currentLabelGap=12" in header
+    assert "currentLabelPosition=c.labelPosition" in source
+    assert "currentLabelGap=c.labelGap" in source
+    assert "D2D1_RECT_F NativeView::labelRect" in source
+    assert 'startsWith(currentLabelPosition,"bottom-")' in source
+    assert 'containsIgnoreCase(currentLabelPosition,"right")' in source
+    assert "currentLabelControlRect.bottom-height-verticalShift" in source
+    assert "frameBottom=r.bottom" in source
+    assert "labelRect(D2D1::RectF(r.left,r.top" in source
+    assert "labelRect(D2D1::RectF(r.left,r.top,r.right,r.top+20))" in source
+
+
+def test_native_panel_runtime_uses_separate_panel_manifest_contract():
+    header = (SOURCE_DIR / "NativeView.h").read_text(encoding="utf-8")
+    source = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+
+    assert "hitPanelChild(float,float) const" in header
+    assert "project::kPanelControls[i].parentPanelIndex==openPanelIndex" in source
+    assert "project::kPanelControls[static_cast<size_t>(openPanelIndex)].panelType" in source
+    assert "activeControl=hitPanelChild(x,y)" in source
+    assert "project::kControls[i].parentPanelIndex" not in source
+    assert "project::kControls[static_cast<size_t>(openPanelIndex)].panelType" not in source
+    assert "panelRuntimeBounds[openPanelIndex]" in source
+    assert "hitPanelChild(x,y)" in source
+
+
+def test_native_user_presets_are_persistent_overwritable_and_deletable():
+    header = (SOURCE_DIR / "NativeView.h").read_text(encoding="utf-8")
+    source = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+
+    assert "loadUserPresets()" in source
+    assert "persistUserPresets()" in source
+    assert 'L"TripleSide Studio"/L"VST3 Presets"' in source
+    assert "MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH" in source
+    assert "overwriteUserPreset(userRow)" in source
+    assert "deleteUserPreset(userRow)" in source
+    assert "void overwriteUserPreset(int)" in header
+    assert "void deleteUserPreset(int)" in header
+    assert 'DrawTextW(L"FACTORY",7' in source
+
+
+def test_native_panel_midi_player_honors_tempo_events():
+    header = (SOURCE_DIR / "NativeView.h").read_text(encoding="utf-8")
+    source = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+
+    assert "struct RuntimeMidiTempo" in header
+    assert "sequence.tempos.push_back" in source
+    assert "60000000.0/micros" in source
+    assert "project::kMidiTempos" in source
+    assert "60000.0/(std::max(1,ppq)*bpm)" in source
+
+
+def test_native_panel_exports_embedded_midi_as_a_daw_file_drag():
+    header = (SOURCE_DIR / "NativeView.h").read_text(encoding="utf-8")
+    source = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+
+    assert "exportMidiSequence(int) const" in header
+    assert 'text("MThd")' in source
+    assert 'text("MTrk")' in source
+    assert "project::kMidiTempos" in source
+    assert "project::kMidiEvents" in source
+    assert "CF_HDROP" in source
+    assert "DoDragDrop" in source
+    assert "DROPEFFECT_COPY" in source
+
+
+def test_native_midi_panel_is_a_groove_browser_without_cc_map_copy():
+    source = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+
+    assert 'L"MIDI GROOVE BROWSER"' in source
+    assert 'L"Drop MIDI grooves here"' in source
+    assert 'DrawTextW(L"DRAG",4' in source
+    assert 'midiPlaying?L"\\u25A0":L"\\u25B6"' in source
+    assert 'midiPlaying?L"STOP":L"PLAY"' not in source
+    assert "MIDI PLAYER & MAP" not in source
+
+
+def test_native_canvas_uses_saved_ui_color():
+    source = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+
+    assert "bottom=rgb(project::kUiRgb)" in source
+
+
+def test_native_tempo_sync_uses_host_context_and_independent_time_stretch():
+    header = (SOURCE_DIR / "NativeInstrument.h").read_text(encoding="utf-8")
+    source = (SOURCE_DIR / "NativeInstrument.cpp").read_text(encoding="utf-8")
+
+    assert "public Steinberg::Vst::SingleComponentEffect" in header
+    assert "getProcessContextRequirements()" in header
+    assert "ProcessContext::kTempoValid" in source
+    assert "IProcessContextRequirements::kNeedTempo" in source
+    assert "project::kFallbackTempoBpm" in header
+    assert "signalsmith::stretch::SignalsmithStretch<float>" in source
+    assert "smoothedTempoBpm/static_cast<double>(zone.sourceBpm)" in source
+    assert "setTransposeSemitones" in source
+    assert "zone.loopCrossfadeMs" in source
+
+
+def test_looping_and_tempo_sync_retrigger_choke_only_the_same_pitch():
+    header = (SOURCE_DIR / "NativeInstrument.h").read_text(encoding="utf-8")
+    source = (SOURCE_DIR / "NativeInstrument.cpp").read_text(encoding="utf-8")
+
+    assert "retriggerRelease=false" in header
+    assert "v.active&&v.pitch==pitch" in source
+    assert "project::kZones[v.zoneIndex].loopEnabled||project::kZones[v.zoneIndex].tempoSync" in source
+    assert "v.retriggerRelease=true" in source
+    assert ".008f*static_cast<float>(hostSampleRate)" in source
+
+
+def test_mapping_choke_targets_override_sustain_with_fast_release():
+    source = (SOURCE_DIR / "NativeInstrument.cpp").read_text(encoding="utf-8")
+
+    assert "std::array<bool,128> chokePitches" in source
+    assert "z.chokeTargetCount" in source
+    assert "z.chokeTargetPitches" in source
+    assert "target!=pitch" in source
+    assert "chokePitches[static_cast<size_t>(v.pitch)]" in source
+    assert "v.retriggerRelease=true" in source
+
+
+def test_effect_runtime_applies_sample_offset_automation_and_reports_tails():
+    header = (SOURCE_DIR / "NativeInstrument.h").read_text(encoding="utf-8")
+    source = (SOURCE_DIR / "NativeInstrument.cpp").read_text(encoding="utf-8")
+
+    assert "applyAutomationAt(i)" in source
+    assert "if(offset>sampleOffset)break" in source
+    assert "applyParameterValue(cursor.queue->getParameterId()" in source
+    assert "effectBypassMix.setTarget" in source
+    assert "effectBypassMix.next()" in source
+    assert "getTailSamples()" in header
+    assert "hostSampleRate*120.0" in source
+
+
+def test_customer_build_runtime_requires_machine_bound_activation():
+    instrument = (SOURCE_DIR / "NativeInstrument.cpp").read_text(encoding="utf-8")
+    view = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+    runtime = (SOURCE_DIR / "LicenseRuntime.cpp").read_text(encoding="utf-8")
+
+    assert "LicenseRuntime::initialize()" in instrument
+    assert "!LicenseRuntime::isLicensed()" in instrument
+    assert "std::fill(l,l+data.numSamples,0)" in instrument
+    assert "Masukkan serial lisensi" in view
+    assert 'auto eyebrow=L"AKTIVASI PRODUK"' in view
+    assert "TRIPLESIDE STUDIO · AKTIVASI PRODUK" not in view
+    assert "LicenseRuntime::activateSerial(licenseInput)" in view
+    assert "Ctrl+V" in view
+    assert "NativeView::onKeyDown(char16 key,int16 keyCode,int16 modifiers)" in view
+    assert "keyCode==KEY_BACK" in view
+    assert "modifiers&(kCommandKey|kControlKey)" in view
+    assert "DLGC_WANTALLKEYS|DLGC_WANTCHARS" in view
+    assert "GetTickCount64()-licenseForwardedAt<100" in view
+    assert "CryptProtectData" in runtime
+    assert "CryptUnprotectData" in runtime
+    assert "WinHttpSendRequest" in runtime
+    assert "startOnlineRefresh" in runtime
+    assert "now - verifiedAt <=" not in runtime
+
+
+def test_factory_presets_restore_hidden_dsp_and_native_text_style():
+    instrument_header = (SOURCE_DIR / "NativeInstrument.h").read_text(encoding="utf-8")
+    instrument = (SOURCE_DIR / "NativeInstrument.cpp").read_text(encoding="utf-8")
+    view = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+
+    assert "applyModulePresetValue" in instrument_header
+    assert 'if(!std::strcmp(parameter,"module_mix"))' in instrument
+    assert "project::kPresetModules" in view
+    assert "project::kPresetModuleParameters" in view
+    assert "modulePresetValue" in instrument_header
+    assert "preset.moduleValues.push_back" in view
+    assert "version=2" in view
+    assert "version!=1&&version!=2" in view
+    assert "c.textFont" in view
+    assert "c.textColorRgb" in view
+    assert 'L"Outfit-wght.ttf"' in view
+    assert 'L"Cormorant Garamond"' in view
+
+
+def test_shared_preview_live_overlays_support_pure_fft_and_stereo_vectorscope():
+    header = (SOURCE_DIR / "NativeInstrument.h").read_text(encoding="utf-8")
+    instrument = (SOURCE_DIR / "NativeInstrument.cpp").read_text(encoding="utf-8")
+    view = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+
+    assert "analysisSamplesLeft" in header
+    assert "analysisSamplesRight" in header
+    assert "copyAnalysisSamples(float*,std::size_t,int channel=-1)" in header
+    assert "analysisSamplesLeft[analysisSlot].store(sl" in instrument
+    assert "analysisSamplesRight[analysisSlot].store(sr" in instrument
+    assert 'equals(currentControlVariant,"stereo-vectorscope")' in view
+    assert 'equals(currentControlVariant,"pure-spectrum")' in view
+    assert "drawVectorscope" in view
+    assert "vectorscopeCorrelation+=(correlation-vectorscopeCorrelation)*.18f" in view
+    assert "constexpr float gridFrequencies[]" in view

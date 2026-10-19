@@ -1,0 +1,40 @@
+{
+  "name": "TripleSide Native Smoke",
+  "build": {
+    "company_name": "TripleSide Studio",
+    "version": "0.1.0"
+  },
+  "sample_packaging": {
+    "monolith": false
+  },
+  "instrument": {
+    "polyphony": 32
+  },
+  "interface": {
+    "controls": [
+      { "id": "volume", "kind": "knob", "label": "Volume", "parameter": "volume", "value": 80 },
+      { "id": "attack", "kind": "knob", "label": "Attack", "parameter": "attack", "value": 1 },
+      { "id": "release", "kind": "knob", "label": "Release", "parameter": "release", "value": 20 }
+    ]
+  },
+  "samples": [
+    { "id": "smoke-sine", "name": "smoke-sine.wav" }
+  ],
+  "sampler_map": [
+    {
+      "id": "smoke-zone",
+      "sampleId": "smoke-sine",
+      "rootPitch": 60,
+      "lowPitch": 0,
+      "highPitch": 127,
+      "velocityLow": 1,
+      "velocityHigh": 127,
+      "sampleStart": 0.0,
+      "sampleEnd": 1.0,
+      "tuneSemitones": 0,
+      "tuneCents": 0,
+      "gainDb": -6.0,
+      "pan": 0.0
+    }
+  ]
+}
