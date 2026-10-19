@@ -166,6 +166,33 @@ private:
     bool threeBandEnabled_ = false;
 };
 
+class DeEsser {
+public:
+    void prepare(const ProcessSpec& spec) noexcept;
+    void reset(float normalized) noexcept;
+    void setNormalized(float normalized) noexcept;
+    void setFrequency(float normalized) noexcept;
+    void setThreshold(float normalized) noexcept;
+    void setRange(float normalized) noexcept;
+    void setAttack(float normalized) noexcept;
+    void setRelease(float normalized) noexcept;
+    void processFrame(float& left, float& right) noexcept;
+
+private:
+    double sampleRate_ = 44100.0;
+    float detectorLowLeft_ = 0.0f;
+    float detectorLowRight_ = 0.0f;
+    float bandLeft_ = 0.0f;
+    float bandRight_ = 0.0f;
+    float envelope_ = 0.0f;
+    SmoothedValue amount_{};
+    SmoothedValue frequency_{};
+    SmoothedValue threshold_{};
+    SmoothedValue range_{};
+    SmoothedValue attack_{};
+    SmoothedValue release_{};
+};
+
 class StereoWidth {
 public:
     void prepare(const ProcessSpec& spec) noexcept;
@@ -625,6 +652,7 @@ enum class RackModuleType {
     InputTrim,
     SoftClip,
     LinkedCompressor,
+    DeEsser,
     ToneShaper,
     StereoWidth,
     NoiseGate,
@@ -686,6 +714,7 @@ private:
         StereoGain inputTrim{GainLaw::InputTrim};
         SoftClip softClip{};
         LinkedCompressor compressor{};
+        DeEsser deEsser{};
         ToneShaper tone{};
         StereoWidth width{};
         NoiseGate noiseGate{};

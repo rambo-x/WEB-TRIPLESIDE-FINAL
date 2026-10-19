@@ -239,6 +239,50 @@ void ToneShaper::prepare(const ProcessSpec& spec) noexcept {
     highGain_.prepare(sampleRate_, 15.0);
 }
 
+void DeEsser::prepare(const ProcessSpec& spec) noexcept {
+    sampleRate_ = std::max(1.0, spec.sampleRate);
+    amount_.prepare(sampleRate_, 15.0); frequency_.prepare(sampleRate_, 20.0);
+    threshold_.prepare(sampleRate_, 15.0); range_.prepare(sampleRate_, 15.0);
+    attack_.prepare(sampleRate_, 15.0); release_.prepare(sampleRate_, 15.0);
+}
+
+void DeEsser::reset(float normalized) noexcept {
+    detectorLowLeft_ = detectorLowRight_ = bandLeft_ = bandRight_ = envelope_ = 0.0f;
+    amount_.reset(std::clamp(normalized, 0.0f, 1.0f)); frequency_.reset(0.5f);
+    threshold_.reset(0.58f); range_.reset(0.5f); attack_.reset(0.35f); release_.reset(0.45f);
+}
+
+void DeEsser::setNormalized(float value) noexcept { amount_.setTarget(std::clamp(value, 0.0f, 1.0f)); }
+void DeEsser::setFrequency(float value) noexcept { frequency_.setTarget(std::clamp(value, 0.0f, 1.0f)); }
+void DeEsser::setThreshold(float value) noexcept { threshold_.setTarget(std::clamp(value, 0.0f, 1.0f)); }
+void DeEsser::setRange(float value) noexcept { range_.setTarget(std::clamp(value, 0.0f, 1.0f)); }
+void DeEsser::setAttack(float value) noexcept { attack_.setTarget(std::clamp(value, 0.0f, 1.0f)); }
+void DeEsser::setRelease(float value) noexcept { release_.setTarget(std::clamp(value, 0.0f, 1.0f)); }
+
+void DeEsser::processFrame(float& left, float& right) noexcept {
+    constexpr float pi = 3.14159265358979323846f;
+    const float rate = static_cast<float>(sampleRate_);
+    const float amount = amount_.next();
+    const float center = 3000.0f * std::pow(4.0f, frequency_.next());
+    const float threshold = std::pow(10.0f, (-48.0f + threshold_.next() * 48.0f) / 20.0f);
+    const float maximumReduction = range_.next() * 18.0f * amount;
+    const float attackSeconds = 0.0001f * std::pow(200.0f, attack_.next());
+    const float releaseSeconds = 0.02f * std::pow(15.0f, release_.next());
+    const float lowerAlpha = 1.0f - std::exp(-2.0f * pi * std::min(center / 1.6f, rate * 0.42f) / rate);
+    const float upperAlpha = 1.0f - std::exp(-2.0f * pi * std::min(center * 1.6f, rate * 0.45f) / rate);
+    detectorLowLeft_ += lowerAlpha * (left - detectorLowLeft_);
+    detectorLowRight_ += lowerAlpha * (right - detectorLowRight_);
+    bandLeft_ += upperAlpha * ((left - detectorLowLeft_) - bandLeft_);
+    bandRight_ += upperAlpha * ((right - detectorLowRight_) - bandRight_);
+    const float detector = std::max(std::abs(bandLeft_), std::abs(bandRight_));
+    const float coefficient = std::exp(-1.0f / ((detector > envelope_ ? attackSeconds : releaseSeconds) * rate));
+    envelope_ = coefficient * envelope_ + (1.0f - coefficient) * detector;
+    const float overDb = envelope_ > threshold ? 20.0f * std::log10(envelope_ / threshold) : 0.0f;
+    const float gain = std::pow(10.0f, -std::min(maximumReduction, overDb * amount) / 20.0f);
+    left -= bandLeft_ * (1.0f - gain);
+    right -= bandRight_ * (1.0f - gain);
+}
+
 void ToneShaper::reset(float normalized) noexcept {
     lowLeft_ = 0.0f;
     lowRight_ = 0.0f;
@@ -1258,6 +1302,9 @@ void EffectRack::processFrame(float& left, float& right) noexcept {
             case RackModuleType::LinkedCompressor:
                 node.compressor.processFrame(left, right);
                 break;
+            case RackModuleType::DeEsser:
+                node.deEsser.processFrame(left, right);
+                break;
             case RackModuleType::ToneShaper:
                 node.tone.processFrame(left, right);
                 break;
@@ -1370,6 +1417,7 @@ void EffectRack::setModuleNormalized(std::size_t index, float normalized) noexce
         case RackModuleType::InputTrim: node.inputTrim.setNormalized(value); break;
         case RackModuleType::SoftClip: node.softClip.setNormalized(value); break;
         case RackModuleType::LinkedCompressor: node.compressor.setNormalized(value); break;
+        case RackModuleType::DeEsser: node.deEsser.setNormalized(value); break;
         case RackModuleType::ToneShaper: node.tone.setNormalized(value); break;
         case RackModuleType::StereoWidth: node.width.setNormalized(value); break;
         case RackModuleType::NoiseGate: node.noiseGate.setNormalized(value); break;
@@ -1416,6 +1464,13 @@ void EffectRack::setModuleParameter(std::size_t index, const char* key, float no
             else if (!std::strcmp(key, "attack")) node.compressor.setAttack(value);
             else if (!std::strcmp(key, "release")) node.compressor.setRelease(value);
             else if (!std::strcmp(key, "makeup")) node.compressor.setMakeup(value);
+            break;
+        case RackModuleType::DeEsser:
+            if (!std::strcmp(key, "frequency")) node.deEsser.setFrequency(value);
+            else if (!std::strcmp(key, "threshold")) node.deEsser.setThreshold(value);
+            else if (!std::strcmp(key, "range")) node.deEsser.setRange(value);
+            else if (!std::strcmp(key, "attack")) node.deEsser.setAttack(value);
+            else if (!std::strcmp(key, "release")) node.deEsser.setRelease(value);
             break;
         case RackModuleType::ToneShaper:
             if (!std::strcmp(key, "tone")) setModuleNormalized(index, value);
@@ -1540,6 +1595,7 @@ void EffectRack::setLegacyValue(RackModuleType type, float normalized) noexcept 
             case RackModuleType::InputTrim: node.inputTrim.setNormalized(value); break;
             case RackModuleType::SoftClip: node.softClip.setNormalized(value); break;
             case RackModuleType::LinkedCompressor: node.compressor.setNormalized(value); break;
+            case RackModuleType::DeEsser: node.deEsser.setNormalized(value); break;
             case RackModuleType::ToneShaper: node.tone.setNormalized(value); break;
             case RackModuleType::StereoWidth: node.width.setNormalized(value); break;
             case RackModuleType::NoiseGate: node.noiseGate.setNormalized(value); break;
@@ -1571,6 +1627,7 @@ void EffectRack::prepareNode(Node& node, const ProcessSpec& spec) {
         case RackModuleType::InputTrim: node.inputTrim.prepare(spec); break;
         case RackModuleType::SoftClip: node.softClip.prepare(spec); break;
         case RackModuleType::LinkedCompressor: node.compressor.prepare(spec); break;
+        case RackModuleType::DeEsser: node.deEsser.prepare(spec); break;
         case RackModuleType::ToneShaper: node.tone.prepare(spec); break;
         case RackModuleType::StereoWidth: node.width.prepare(spec); break;
         case RackModuleType::NoiseGate: node.noiseGate.prepare(spec); break;
@@ -1602,6 +1659,7 @@ void EffectRack::resetNode(Node& node) noexcept {
         case RackModuleType::InputTrim: node.inputTrim.reset(value); break;
         case RackModuleType::SoftClip: node.softClip.reset(value); break;
         case RackModuleType::LinkedCompressor: node.compressor.reset(value); break;
+        case RackModuleType::DeEsser: node.deEsser.reset(value); break;
         case RackModuleType::ToneShaper: node.tone.reset(value); break;
         case RackModuleType::StereoWidth: node.width.reset(value); break;
         case RackModuleType::NoiseGate: node.noiseGate.reset(value); break;

@@ -419,6 +419,29 @@ int main() {
         }
         assert(energy > 1.0e-5);
     }
+
+    EffectRack deEsser;
+    deEsser.configure(ProcessSpec{48000.0, 128}, {RackModuleConfig{RackModuleType::DeEsser, false, 1.0f, 1.0f, false}});
+    deEsser.setModuleParameter(0, "frequency", 0.61f);
+    deEsser.setModuleParameter(0, "threshold", 0.25f);
+    deEsser.setModuleParameter(0, "range", 1.0f);
+    deEsser.setModuleParameter(0, "attack", 0.0f);
+    deEsser.setModuleParameter(0, "release", 0.35f);
+    double deEsserInputEnergy = 0.0;
+    double deEsserOutputEnergy = 0.0;
+    for (int sample = 0; sample < 24000; ++sample) {
+        const float body = std::sin(2.0f * 3.14159265358979323846f * 180.0f * sample / 48000.0f) * 0.25f;
+        float left = body + std::sin(2.0f * 3.14159265358979323846f * 7000.0f * sample / 48000.0f) * 0.35f;
+        float right = left;
+        const float input = left;
+        deEsser.processFrame(left, right);
+        assert(std::isfinite(left));
+        if (sample > 4000) {
+            deEsserInputEnergy += static_cast<double>(input) * input;
+            deEsserOutputEnergy += static_cast<double>(left) * left;
+        }
+    }
+    assert(deEsserOutputEnergy < deEsserInputEnergy * 0.7);
     return 0;
 }
 ''',

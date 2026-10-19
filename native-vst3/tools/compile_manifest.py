@@ -17,6 +17,7 @@ NORMALIZED_DSP_PARAMETERS = {
     "input_trim": {"normalized", "value", "amount", "input", "gain"},
     "soft_clip": {"normalized", "value", "amount", "drive", "character", "output"},
     "linked_compressor": {"normalized", "value", "amount", "compress", "threshold", "ratio", "attack", "release", "makeup"},
+    "de_esser": {"normalized", "value", "amount", "frequency", "threshold", "range", "attack", "release"},
     "tone_shaper": {"normalized", "value", "amount", "tone", "low", "mid", "high"},
     "stereo_width": {"normalized", "value", "amount", "width", "mono_bass"},
     "noise_gate": {"normalized", "value", "amount", "threshold", "release"},
