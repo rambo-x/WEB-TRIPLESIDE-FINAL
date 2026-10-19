@@ -1,3 +1,4 @@
+import hashlib
 import importlib.util
 from pathlib import Path
 
@@ -17,6 +18,7 @@ def package_arguments(tmp_path: Path):
     uninstaller = tmp_path / "uninstaller.exe"
     bundle = tmp_path / "Demo_Product.vst3"
     output = tmp_path / "Demo_Product-windows-vst3-setup.exe"
+    portable_uninstaller = tmp_path / "Demo_Product-windows-vst3-uninstall.exe"
     stub.write_bytes(b"MZ" + b"stub" * 32)
     uninstaller.write_bytes(b"MZ" + b"uninstaller" * 32)
     (bundle / "Contents" / "x86_64-win").mkdir(parents=True)
@@ -27,6 +29,7 @@ def package_arguments(tmp_path: Path):
             "--uninstaller", str(uninstaller),
             "--bundle", str(bundle),
             "--output", str(output),
+            "--portable-uninstaller-output", str(portable_uninstaller),
             "--product-name", "Demo_Product",
             "--product-version", "1.2.3",
             "--publisher", "TripleSide Studio",
@@ -43,6 +46,20 @@ def test_streaming_packager_appends_and_verifies_native_payload(tmp_path):
     assert output.read_bytes().startswith(b"MZstub")
     assert output.stat().st_size > arguments.stub.stat().st_size + arguments.uninstaller.stat().st_size
     packager.verify_package(output)
+
+    portable = arguments.portable_uninstaller_output
+    assert portable.read_bytes().startswith(b"MZuninstaller")
+    with portable.open("rb") as executable:
+        executable.seek(-packager.FOOTER.size, 2)
+        magic, version, offset, size, expected_hash = packager.FOOTER.unpack(
+            executable.read(packager.FOOTER.size)
+        )
+        executable.seek(offset)
+        metadata = executable.read(size)
+    assert magic == packager.PORTABLE_UNINSTALL_FOOTER_MAGIC
+    assert version == packager.FORMAT_VERSION
+    assert metadata.startswith(packager.UNINSTALL_MAGIC)
+    assert expected_hash == hashlib.sha256(metadata).digest()
 
 
 def test_package_verifier_rejects_manifest_tampering(tmp_path):

@@ -71,20 +71,27 @@ jobs:
         shell: pwsh
         run: |
           $output = Join-Path $env:RUNNER_TEMP "tripleside-windows-output"
-          $installers = @(Get-ChildItem -LiteralPath (Join-Path $output "artifacts") -Filter "*-windows-vst3-setup.exe")
-          if ($installers.Count -ne 1) { throw "Expected exactly one Windows installer." }
+          $artifacts = Join-Path $output "artifacts"
+          $archives = @(Get-ChildItem -LiteralPath $artifacts -Filter "*-windows-vst3-installer.zip")
+          if ($archives.Count -ne 1) { throw "Expected exactly one Windows installer ZIP." }
+          $download = Join-Path $output "download"
+          Expand-Archive -LiteralPath $archives[0].FullName -DestinationPath $download
+          $installers = @(Get-ChildItem -LiteralPath $download -Filter "*-windows-vst3-setup.exe")
+          $portableUninstallers = @(Get-ChildItem -LiteralPath $download -Filter "*-windows-vst3-uninstall.exe")
+          if ($installers.Count -ne 1) { throw "Downloaded ZIP must contain exactly one Windows installer." }
+          if ($portableUninstallers.Count -ne 1) { throw "Downloaded ZIP must contain exactly one portable Windows uninstaller." }
           $installer = $installers[0]
           $install = Start-Process -FilePath $installer.FullName -ArgumentList "--silent", "/LOG=$output\install.log" -Wait -PassThru
           if ($install.ExitCode -ne 0) { throw "Installer smoke test failed with exit code $($install.ExitCode)." }
           $installedBundle = "C:\Program Files\Common Files\VST3\MixForge_Native_Smoke.vst3"
           if (-not (Test-Path -LiteralPath $installedBundle -PathType Container)) { throw "Installed VST3 bundle was not found." }
           $uninstallRoot = "C:\ProgramData\TripleSide Studio\Uninstall\MixForge_Native_Smoke"
-          $uninstaller = Join-Path $uninstallRoot "uninstall.exe"
-          if (-not (Test-Path -LiteralPath $uninstaller -PathType Leaf)) { throw "Expected the dedicated native uninstaller." }
+          $registeredUninstaller = Join-Path $uninstallRoot "uninstall.exe"
+          if (-not (Test-Path -LiteralPath $registeredUninstaller -PathType Leaf)) { throw "Expected the dedicated registered uninstaller." }
           $registryKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\com.triplesidestudio.vst3.mixforge-native-smoke"
           if (-not (Test-Path -LiteralPath $registryKey)) { throw "Installer did not register the product in Windows Settings > Apps." }
-          $uninstall = Start-Process -FilePath $uninstaller -ArgumentList "--silent", "/LOG=$output\uninstall.log" -Wait -PassThru
-          if ($uninstall.ExitCode -ne 0) { throw "Uninstaller smoke test failed with exit code $($uninstall.ExitCode)." }
+          $uninstall = Start-Process -FilePath $portableUninstallers[0].FullName -ArgumentList "--silent", "/LOG=$output\uninstall.log" -Wait -PassThru
+          if ($uninstall.ExitCode -ne 0) { throw "Portable uninstaller smoke test failed with exit code $($uninstall.ExitCode)." }
           $deadline = (Get-Date).AddSeconds(30)
           while ((Test-Path -LiteralPath $uninstallRoot) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 250 }
           if (Test-Path -LiteralPath $installedBundle) { throw "Uninstaller left the exact VST3 bundle installed." }

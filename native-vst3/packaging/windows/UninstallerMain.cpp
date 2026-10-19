@@ -101,18 +101,17 @@ bool launchCleanupCopy(const fs::path& uninstallDirectory, std::wstring& error) 
 
 int uninstall() {
     const fs::path currentExecutable = executablePath();
-    const fs::path uninstallDirectory = currentExecutable.parent_path();
-    if (!isDirectChild(uninstallRoot(), uninstallDirectory) || !pathEquals(currentExecutable, uninstallDirectory / L"uninstall.exe")) {
-        showError(L"The uninstaller is not running from a trusted product directory.");
-        return 20;
-    }
     std::wstring error;
     UninstallMetadata metadata;
-    if (!readUninstallMetadata(uninstallDirectory / L"uninstall.dat", metadata, error)) {
+    const fs::path currentDirectory = currentExecutable.parent_path();
+    const bool installedCopy = isDirectChild(uninstallRoot(), currentDirectory) && pathEquals(currentExecutable, currentDirectory / L"uninstall.exe");
+    if (!(installedCopy ? readUninstallMetadata(currentDirectory / L"uninstall.dat", metadata, error)
+                        : readPortableUninstallMetadata(currentExecutable, metadata, error))) {
         showError(error);
         return 21;
     }
-    if (!pathEquals(uninstallDirectory, uninstallRoot() / metadata.productName)) {
+    const fs::path uninstallDirectory = uninstallRoot() / metadata.productName;
+    if (installedCopy && !pathEquals(currentDirectory, uninstallDirectory)) {
         showError(L"The uninstall metadata does not match this product directory.");
         return 22;
     }

@@ -34,6 +34,8 @@ def test_windows_builder_outputs_native_exe_with_registered_uninstaller():
     assert '"--verify"' in script
     assert "GetFileNameWithoutExtension($Bundle.Name)" in script
     assert "-windows-vst3-setup" in script
+    assert "-windows-vst3-uninstall.exe" in script
+    assert '"--portable-uninstaller-output"' in script
     assert "-windows-vst3-installer.zip" in script
     assert "FOOTER_MAGIC" in packager
     assert "MAX_MANIFEST_BYTES" in packager
@@ -44,6 +46,7 @@ def test_windows_builder_outputs_native_exe_with_registered_uninstaller():
     assert "KEY_WOW64_64KEY" in support
     assert "removeTreeNoFollow" in uninstaller
     assert "unregisterProduct" in uninstaller
+    assert "readPortableUninstallMetadata" in uninstaller
     assert "/MANIFESTUAC:level='requireAdministrator' uiAccess='false'" in cmake
     assert "Inno" not in script
     assert "ISCC" not in script

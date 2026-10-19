@@ -128,6 +128,7 @@ if ([string]::IsNullOrWhiteSpace($InstallerSlug)) { $InstallerSlug = "plugin" }
 $InstallerId = "com.triplesidestudio.vst3.$InstallerSlug"
 $InstallerBaseName = $ProductBaseName + "-windows-vst3-setup"
 $InstallerPath = Join-Path $ArtifactDir ($InstallerBaseName + ".exe")
+$PortableUninstallerPath = Join-Path $ArtifactDir ($ProductBaseName + "-windows-vst3-uninstall.exe")
 $InstallerStub = Join-Path $BuildDir "packaging\tripleside-native-setup-stub.exe"
 $UninstallerStub = Join-Path $BuildDir "packaging\tripleside-native-uninstaller.exe"
 foreach ($NativeStub in @($InstallerStub, $UninstallerStub)) {
@@ -141,6 +142,7 @@ $PackagingArguments = @(
     "--uninstaller", $UninstallerStub,
     "--bundle", $Bundle.FullName,
     "--output", $InstallerPath,
+    "--portable-uninstaller-output", $PortableUninstallerPath,
     "--product-name", $ProductBaseName,
     "--product-version", $ProductVersion,
     "--publisher", $Publisher,
@@ -151,6 +153,7 @@ $PackagingResult = Invoke-CapturedNativeCommand -FilePath $PythonPath -ArgumentL
 Write-CapturedOutput $PackagingResult.Output
 if ($PackagingResult.ExitCode -ne 0) { Throw-CapturedFailure "Native Windows installer EXE packaging failed." $PackagingResult }
 if (-not (Test-Path -LiteralPath $InstallerPath -PathType Leaf)) { throw "Native Windows installer EXE was not produced." }
+if (-not (Test-Path -LiteralPath $PortableUninstallerPath -PathType Leaf)) { throw "Portable Windows uninstaller EXE was not produced." }
 
 $ZipPath = Join-Path $ArtifactDir ($ProductBaseName + "-windows-vst3-installer.zip")
 if (Test-Path $ZipPath) { Remove-Item $ZipPath -Force }
@@ -158,6 +161,6 @@ $NoticesDir = Join-Path $ResolvedOutput "package-notices"
 New-Item -ItemType Directory -Force -Path $NoticesDir | Out-Null
 Copy-Item -LiteralPath (Join-Path $RuntimeRoot "ThirdParty/signalsmith-stretch/LICENSE.txt") -Destination (Join-Path $NoticesDir "Signalsmith-Stretch-LICENSE.txt") -Force
 Copy-Item -LiteralPath (Join-Path $RuntimeRoot "ThirdParty/signalsmith-linear/LICENSE.txt") -Destination (Join-Path $NoticesDir "Signalsmith-Linear-LICENSE.txt") -Force
-& tar.exe -a -c -f $ZipPath -C $ArtifactDir ([System.IO.Path]::GetFileName($InstallerPath)) -C $NoticesDir "Signalsmith-Stretch-LICENSE.txt" "Signalsmith-Linear-LICENSE.txt"
+& tar.exe -a -c -f $ZipPath -C $ArtifactDir ([System.IO.Path]::GetFileName($InstallerPath)) ([System.IO.Path]::GetFileName($PortableUninstallerPath)) -C $NoticesDir "Signalsmith-Stretch-LICENSE.txt" "Signalsmith-Linear-LICENSE.txt"
 if ($LASTEXITCODE -ne 0) { throw "Native VST3 ZIP packaging failed." }
 Write-Output $ZipPath

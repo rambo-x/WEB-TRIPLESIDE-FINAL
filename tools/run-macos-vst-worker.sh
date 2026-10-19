@@ -91,10 +91,17 @@ status building 25 "Mengompilasi Universal VST3 macOS (Apple Silicon + Intel)"
 "$native_root/build-macos.sh" "${build_args[@]}" >"$job_root/build.log" 2>&1 &
 build_pid=$!
 progress=25
+compilation_started_at="$(date +%s)"
 while kill -0 "$build_pid" 2>/dev/null; do
   sleep 15
   progress=$((progress < 88 ? progress + 2 : 88))
-  status building "$progress" "Compiler macOS aktif"
+  elapsed_seconds=$(( $(date +%s) - compilation_started_at ))
+  if (( elapsed_seconds >= 60 )); then
+    elapsed_text="$((elapsed_seconds / 60)) menit $((elapsed_seconds % 60)) detik"
+  else
+    elapsed_text="$((elapsed_seconds > 0 ? elapsed_seconds : 1)) detik"
+  fi
+  status building "$progress" "Compiler macOS aktif · berjalan $elapsed_text"
 done
 wait "$build_pid"
 

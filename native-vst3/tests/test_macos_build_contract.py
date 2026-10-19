@@ -50,3 +50,12 @@ def test_macos_queue_has_offset_schedule_and_server_watchdog():
     assert '"target_platform": "macos"' in dispatcher
     assert "gh_bin workflow run vst-macos-worker.yml" in dispatcher
     assert 'status == "queued"' in dispatcher
+
+
+def test_macos_worker_reports_elapsed_compiler_time():
+    worker = (REPOSITORY / "tools/run-macos-vst-worker.sh").read_text(encoding="utf-8")
+
+    assert 'compilation_started_at="$(date +%s)"' in worker
+    assert "elapsed_seconds=" in worker
+    assert 'elapsed_text="$((elapsed_seconds / 60)) menit' in worker
+    assert 'Compiler macOS aktif · berjalan $elapsed_text' in worker

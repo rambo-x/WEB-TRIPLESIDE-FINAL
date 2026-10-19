@@ -14,7 +14,9 @@ from typing import BinaryIO, Iterable
 
 
 MANIFEST_MAGIC = b"TSVST3M1"
+UNINSTALL_MAGIC = b"TSVST3U1"
 FOOTER_MAGIC = b"TSVST3PKGFOOT1\0\0"
+PORTABLE_UNINSTALL_FOOTER_MAGIC = b"TSVST3UNINST1\0\0\0"
 FORMAT_VERSION = 1
 FOOTER = struct.Struct("<16sIQQ32s")
 MAX_FILES = 4096
@@ -99,6 +101,51 @@ def _bundle_files(bundle: Path) -> list[tuple[str, Path]]:
     return files
 
 
+def _uninstall_metadata(product_name: str, bundle_name: str, installer_id: str) -> bytes:
+    metadata = bytearray(UNINSTALL_MAGIC)
+    metadata += struct.pack("<I", FORMAT_VERSION)
+    _write_string(metadata, product_name, "product name")
+    _write_string(metadata, bundle_name, "bundle name")
+    _write_string(metadata, installer_id, "installer ID")
+    return bytes(metadata)
+
+
+def build_portable_uninstaller(args: argparse.Namespace, bundle_name: str) -> Path | None:
+    if args.portable_uninstaller_output is None:
+        return None
+    source = args.uninstaller.resolve(strict=True)
+    output = args.portable_uninstaller_output.resolve()
+    if output in {source, args.stub.resolve(strict=True), args.output.resolve()}:
+        raise ValueError("Portable uninstaller output must not overwrite another package file")
+    metadata = _uninstall_metadata(args.product_name, bundle_name, args.installer_id)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = output.with_name(f".{output.name}.{os.getpid()}.tmp")
+    if temporary.exists():
+        temporary.unlink()
+    try:
+        with temporary.open("wb") as package:
+            with source.open("rb") as input_stub:
+                shutil.copyfileobj(input_stub, package, COPY_CHUNK)
+            metadata_offset = package.tell()
+            package.write(metadata)
+            package.write(
+                FOOTER.pack(
+                    PORTABLE_UNINSTALL_FOOTER_MAGIC,
+                    FORMAT_VERSION,
+                    metadata_offset,
+                    len(metadata),
+                    hashlib.sha256(metadata).digest(),
+                )
+            )
+            package.flush()
+            os.fsync(package.fileno())
+        os.replace(temporary, output)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+    return output
+
+
 def build_package(args: argparse.Namespace) -> Path:
     stub = args.stub.resolve(strict=True)
     uninstaller = args.uninstaller.resolve(strict=True)
@@ -166,6 +213,7 @@ def build_package(args: argparse.Namespace) -> Path:
     finally:
         if temporary.exists():
             temporary.unlink()
+    build_portable_uninstaller(args, bundle.name)
     return output
 
 
@@ -194,6 +242,7 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--uninstaller", type=Path, required=True)
     parser.add_argument("--bundle", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--portable-uninstaller-output", type=Path)
     parser.add_argument("--product-name", required=True)
     parser.add_argument("--product-version", required=True)
     parser.add_argument("--publisher", required=True)

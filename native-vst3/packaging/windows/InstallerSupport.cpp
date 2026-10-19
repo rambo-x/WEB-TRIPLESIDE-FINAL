@@ -27,6 +27,7 @@ namespace {
 
 constexpr std::array<char, 8> kManifestMagic{'T', 'S', 'V', 'S', 'T', '3', 'M', '1'};
 constexpr std::array<char, 16> kFooterMagic{'T', 'S', 'V', 'S', 'T', '3', 'P', 'K', 'G', 'F', 'O', 'O', 'T', '1', '\0', '\0'};
+constexpr std::array<char, 16> kPortableUninstallFooterMagic{'T', 'S', 'V', 'S', 'T', '3', 'U', 'N', 'I', 'N', 'S', 'T', '1', '\0', '\0', '\0'};
 constexpr std::array<char, 8> kUninstallMagic{'T', 'S', 'V', 'S', 'T', '3', 'U', '1'};
 constexpr std::uint32_t kFormatVersion = 1;
 constexpr std::uint32_t kMaximumFiles = 4096;
@@ -525,6 +526,20 @@ bool writeUninstallMetadata(const fs::path& path, const UninstallMetadata& metad
     return true;
 }
 
+bool decodeUninstallMetadata(const std::vector<std::uint8_t>& bytes, UninstallMetadata& metadata, std::wstring& error) {
+    ManifestReader reader(bytes);
+    std::array<char, 8> magic{};
+    std::uint32_t version = 0;
+    if (!reader.readBytes(magic.data(), magic.size()) || magic != kUninstallMagic || !reader.read(version) || version != kFormatVersion ||
+        !reader.readString(metadata.productName) || !reader.readString(metadata.bundleName) || !reader.readString(metadata.installerId) ||
+        !reader.finished() || !isSafeSegment(metadata.productName) || !isSafeSegment(metadata.bundleName) ||
+        !metadata.bundleName.ends_with(L".vst3") || !isSafeInstallerId(metadata.installerId)) {
+        error = L"Uninstall metadata is malformed.";
+        return false;
+    }
+    return true;
+}
+
 bool readUninstallMetadata(const fs::path& path, UninstallMetadata& metadata, std::wstring& error) {
     std::ifstream input(path, std::ios::binary | std::ios::ate);
     if (!input) {
@@ -539,17 +554,38 @@ bool readUninstallMetadata(const fs::path& path, UninstallMetadata& metadata, st
     input.seekg(0);
     std::vector<std::uint8_t> bytes(static_cast<std::size_t>(size));
     input.read(reinterpret_cast<char*>(bytes.data()), size);
-    ManifestReader reader(bytes);
-    std::array<char, 8> magic{};
-    std::uint32_t version = 0;
-    if (!reader.readBytes(magic.data(), magic.size()) || magic != kUninstallMagic || !reader.read(version) || version != kFormatVersion ||
-        !reader.readString(metadata.productName) || !reader.readString(metadata.bundleName) || !reader.readString(metadata.installerId) ||
-        !reader.finished() || !isSafeSegment(metadata.productName) || !isSafeSegment(metadata.bundleName) ||
-        !metadata.bundleName.ends_with(L".vst3") || !isSafeInstallerId(metadata.installerId)) {
-        error = L"Uninstall metadata is malformed.";
+    return input && decodeUninstallMetadata(bytes, metadata, error);
+}
+
+bool readPortableUninstallMetadata(const fs::path& path, UninstallMetadata& metadata, std::wstring& error) {
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) {
+        error = L"Unable to open portable uninstaller: " + win32Message(GetLastError());
         return false;
     }
-    return true;
+    LARGE_INTEGER fileSize{};
+    bool success = GetFileSizeEx(file, &fileSize) != FALSE && fileSize.QuadPart >= static_cast<LONGLONG>(sizeof(PackageFooter));
+    PackageFooter footer{};
+    if (success) success = readExact(file, static_cast<std::uint64_t>(fileSize.QuadPart) - sizeof(PackageFooter), &footer, sizeof(footer), error);
+    if (success && (std::memcmp(footer.magic, kPortableUninstallFooterMagic.data(), kPortableUninstallFooterMagic.size()) != 0 ||
+                    footer.version != kFormatVersion || footer.manifestSize > 64 * 1024 ||
+                    footer.manifestOffset + footer.manifestSize != static_cast<std::uint64_t>(fileSize.QuadPart) - sizeof(PackageFooter))) {
+        error = L"Portable uninstaller metadata bounds are invalid.";
+        success = false;
+    }
+    std::vector<std::uint8_t> bytes;
+    if (success) {
+        bytes.resize(static_cast<std::size_t>(footer.manifestSize));
+        success = readExact(file, footer.manifestOffset, bytes.data(), bytes.size(), error);
+    }
+    CloseHandle(file);
+    std::array<std::uint8_t, kSha256Size> digest{};
+    if (success) success = hashBytes(bytes, digest) && std::memcmp(digest.data(), footer.manifestSha256, digest.size()) == 0;
+    if (!success) {
+        if (error.empty()) error = L"Portable uninstaller metadata checksum is invalid.";
+        return false;
+    }
+    return decodeUninstallMetadata(bytes, metadata, error);
 }
 
 bool registerUninstaller(

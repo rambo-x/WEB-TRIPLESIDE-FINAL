@@ -55,6 +55,7 @@ bool extractPayloadItem(
     std::wstring& error);
 bool writeUninstallMetadata(const std::filesystem::path& path, const UninstallMetadata& metadata, std::wstring& error);
 bool readUninstallMetadata(const std::filesystem::path& path, UninstallMetadata& metadata, std::wstring& error);
+bool readPortableUninstallMetadata(const std::filesystem::path& path, UninstallMetadata& metadata, std::wstring& error);
 bool registerUninstaller(
     const PackageManifest& manifest,
     const std::filesystem::path& bundlePath,
