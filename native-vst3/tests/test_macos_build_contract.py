@@ -25,6 +25,7 @@ def test_macos_runtime_uses_cocoa_and_bundle_resources_without_juce():
     instrument = (ROOT / "Source/NativeInstrument.cpp").read_text(encoding="utf-8")
 
     assert "Source/NativeViewMac.mm" in cmake
+    assert "smtg_enable_vst3_sdk()" in cmake
     assert '"-framework Cocoa"' in cmake
     assert "TARGET_BUNDLE_CONTENT_DIR" in cmake
     assert "kPlatformTypeNSView" in view
