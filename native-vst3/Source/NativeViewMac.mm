@@ -66,11 +66,13 @@ using tripleside::native::NativeInstrument;
 using tripleside::native::LicenseRuntime;
 using tripleside::native::displayedValue;
 using tripleside::native::displayedParameter;
+using tripleside::native::controlVisible;
 using tripleside::native::equals;
 using tripleside::native::interactiveKind;
 using tripleside::native::loadResourceImage;
 using tripleside::native::kPrismEnabledBaseId;
 using Steinberg::Vst::kNoParamId;
+using Steinberg::Vst::ParamID;
 namespace project = tripleside::project;
 
 @interface TripleSideNativeMacView : NSView {
