@@ -32,6 +32,18 @@ def test_native_view_uses_real_midi_activity_and_boolean_pad_state():
     assert 'equals(c.kind,"text")' in source
 
 
+def test_native_view_rotates_procedural_controls_and_hit_testing():
+    header = (SOURCE_DIR / "NativeView.h").read_text(encoding="utf-8")
+    source = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+    mac_source = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
+
+    assert "controlPoint(size_t,float,float) const" in header
+    assert "D2D1::Matrix3x2F::Rotation(c.rotation,center)" in source
+    assert "project::kControls[i].rotation" in source
+    assert "controlLocalPoint" in mac_source
+    assert "rotateByDegrees:control.rotation" in mac_source
+
+
 def test_embedded_resource_loader_supports_rc_quoted_names():
     source = (SOURCE_DIR / "EmbeddedResource.cpp").read_text(encoding="utf-8")
 

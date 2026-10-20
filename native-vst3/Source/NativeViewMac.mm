@@ -63,6 +63,23 @@ NSImage* loadResourceImage(NSString* filename) {
     const auto path = root / std::string(filename.UTF8String ?: "");
     return [[NSImage alloc] initWithContentsOfFile:[NSString stringWithUTF8String:path.string().c_str()]];
 }
+
+NSPoint controlLocalPoint(const project::ControlInfo& control, NSPoint point) {
+    if (std::abs(control.rotation) < .001f) return point;
+    const CGFloat centerX = project::kCanvasWidth * control.x / 100.;
+    const CGFloat centerY = project::kCanvasHeight * control.y / 100.;
+    const CGFloat radians = -control.rotation * M_PI / 180.;
+    const CGFloat dx = point.x - centerX, dy = point.y - centerY;
+    return NSMakePoint(centerX + dx * std::cos(radians) - dy * std::sin(radians),
+                       centerY + dx * std::sin(radians) + dy * std::cos(radians));
+}
+
+NSRect controlLayoutRect(const project::ControlInfo& control, const project::VisualControl& visual) {
+    if (std::abs(control.rotation) < .001f) return NSMakeRect(visual.hx, visual.hy, visual.hw, visual.hh);
+    const CGFloat centerX = project::kCanvasWidth * control.x / 100.;
+    const CGFloat centerY = project::kCanvasHeight * control.y / 100.;
+    return NSMakeRect(centerX - control.width * .5, centerY - control.height * .5, control.width, control.height);
+}
 }
 } // namespace tripleside::native
 
@@ -75,6 +92,8 @@ using tripleside::native::equals;
 using tripleside::native::interactiveKind;
 using tripleside::native::hitPadVariant;
 using tripleside::native::loadResourceImage;
+using tripleside::native::controlLocalPoint;
+using tripleside::native::controlLayoutRect;
 using tripleside::native::kPrismEnabledBaseId;
 using Steinberg::Vst::kNoParamId;
 using Steinberg::Vst::ParamID;
@@ -226,8 +245,18 @@ namespace project = tripleside::project;
     if constexpr (project::kIsPrismEq || project::kHasPrismModule) {
         for (std::size_t index = 0; index < project::kControls.size(); ++index) {
             if (!equals(project::kControls[index].kind, "spectrum") || equals(project::kControls[index].variant, "pure-spectrum")) continue;
+            const auto& control = project::kControls[index];
             const auto& visual = project::kVisualControls[index];
-            const NSRect spectrum = NSMakeRect(visual.hx, visual.hy, visual.hw, visual.hh);
+            const NSRect spectrum = controlLayoutRect(control, visual);
+            [NSGraphicsContext saveGraphicsState];
+            if (std::abs(control.rotation) >= .001f) {
+                const NSPoint center = NSMakePoint(NSMidX(spectrum), NSMidY(spectrum));
+                NSAffineTransform* rotation = [NSAffineTransform transform];
+                [rotation translateXBy:center.x yBy:center.y];
+                [rotation rotateByDegrees:control.rotation];
+                [rotation translateXBy:-center.x yBy:-center.y];
+                [rotation concat];
+            }
             float frequencies[5]{}, qs[5]{}, gains[5]{};
             for (int band = 0; band < 5; ++band) {
                 frequencies[band] = 10.f * std::pow(3000.f, _instrument->prismBandValue(band, 0));
@@ -255,6 +284,7 @@ namespace project = tripleside::project;
                 [(band == _selectedPrismBand ? NSColor.whiteColor : [NSColor colorWithCalibratedRed:.13 green:.83 blue:.93 alpha:1]) setFill];
                 [dot fill];
             }
+            [NSGraphicsContext restoreGraphicsState];
             break;
         }
     }
@@ -322,8 +352,9 @@ namespace project = tripleside::project;
         if (!interactiveKind(control.kind)) continue;
         if (static_cast<std::size_t>(index) < project::kVisualControls.size()) {
             const auto& visual = project::kVisualControls[static_cast<std::size_t>(index)];
-            if (point.x >= visual.hx && point.x <= visual.hx + visual.hw
-                && point.y >= visual.hy && point.y <= visual.hy + visual.hh) return index;
+            const NSPoint localPoint = controlLocalPoint(control, point);
+            const NSRect layout = controlLayoutRect(control, visual);
+            if (NSPointInRect(localPoint, layout)) return index;
         }
         const CGFloat centerX = project::kCanvasWidth * control.x / 100.;
         const CGFloat centerY = project::kCanvasHeight * control.y / 100.;
@@ -337,12 +368,14 @@ namespace project = tripleside::project;
     if constexpr (!project::kIsPrismEq && !project::kHasPrismModule) return -1;
     for (std::size_t index = 0; index < project::kControls.size(); ++index) {
         if (!equals(project::kControls[index].kind, "spectrum") || equals(project::kControls[index].variant, "pure-spectrum")) continue;
+        const auto& control = project::kControls[index];
         const auto& visual = project::kVisualControls[index];
-        const NSRect spectrum = NSMakeRect(visual.hx, visual.hy, visual.hw, visual.hh);
+        const NSRect spectrum = controlLayoutRect(control, visual);
+        const NSPoint localPoint = controlLocalPoint(control, point);
         for (int band = 4; band >= 0; --band) if (_instrument->prismBandEnabled(band)) {
             const float gain = band ? (_instrument->prismBandValue(band, 1) - .5f) * 24.f : 0.f;
             const NSPoint node = NSMakePoint(NSMinX(spectrum) + NSWidth(spectrum) * _instrument->prismBandValue(band, 0), NSMidY(spectrum) - gain * NSHeight(spectrum) / 36.f);
-            if (std::hypot(point.x - node.x, point.y - node.y) <= 12.) return band;
+            if (std::hypot(localPoint.x - node.x, localPoint.y - node.y) <= 12.) return band;
         }
     }
     return -1;
@@ -351,11 +384,13 @@ namespace project = tripleside::project;
 - (void)updatePrismBand:(NSInteger)band point:(NSPoint)point {
     for (std::size_t index = 0; index < project::kControls.size(); ++index) {
         if (!equals(project::kControls[index].kind, "spectrum") || equals(project::kControls[index].variant, "pure-spectrum")) continue;
+        const auto& control = project::kControls[index];
         const auto& visual = project::kVisualControls[index];
-        const NSRect spectrum = NSMakeRect(visual.hx, visual.hy, visual.hw, visual.hh);
+        const NSRect spectrum = controlLayoutRect(control, visual);
+        const NSPoint localPoint = controlLocalPoint(control, point);
         auto setParameter = [&](ParamID parameter, float value) { if (parameter != kNoParamId) { _instrument->beginEdit(parameter); _instrument->setParamNormalized(parameter, std::clamp(value, 0.f, 1.f)); _instrument->performEdit(parameter, std::clamp(value, 0.f, 1.f)); _instrument->endEdit(parameter); } };
-        setParameter(_instrument->prismParameterFor(static_cast<int>(band), 0), static_cast<float>((point.x - NSMinX(spectrum)) / std::max<CGFloat>(1, NSWidth(spectrum))));
-        if (band > 0) setParameter(_instrument->prismParameterFor(static_cast<int>(band), 1), static_cast<float>(.5 + (NSMidY(spectrum) - point.y) / std::max<CGFloat>(1, NSHeight(spectrum)) * 1.5));
+        setParameter(_instrument->prismParameterFor(static_cast<int>(band), 0), static_cast<float>((localPoint.x - NSMinX(spectrum)) / std::max<CGFloat>(1, NSWidth(spectrum))));
+        if (band > 0) setParameter(_instrument->prismParameterFor(static_cast<int>(band), 1), static_cast<float>(.5 + (NSMidY(spectrum) - localPoint.y) / std::max<CGFloat>(1, NSHeight(spectrum)) * 1.5));
         break;
     }
     [self setNeedsDisplay:YES];
@@ -402,8 +437,9 @@ namespace project = tripleside::project;
     if (event.clickCount >= 2 && (project::kIsPrismEq || project::kHasPrismModule)) {
         for (std::size_t index = 0; index < project::kControls.size(); ++index) {
             if (!equals(project::kControls[index].kind, "spectrum") || equals(project::kControls[index].variant, "pure-spectrum")) continue;
+            const auto& control = project::kControls[index];
             const auto& visual = project::kVisualControls[index];
-            if (!NSPointInRect(point, NSMakeRect(visual.hx, visual.hy, visual.hw, visual.hh))) continue;
+            if (!NSPointInRect(controlLocalPoint(control, point), controlLayoutRect(control, visual))) continue;
             for (NSInteger band = 0; band < 5; ++band) if (!_instrument->prismBandEnabled(static_cast<int>(band))) {
                 _selectedPrismBand = band;
                 const auto enabled = kPrismEnabledBaseId + static_cast<ParamID>(band);
@@ -435,7 +471,7 @@ namespace project = tripleside::project;
         const auto parameter = displayedParameter(*_instrument, static_cast<std::size_t>(_dragControl), _selectedPrismBand);
         _dragStartValue = parameter == kNoParamId ? control.value
                                                   : static_cast<float>(_instrument->getParamNormalized(parameter));
-        _dragStartY = point.y;
+        _dragStartY = controlLocalPoint(control, point).y;
         if (equals(control.kind, "button") || equals(control.kind, "mute") || equals(control.kind, "solo")) {
             [self setControl:_dragControl value:_dragStartValue >= .5f ? 0.f : 1.f];
             _dragControl = -1;
@@ -450,7 +486,9 @@ namespace project = tripleside::project;
     }
     if (_dragControl < 0) return;
     const NSPoint point = [self designPoint:[self convertPoint:event.locationInWindow fromView:nil]];
-    [self setControl:_dragControl value:_dragStartValue + static_cast<float>((_dragStartY - point.y) / 150.)];
+    const auto& control = project::kControls[static_cast<std::size_t>(_dragControl)];
+    const NSPoint localPoint = controlLocalPoint(control, point);
+    [self setControl:_dragControl value:_dragStartValue + static_cast<float>((_dragStartY - localPoint.y) / 150.)];
 }
 
 - (void)mouseUp:(NSEvent*)event {

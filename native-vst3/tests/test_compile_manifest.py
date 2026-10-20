@@ -439,11 +439,11 @@ def test_static_visual_does_not_override_audio_parameter_defaults(tmp_path):
     assert 'ControlInfo{"scale", "visual", "Scale"' in result
 
 
-def test_compiles_static_text_and_component_opacity(tmp_path):
+def test_compiles_static_text_component_opacity_and_rotation(tmp_path):
     spec = project_spec()
     spec["interface"]["controls"] = [{
         "id": "headline", "kind": "text", "label": "MY INSTRUMENT",
-        "parameter": "visual", "value": 0, "opacity": 45,
+        "parameter": "visual", "value": 0, "opacity": 45, "rotation": -37.5,
         "component_variant": "plain-text", "show_background": False,
         "width": 76, "height": 24, "text_font": "cinzel", "text_color": "#C084FC",
     }]
@@ -455,9 +455,9 @@ def test_compiles_static_text_and_component_opacity(tmp_path):
 
     result = output.read_text(encoding="utf-8")
     assert 'ControlInfo{"headline", "text", "MY INSTRUMENT"' in result
-    assert "float value, opacity;" in result
-    assert "0.45f, 0x000000, false" in result
-    assert '24, 0.0f, 0.45f' in result
+    assert "float value, opacity, rotation;" in result
+    assert "0.45f, -37.5f, 0x000000, false" in result
+    assert '24, 0.0f, 0.45f, -37.5f' in result
     assert '"cinzel", 0xC084FC' in result
 
 

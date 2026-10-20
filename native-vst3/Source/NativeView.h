@@ -32,7 +32,7 @@ private:
     void drawKnob(const D2D1_RECT_F&,float,const wchar_t*,bool); void drawMeter(const D2D1_RECT_F&,float,float,bool,bool,const wchar_t*,bool=false); void drawSpectrum(const D2D1_RECT_F&); void drawVectorscope(const D2D1_RECT_F&);
     void drawButton(const D2D1_RECT_F&,bool,const wchar_t*); void drawFilmstrip(ID2D1Bitmap*,const D2D1_RECT_F&,int,int,int,int);
     void drawKeyboard(const D2D1_RECT_F&,int); void drawPad(const D2D1_RECT_F&,bool,const wchar_t*);
-    int hitControl(float,float) const; int hitPanelChild(float,float) const; int keyboardNote(const D2D1_RECT_F&,float,float,int) const; D2D1_RECT_F designRect() const; D2D1_RECT_F controlRect(size_t) const; D2D1_RECT_F labelRect(const D2D1_RECT_F&) const;
+    int hitControl(float,float) const; int hitPanelChild(float,float) const; int keyboardNote(const D2D1_RECT_F&,float,float,int) const; D2D1_RECT_F designRect() const; D2D1_RECT_F controlRect(size_t) const; D2D1_POINT_2F controlPoint(size_t,float,float) const; D2D1_RECT_F labelRect(const D2D1_RECT_F&) const;
     D2D1_MATRIX_3X2_F designTransform() const; D2D1_POINT_2F designPoint(float,float) const;
     void drawVisualControl(size_t); int visualKeyboardNote(int,float,float) const;
     void drawVisualSprite(const char*,int,int,float,float,float,float,float,float,float opacity=1.f);
