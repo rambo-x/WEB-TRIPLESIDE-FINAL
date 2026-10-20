@@ -37,6 +37,25 @@ def test_macos_runtime_uses_cocoa_and_bundle_resources_without_juce():
     assert "JUCE" not in view
 
 
+def test_macos_panels_follow_preview_and_are_fully_interactive():
+    view = (ROOT / "Source/NativeViewMac.mm").read_text(encoding="utf-8")
+
+    assert 'equals(kind, "panel_button")' in view
+    assert '@"PRESET BROWSER"' in view
+    assert '@"GROOVE BROWSER"' in view
+    assert "Tambahkan groove MIDI" in view
+    assert '@"GROOVE LIBRARY"' in view
+    assert "Simpan kondisi" in view
+    assert '[self applyFactoryPreset:row]' in view
+    assert 'groupParameterId(static_cast<int>(group), 1)' in view
+    assert '[self startMidiSequence:source]' in view
+    assert '_midiTimer = [NSTimer scheduledTimerWithTimeInterval:.01' in view
+    assert 'registerForDraggedTypes:@[NSPasteboardTypeFileURL]' in view
+    assert 'beginDraggingSessionWithItems:@[item]' in view
+    assert '_panelDragMode = 2' in view
+    assert '_hiddenMidiSequences.insert(source)' in view
+
+
 def test_macos_queue_has_offset_schedule_and_server_watchdog():
     workflow = (REPOSITORY / ".github/workflows/vst-macos-worker.yml").read_text(
         encoding="utf-8"
