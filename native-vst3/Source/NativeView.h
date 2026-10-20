@@ -9,6 +9,7 @@
 #endif
 #include <vector>
 #include <map>
+#include <set>
 #include <array>
 #include <string>
 #include <cstdint>
@@ -49,6 +50,7 @@ private:
     void openPanel(int); void closePanel(); void applyFactoryPreset(int); void saveUserPreset(); void applyUserPreset(int); void overwriteUserPreset(int); void deleteUserPreset(int);
     UserPreset captureUserPreset(const std::wstring&) const; std::wstring userPresetPath() const; void loadUserPresets(); void persistUserPresets() const;
     void startMidiSequence(int); void stopMidiSequence(); void updateMidiPlayback(); bool midiSequenceLoopEnabled(int) const; void toggleMidiSequenceLoop(int); bool importMidiFile(const wchar_t*);
+    std::vector<int> visibleMidiSequences() const; void drawGroovePanel(const D2D1_RECT_F&); bool groovePanelMouseDown(const D2D1_RECT_F&,float,float); bool chooseMidiFile();
     std::filesystem::path exportMidiSequence(int) const; bool dragMidiSequence(int);
 #if defined(TRIPLESIDE_VISUAL_SMOKE_CAPTURE)
     bool captureVisual(const wchar_t*);
@@ -64,6 +66,7 @@ private:
     struct RuntimeMidiTempo { int tick=0; float bpm=120; };
     struct RuntimeMidiSequence { std::wstring name; int ppq=480,durationTicks=0; bool loopEnabled=false; std::vector<RuntimeMidiEvent> events; std::vector<RuntimeMidiTempo> tempos; }; std::vector<RuntimeMidiSequence> importedMidi;
     std::map<int,bool> midiLoopOverrides;
+    std::set<int> hiddenMidiSequences;
     bool midiPlaying=false; std::uint64_t midiStartedMs=0; size_t midiEventCursor=0; std::vector<std::pair<int,int>> midiPlayingNotes;
     bool currentControlUsesFilmstrip=true,currentControlShowCorrelationMeter=true;
     bool licenseInputFocused=false; std::wstring licenseInput; wchar_t licenseForwardedKey=0; std::uint64_t licenseForwardedAt=0;
