@@ -414,6 +414,8 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
         events = sorted(sequence.get("events") or [], key=lambda event: int(event.get("tick", 0)))
         if len(events) > 8192: fail("native MIDI sequence exceeds the supported event limit")
         for event in events:
+            if event.get("type") not in {"note_on", "note_off"}:
+                continue
             midi_event_lines.append("    MidiEventInfo{" + ", ".join((
                 str(max(0, int(event.get("tick", 0)))), cpp_bool(event.get("type") == "note_on"),
                 str(max(0, min(127, int(event.get("note", 60))))), str(max(0, min(127, int(event.get("velocity", 0))))),

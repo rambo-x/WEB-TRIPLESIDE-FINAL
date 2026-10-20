@@ -65,8 +65,10 @@ def test_compiles_midi_sequence_loop_setting(tmp_path):
         "id": "groove-1", "name": "Main Groove", "ppq": 480,
         "duration_ticks": 1920, "loop_enabled": True,
         "events": [
+            {"tick": 0, "type": "control_change", "controller": 64, "value": 127, "channel": 9},
             {"tick": 0, "type": "note_on", "note": 36, "velocity": 110, "channel": 9},
             {"tick": 120, "type": "note_off", "note": 36, "velocity": 0, "channel": 9},
+            {"tick": 120, "type": "control_change", "controller": 64, "value": 0, "channel": 9},
         ],
         "tempos": [{"tick": 0, "bpm": 120}],
     }]
@@ -78,7 +80,8 @@ def test_compiles_midi_sequence_loop_setting(tmp_path):
 
     result = output.read_text(encoding="utf-8")
     assert "bool loopEnabled" in result
-    assert 'MidiSequenceInfo{"groove-1", "Main Groove", 480, 1920, true' in result
+    assert 'MidiSequenceInfo{"groove-1", "Main Groove", 480, 1920, true, 0, 2' in result
+    assert result.count("MidiEventInfo{") == 2
 
 
 def test_compiles_customer_build_license_contract(tmp_path):
