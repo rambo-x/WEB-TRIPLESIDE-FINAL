@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -202,6 +203,9 @@ namespace project = tripleside::project;
 - (BOOL)midiSequenceLoopEnabled:(NSInteger)index;
 - (NSString*)midiName:(NSInteger)index;
 - (RuntimeUserPreset)captureUserPreset:(const std::string&)name;
+- (std::filesystem::path)userPresetPath;
+- (void)loadUserPresets;
+- (void)persistUserPresets;
 @end
 
 @implementation TripleSideNativeMacView
@@ -228,6 +232,7 @@ namespace project = tripleside::project;
         _panelHeight = 78;
         _midiEventCursor = 0;
         _midiStartedAt = 0;
+        [self loadUserPresets];
         _padTriggerGenerations.fill(0);
         _padFlashUntil.fill(0);
         __weak TripleSideNativeMacView* weakSelf = self;
@@ -592,6 +597,48 @@ namespace project = tripleside::project;
     } while (std::any_of(_userPresets.begin(), _userPresets.end(), [&](const auto& preset) { return preset.name == name; }));
     if (_userPresets.size() >= 128) _userPresets.erase(_userPresets.begin());
     _userPresets.push_back([self captureUserPreset:name]);
+    [self persistUserPresets];
+}
+
+- (std::filesystem::path)userPresetPath {
+    NSString* applicationSupport = NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES).firstObject;
+    if (!applicationSupport.length) return {};
+    char identity[96]{};
+    std::snprintf(identity, sizeof(identity), "%08X%08X%08X%08X-macos.tspresets", TS_PLUGIN_CID_A, TS_PLUGIN_CID_B, TS_PLUGIN_CID_C, TS_PLUGIN_CID_D);
+    std::filesystem::path directory = std::filesystem::path(applicationSupport.fileSystemRepresentation) / "TripleSide Studio" / "VST3 Presets";
+    std::error_code error; std::filesystem::create_directories(directory, error);
+    return error ? std::filesystem::path{} : directory / identity;
+}
+
+- (void)loadUserPresets {
+    _userPresets.clear(); const auto path = [self userPresetPath]; if (path.empty()) return;
+    std::ifstream input(path, std::ios::binary); std::uint32_t magic = 0, version = 0, count = 0;
+    input.read(reinterpret_cast<char*>(&magic), 4); input.read(reinterpret_cast<char*>(&version), 4); input.read(reinterpret_cast<char*>(&count), 4);
+    if (!input || magic != 0x54534d50u || version != 1 || count > 128) return;
+    for (std::uint32_t index = 0; index < count; ++index) {
+        std::uint32_t nameSize = 0, valueCount = 0, groupCount = 0, moduleCount = 0;
+        input.read(reinterpret_cast<char*>(&nameSize), 4); input.read(reinterpret_cast<char*>(&valueCount), 4); input.read(reinterpret_cast<char*>(&groupCount), 4); input.read(reinterpret_cast<char*>(&moduleCount), 4);
+        if (!input || !nameSize || nameSize > 192 || valueCount > project::kControls.size() || groupCount > project::kGroups.size() * 4 || moduleCount > project::kDspModules.size() * 2 + project::kDspParameters.size()) { _userPresets.clear(); return; }
+        RuntimeUserPreset preset; preset.name.resize(nameSize); preset.values.resize(valueCount); preset.groups.resize(groupCount); preset.moduleValues.resize(moduleCount);
+        input.read(preset.name.data(), static_cast<std::streamsize>(nameSize));
+        input.read(reinterpret_cast<char*>(preset.values.data()), static_cast<std::streamsize>(valueCount * sizeof(float)));
+        input.read(reinterpret_cast<char*>(preset.groups.data()), static_cast<std::streamsize>(groupCount * sizeof(float)));
+        input.read(reinterpret_cast<char*>(preset.moduleValues.data()), static_cast<std::streamsize>(moduleCount * sizeof(float)));
+        if (!input || std::any_of(preset.values.begin(), preset.values.end(), [](float value) { return !std::isfinite(value); }) || std::any_of(preset.groups.begin(), preset.groups.end(), [](float value) { return !std::isfinite(value); }) || std::any_of(preset.moduleValues.begin(), preset.moduleValues.end(), [](float value) { return !std::isfinite(value); })) { _userPresets.clear(); return; }
+        _userPresets.push_back(std::move(preset));
+    }
+}
+
+- (void)persistUserPresets {
+    const auto path = [self userPresetPath]; if (path.empty()) return; const auto temporary = path.string() + ".tmp";
+    std::ofstream output(temporary, std::ios::binary | std::ios::trunc); const std::uint32_t magic = 0x54534d50u, version = 1, count = static_cast<std::uint32_t>(std::min<std::size_t>(128, _userPresets.size()));
+    output.write(reinterpret_cast<const char*>(&magic), 4); output.write(reinterpret_cast<const char*>(&version), 4); output.write(reinterpret_cast<const char*>(&count), 4);
+    for (std::size_t index = 0; index < count; ++index) {
+        const auto& preset = _userPresets[index]; const std::uint32_t nameSize = static_cast<std::uint32_t>(std::min<std::size_t>(192, preset.name.size())), valueCount = static_cast<std::uint32_t>(preset.values.size()), groupCount = static_cast<std::uint32_t>(preset.groups.size()), moduleCount = static_cast<std::uint32_t>(preset.moduleValues.size());
+        output.write(reinterpret_cast<const char*>(&nameSize), 4); output.write(reinterpret_cast<const char*>(&valueCount), 4); output.write(reinterpret_cast<const char*>(&groupCount), 4); output.write(reinterpret_cast<const char*>(&moduleCount), 4);
+        output.write(preset.name.data(), static_cast<std::streamsize>(nameSize)); output.write(reinterpret_cast<const char*>(preset.values.data()), static_cast<std::streamsize>(valueCount * sizeof(float))); output.write(reinterpret_cast<const char*>(preset.groups.data()), static_cast<std::streamsize>(groupCount * sizeof(float))); output.write(reinterpret_cast<const char*>(preset.moduleValues.data()), static_cast<std::streamsize>(moduleCount * sizeof(float)));
+    }
+    output.close(); std::error_code error; if (output) std::filesystem::rename(temporary, path, error); if (error) { std::filesystem::remove(path, error); error.clear(); std::filesystem::rename(temporary, path, error); } if (!output || error) std::filesystem::remove(temporary, error);
 }
 
 - (BOOL)panelMouseDown:(NSPoint)point {
@@ -641,8 +688,8 @@ namespace project = tripleside::project;
             if (row >= 0 && row < static_cast<NSInteger>(project::kPresets.size())) { [self applyFactoryPreset:row]; return YES; }
             const NSInteger user = row - static_cast<NSInteger>(project::kPresets.size());
             if (user >= 0 && user < static_cast<NSInteger>(_userPresets.size())) {
-                if (point.x >= right - 27) _userPresets.erase(_userPresets.begin() + user);
-                else if (point.x >= right - 66) { const auto name = _userPresets[static_cast<std::size_t>(user)].name; _userPresets[static_cast<std::size_t>(user)] = [self captureUserPreset:name]; }
+                if (point.x >= right - 27) { _userPresets.erase(_userPresets.begin() + user); [self persistUserPresets]; }
+                else if (point.x >= right - 66) { const auto name = _userPresets[static_cast<std::size_t>(user)].name; _userPresets[static_cast<std::size_t>(user)] = [self captureUserPreset:name]; [self persistUserPresets]; }
                 else [self applyUserPreset:user];
                 [self setNeedsDisplay:YES]; return YES;
             }

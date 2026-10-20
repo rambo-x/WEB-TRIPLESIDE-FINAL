@@ -54,6 +54,9 @@ def test_macos_panels_follow_preview_and_are_fully_interactive():
     assert 'beginDraggingSessionWithItems:@[item]' in view
     assert '_panelDragMode = 2' in view
     assert '_hiddenMidiSequences.insert(source)' in view
+    assert '[self loadUserPresets]' in view
+    assert '[self persistUserPresets]' in view
+    assert 'NSApplicationSupportDirectory' in view
 
 
 def test_macos_queue_has_offset_schedule_and_server_watchdog():
