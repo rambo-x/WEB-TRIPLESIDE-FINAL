@@ -147,6 +147,7 @@ using tripleside::native::loadResourceImage;
 using tripleside::native::controlLocalPoint;
 using tripleside::native::controlLayoutRect;
 using tripleside::native::fillRounded;
+using tripleside::native::groupParameterId;
 using tripleside::native::panelTextAttributes;
 using tripleside::native::rgbColor;
 using tripleside::native::RuntimeMidiEvent;
