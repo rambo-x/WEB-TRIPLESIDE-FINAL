@@ -48,7 +48,7 @@ private:
     D2D1_RECT_F panelRect(int) const; bool controlVisible(size_t) const; void drawOpenPanel(); bool panelMouseDown(float,float);
     void openPanel(int); void closePanel(); void applyFactoryPreset(int); void saveUserPreset(); void applyUserPreset(int); void overwriteUserPreset(int); void deleteUserPreset(int);
     UserPreset captureUserPreset(const std::wstring&) const; std::wstring userPresetPath() const; void loadUserPresets(); void persistUserPresets() const;
-    void startMidiSequence(int); void stopMidiSequence(); void updateMidiPlayback(); bool importMidiFile(const wchar_t*);
+    void startMidiSequence(int); void stopMidiSequence(); void updateMidiPlayback(); bool midiSequenceLoopEnabled(int) const; void toggleMidiSequenceLoop(int); bool importMidiFile(const wchar_t*);
     std::filesystem::path exportMidiSequence(int) const; bool dragMidiSequence(int);
 #if defined(TRIPLESIDE_VISUAL_SMOKE_CAPTURE)
     bool captureVisual(const wchar_t*);
@@ -57,12 +57,13 @@ private:
     Microsoft::WRL::ComPtr<IDWriteInMemoryFontFileLoader> brandFontLoader; std::vector<Microsoft::WRL::ComPtr<IDWriteFontFile>> embeddedFontFiles; Microsoft::WRL::ComPtr<IDWriteFontCollection1> brandFontCollection;
     Microsoft::WRL::ComPtr<IWICImagingFactory> wicFactory; Microsoft::WRL::ComPtr<ID2D1Bitmap> background,knobFilmstrip,pultecKnobFilmstrip,modernSpectrumKnob,studioScallopKnob,blackPrecisionKnob,crimsonWingKnob,blackCrimsonWingKnob,regentWhiteWingKnob,graphiteRidgeKnob,buttonFilmstrip,faderFilmstrip,meterFilmstrip,mechanicalToggleOff,mechanicalToggleOn;
     int activeControl=-1,activeNote=-1,wheelControl=-1,wheelRemainder=0,selectedPrismBand=0,dragPrismBand=-1; float dragStartY=0,dragStartValue=0; D2D1_RECT_F currentLabelControlRect{};
-    int openPanelIndex=-1, panelDragMode=0, selectedMidiSequence=0, midiDragCandidate=-1; float panelRuntimeX=50,panelRuntimeY=52,panelRuntimeWidth=88,panelRuntimeHeight=78,panelDragX=0,panelDragY=0,midiDragX=0,midiDragY=0;
+    int openPanelIndex=-1, panelDragMode=0, selectedMidiSequence=0, playingMidiSequence=-1, midiDragCandidate=-1; float panelRuntimeX=50,panelRuntimeY=52,panelRuntimeWidth=88,panelRuntimeHeight=78,panelDragX=0,panelDragY=0,midiDragX=0,midiDragY=0;
     std::map<int,std::array<float,4>> panelRuntimeBounds;
     struct UserPreset { std::wstring name; std::vector<float> values,groups,moduleValues; }; std::vector<UserPreset> userPresets; bool userPresetsLoaded=false;
     struct RuntimeMidiEvent { int tick=0,note=60,velocity=0,channel=0; bool on=false; };
     struct RuntimeMidiTempo { int tick=0; float bpm=120; };
-    struct RuntimeMidiSequence { std::wstring name; int ppq=480,durationTicks=0; std::vector<RuntimeMidiEvent> events; std::vector<RuntimeMidiTempo> tempos; }; std::vector<RuntimeMidiSequence> importedMidi;
+    struct RuntimeMidiSequence { std::wstring name; int ppq=480,durationTicks=0; bool loopEnabled=false; std::vector<RuntimeMidiEvent> events; std::vector<RuntimeMidiTempo> tempos; }; std::vector<RuntimeMidiSequence> importedMidi;
+    std::map<int,bool> midiLoopOverrides;
     bool midiPlaying=false; std::uint64_t midiStartedMs=0; size_t midiEventCursor=0; std::vector<std::pair<int,int>> midiPlayingNotes;
     bool currentControlUsesFilmstrip=true,currentControlShowCorrelationMeter=true;
     bool licenseInputFocused=false; std::wstring licenseInput; wchar_t licenseForwardedKey=0; std::uint64_t licenseForwardedAt=0;

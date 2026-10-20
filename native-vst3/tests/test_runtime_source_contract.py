@@ -44,6 +44,22 @@ def test_native_view_rotates_procedural_controls_and_hit_testing():
     assert "rotateByDegrees:control.rotation" in mac_source
 
 
+def test_windows_groove_transport_loops_smoothly_and_survives_panel_close():
+    header = (SOURCE_DIR / "NativeView.h").read_text(encoding="utf-8")
+    source = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+
+    assert "SetTimer(hwnd,2,10,nullptr)" in source
+    assert "case WM_TIMER:if(w==2)" in source
+    assert "KillTimer(hwnd,2)" in source
+    assert "playingMidiSequence" in header
+    assert "midiSequenceLoopEnabled" in header
+    assert "toggleMidiSequenceLoop" in source
+    assert "project::kMidiSequences[static_cast<size_t>(index)].loopEnabled" in source
+    assert "if(midiSequenceLoopEnabled(playingMidiSequence))" in source
+    close_panel = source.split("void NativeView::closePanel()", 1)[1].split("}", 1)[0]
+    assert "stopMidiSequence" not in close_panel
+
+
 def test_embedded_resource_loader_supports_rc_quoted_names():
     source = (SOURCE_DIR / "EmbeddedResource.cpp").read_text(encoding="utf-8")
 
