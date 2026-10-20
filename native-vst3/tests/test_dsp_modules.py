@@ -489,6 +489,10 @@ def test_native_runtime_routes_gain_stages_through_modules():
     assert "project::kChorusEnabled" in source
     assert "project::kDelayEnabled" in source
     assert "project::kReverbEnabled" in source
+    assert "project::kIsNeonDrums" in source
+    assert "tone*.55f" in source
+    assert "targetWet=.02f+space*.12f" in source
+    assert "noteTriggerCount" in source
     assert "dsp::StereoGain instrumentMasterGain" in header
     assert "dsp::EffectRack effectRack" in header
     assert "kModuleControlBaseId=10000" in header

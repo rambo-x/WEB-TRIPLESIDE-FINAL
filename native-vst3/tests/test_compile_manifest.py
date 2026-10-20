@@ -145,6 +145,28 @@ def test_compiles_complete_wave_generator_parameter_contract(tmp_path):
     assert 'DspParameterInfo{0, "vibrato_delay", 0.5f}' in result
 
 
+def test_compiles_global_tuning_and_fine_tune_parameters(tmp_path):
+    spec = project_spec()
+    spec["dsp_graph"] = {
+        "version": 2, "mode": "instrument_sources", "source": "project",
+        "modules": [{
+            "id": "global-tuning", "type": "tuning", "name": "Tuning & Fine Tune",
+            "bypassed": False, "mix": 1,
+            "parameters": {"tuning": 0.75, "fine_tune": 0.25},
+        }],
+    }
+    source = tmp_path / "project.json"
+    output = tmp_path / "NativeProject.h"
+    source.write_text(json.dumps(spec), encoding="utf-8")
+
+    MODULE.compile_manifest(source, output)
+
+    result = output.read_text(encoding="utf-8")
+    assert 'DspModuleInfo{"global-tuning", "tuning"' in result
+    assert 'DspParameterInfo{0, "tuning", 0.75f}' in result
+    assert 'DspParameterInfo{0, "fine_tune", 0.25f}' in result
+
+
 def test_native_manifest_rejects_more_than_bounded_dsp_parameter_limit(tmp_path):
     spec = project_spec()
     spec["dsp_graph"] = {
@@ -961,3 +983,15 @@ def test_explicit_prism_module_enables_contextual_native_routing(tmp_path):
     assert '"prism_frequency", 0' in result
     assert '"prism_gain", 0' in result
     assert '"prism_q", 0' in result
+
+
+def test_marks_neon_drums_for_preview_matched_native_dsp(tmp_path):
+    spec = project_spec()
+    spec["project_template"] = "neonpopdrums"
+    source = tmp_path / "project.json"
+    output = tmp_path / "NativeProject.h"
+    source.write_text(json.dumps(spec), encoding="utf-8")
+
+    MODULE.compile_manifest(source, output)
+
+    assert "kIsNeonDrums = true" in output.read_text(encoding="utf-8")

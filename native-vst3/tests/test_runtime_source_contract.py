@@ -24,6 +24,10 @@ def test_native_view_uses_real_midi_activity_and_boolean_pad_state():
     assert 'equals(currentControlVariant,"smooth-diffuse-hit")' in source
     assert "if(hitPad&&!active)return" in source
     assert "CreateRadialGradientBrush" in source
+    assert "const auto index=static_cast<size_t>(pitch);" in source
+    assert "const auto generation=instrument.noteTriggerCount(pitch);" in source
+    assert "const auto now=GetTickCount64();" in source
+    assert "index=static_cast<size_t>(pitch),generation=" not in source
     assert "c.opacity<.999f" in source
     assert 'equals(c.kind,"text")' in source
 
@@ -155,6 +159,18 @@ def test_native_runtime_renders_polyphonic_wave_generator():
     assert "waveNotePriority" not in source
 
 
+def test_native_runtime_applies_global_tuning_to_sampler_and_wave_generator():
+    header = (SOURCE_DIR / "NativeInstrument.h").read_text(encoding="utf-8")
+    source = (SOURCE_DIR / "NativeInstrument.cpp").read_text(encoding="utf-8")
+
+    assert "configureGlobalTuning()" in header
+    assert 'std::strcmp(module.type,"tuning")' in source
+    assert 'projectModuleParameter(tuningModule,"tuning",.5f)' in source
+    assert 'projectModuleParameter(tuningModule,"fine_tune",.5f)' in source
+    assert "expressionSemitones=bendSemitones+vibratoSemitones+globalTuning" in source
+    assert 'std::strcmp(parameter,"fine_tune")' in source
+
+
 def test_native_css_controls_and_branding_follow_preview_tokens():
     header = (SOURCE_DIR / "NativeView.h").read_text(encoding="utf-8")
     source = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
@@ -193,6 +209,14 @@ def test_native_knobs_support_preview_neutral_reset_and_mouse_wheel():
     assert 'equals(parameter,"output")' in source
     assert 'equals(parameter,"attack")||equals(parameter,"release")' in source
     assert "current+steps*.01f" in source
+
+
+def test_windows_double_click_retriggers_pad_and_keyboard_note_down():
+    source = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+
+    assert "case WM_LBUTTONDBLCLK:ReleaseCapture();mouseUp();mouseDoubleClick" in source
+    assert "if(equals(c.kind,\"knob\")){" in source
+    assert "SetCapture(hwnd);mouseDown(x,y);" in source
 
 
 def test_native_component_labels_apply_saved_position_presets():
@@ -438,3 +462,17 @@ def test_prism_contextual_bands_route_runtime_parameters_and_migrate_state_v4():
     assert "displayedParameter" in mac_view
     assert "prismBandAt" in mac_view
     assert "project::kPrismContextualEnabled" in mac_view
+
+
+def test_native_windows_draws_mixer_metal_fader_and_led_ladder_variants():
+    view = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+
+    assert 'equals(currentControlVariant,"mixer-metal")' in view
+    assert 'equals(currentControlVariant,"mixer-led-ladder")' in view
+    assert "const int columns=stereo?2:1,segments=16" in view
+    assert 'equals(currentControlVariant,"mechanical-toggle")' in view
+    assert 'loadBitmap(L"mechanical-toggle-off-v4.png",mechanicalToggleOff)' in view
+    assert 'loadBitmap(L"mechanical-toggle-on-v4.png",mechanicalToggleOn)' in view
+    assert "active?mechanicalToggleOn.Get():mechanicalToggleOff.Get()" in view
+    assert "availableWidth/608.f" in view
+    assert "availableHeight/608.f" in view

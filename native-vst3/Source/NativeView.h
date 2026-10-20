@@ -35,7 +35,7 @@ private:
     int hitControl(float,float) const; int hitPanelChild(float,float) const; int keyboardNote(const D2D1_RECT_F&,float,float,int) const; D2D1_RECT_F designRect() const; D2D1_RECT_F controlRect(size_t) const; D2D1_RECT_F labelRect(const D2D1_RECT_F&) const;
     D2D1_MATRIX_3X2_F designTransform() const; D2D1_POINT_2F designPoint(float,float) const;
     void drawVisualControl(size_t); int visualKeyboardNote(int,float,float) const;
-    void drawVisualSprite(const char*,int,int,float,float,float,float,float,float);
+    void drawVisualSprite(const char*,int,int,float,float,float,float,float,float,float opacity=1.f);
     void drawVisualSpriteRegion(const char*,int,int,float,float,const D2D1_RECT_F&,const D2D1_RECT_F&);
     std::map<std::wstring,Microsoft::WRL::ComPtr<ID2D1Bitmap>> visualBitmaps;
     void mouseDown(float,float); void mouseMove(float,float); void mouseUp();
@@ -55,7 +55,7 @@ private:
 #endif
     Microsoft::WRL::ComPtr<IDWriteFactory> writeFactory; Microsoft::WRL::ComPtr<IDWriteTextFormat> textFormat,brandFormat,brandMetaFormat,brandTagFormat,smallFormat,meterFormat,meterLabelFormat;
     Microsoft::WRL::ComPtr<IDWriteInMemoryFontFileLoader> brandFontLoader; std::vector<Microsoft::WRL::ComPtr<IDWriteFontFile>> embeddedFontFiles; Microsoft::WRL::ComPtr<IDWriteFontCollection1> brandFontCollection;
-    Microsoft::WRL::ComPtr<IWICImagingFactory> wicFactory; Microsoft::WRL::ComPtr<ID2D1Bitmap> background,knobFilmstrip,pultecKnobFilmstrip,modernSpectrumKnob,studioScallopKnob,blackPrecisionKnob,crimsonWingKnob,blackCrimsonWingKnob,regentWhiteWingKnob,graphiteRidgeKnob,buttonFilmstrip,faderFilmstrip,meterFilmstrip;
+    Microsoft::WRL::ComPtr<IWICImagingFactory> wicFactory; Microsoft::WRL::ComPtr<ID2D1Bitmap> background,knobFilmstrip,pultecKnobFilmstrip,modernSpectrumKnob,studioScallopKnob,blackPrecisionKnob,crimsonWingKnob,blackCrimsonWingKnob,regentWhiteWingKnob,graphiteRidgeKnob,buttonFilmstrip,faderFilmstrip,meterFilmstrip,mechanicalToggleOff,mechanicalToggleOn;
     int activeControl=-1,activeNote=-1,wheelControl=-1,wheelRemainder=0,selectedPrismBand=0,dragPrismBand=-1; float dragStartY=0,dragStartValue=0; D2D1_RECT_F currentLabelControlRect{};
     int openPanelIndex=-1, panelDragMode=0, selectedMidiSequence=0, midiDragCandidate=-1; float panelRuntimeX=50,panelRuntimeY=52,panelRuntimeWidth=88,panelRuntimeHeight=78,panelDragX=0,panelDragY=0,midiDragX=0,midiDragY=0;
     std::map<int,std::array<float,4>> panelRuntimeBounds;
@@ -69,6 +69,8 @@ private:
     std::map<size_t,std::array<float,2>> visualMeterLevels;
     std::map<size_t,std::uint64_t> visualMeterUpdatedMs;
     std::array<float,128> spectrumLevels{}; std::uint64_t spectrumUpdatedMs=0; float vectorscopeCorrelation=0;
+    std::array<unsigned,128> padTriggerGenerations{}; std::array<std::uint64_t,128> padFlashUntil{};
+    bool hitPadFlashActive(int pitch);
     bool comInitialized=false;
     const char* currentControlVariant="classic"; const char* currentLabelPosition="top-left"; int currentLabelGap=12; unsigned int currentControlColor=0;
 #elif defined(__APPLE__)

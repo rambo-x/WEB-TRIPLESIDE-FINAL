@@ -5,6 +5,7 @@ import argparse, hashlib, json, math, re
 from pathlib import Path
 
 NORMALIZED_DSP_PARAMETERS = {
+    "tuning": {"tuning", "fine_tune"},
     "wave_generator": {
         "waveform", "octave", "semitone", "fine", "level", "pulse_width", "phase_reset", "voice_mode", "retrigger",
         "attack", "decay", "sustain", "release", "filter_cutoff", "filter_resonance",
@@ -120,6 +121,7 @@ MAX_DSP_PARAMETERS_PER_MODULE = 48
 def compile_manifest(spec_path: Path, output_path: Path) -> None:
     spec = json.loads(spec_path.read_text(encoding="utf-8"))
     is_effect = spec.get("plugin_kind") == "effect"
+    is_neon_drums = spec.get("project_template") == "neonpopdrums"
     source_dsp_modules = spec.get("engine_modules") or spec.get("dsp_graph", {}).get("modules") or []
     has_prism_module = any(str(module.get("type") or "").replace("-", "_") == "prism_eq" for module in source_dsp_modules)
     is_prism_eq = is_effect and not has_prism_module and (spec.get("dsp_profile") == "prism_eq" or spec.get("project_template") == "prismeq")
@@ -510,6 +512,7 @@ inline constexpr int kCanvasHeight = {visual.get('height') or max(240, min(1080,
 inline constexpr unsigned kAccentRgb = 0x{accent_rgb:06X};
 inline constexpr unsigned kUiRgb = 0x{ui_rgb:06X};
 inline constexpr bool kIsEffect = {cpp_bool(is_effect)};
+inline constexpr bool kIsNeonDrums = {cpp_bool(is_neon_drums)};
 inline constexpr bool kIsPrismEq = {cpp_bool(is_prism_eq)};
 inline constexpr bool kHasPrismModule = {cpp_bool(has_prism_module)};
 inline constexpr int kPrismModuleIndex = {prism_module_index};

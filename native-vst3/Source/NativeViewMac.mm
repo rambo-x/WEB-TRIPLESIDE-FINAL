@@ -25,6 +25,10 @@ bool interactiveKind(const char* kind) {
         || equals(kind, "keyboard");
 }
 
+bool hitPadVariant(const char* variant) {
+    return equals(variant, "hit-effect") || equals(variant, "diffuse-hit") || equals(variant, "smooth-diffuse-hit");
+}
+
 int prismContextSlot(std::size_t index) {
     if ((!project::kIsPrismEq && !project::kHasPrismModule) || index >= project::kControls.size()) return -1;
     const auto* parameter = project::kControls[index].parameter;
@@ -69,6 +73,7 @@ using tripleside::native::displayedParameter;
 using tripleside::native::controlVisible;
 using tripleside::native::equals;
 using tripleside::native::interactiveKind;
+using tripleside::native::hitPadVariant;
 using tripleside::native::loadResourceImage;
 using tripleside::native::kPrismEnabledBaseId;
 using Steinberg::Vst::kNoParamId;
@@ -86,8 +91,11 @@ namespace project = tripleside::project;
     NSInteger _activeNote;
     NSInteger _selectedPrismBand;
     NSInteger _dragPrismBand;
+    std::array<unsigned, 128> _padTriggerGenerations;
+    std::array<double, 128> _padFlashUntil;
 }
 - (instancetype)initWithFrame:(NSRect)frame instrument:(NativeInstrument*)instrument;
+- (BOOL)hitPadFlashActive:(int)pitch;
 @end
 
 @implementation TripleSideNativeMacView
@@ -103,6 +111,8 @@ namespace project = tripleside::project;
         while (_selectedPrismBand < 5 && !_instrument->prismBandEnabled(static_cast<int>(_selectedPrismBand))) ++_selectedPrismBand;
         if (_selectedPrismBand >= 5) _selectedPrismBand = 0;
         _dragPrismBand = -1;
+        _padTriggerGenerations.fill(0);
+        _padFlashUntil.fill(0);
         __weak TripleSideNativeMacView* weakSelf = self;
         _timer = [NSTimer scheduledTimerWithTimeInterval:(1.0 / 30.0) repeats:YES block:^(NSTimer*) {
             [weakSelf setNeedsDisplay:YES];
@@ -118,6 +128,18 @@ namespace project = tripleside::project;
 
 - (BOOL)isFlipped { return YES; }
 - (BOOL)acceptsFirstResponder { return YES; }
+
+- (BOOL)hitPadFlashActive:(int)pitch {
+    if (pitch < 0 || pitch >= 128) return NO;
+    const auto index = static_cast<std::size_t>(pitch);
+    const auto generation = _instrument->noteTriggerCount(pitch);
+    const double now = [[NSProcessInfo processInfo] systemUptime];
+    if (generation != _padTriggerGenerations[index]) {
+        _padTriggerGenerations[index] = generation;
+        _padFlashUntil[index] = now + .115;
+    }
+    return now < _padFlashUntil[index];
+}
 
 - (NSImage*)imageNamed:(const char*)name {
     if (!name || !*name) return nil;
@@ -185,9 +207,20 @@ namespace project = tripleside::project;
     for (std::size_t index = 0; index < controlCount; ++index) {
         const auto& visual = project::kVisualControls[index];
         if (!controlVisible(index) || !visual.file || !*visual.file || visual.frames <= 0) continue;
-        const auto value = displayedValue(*_instrument, index, _selectedPrismBand);
+        auto value = displayedValue(*_instrument, index, _selectedPrismBand);
+        const auto& control = project::kControls[index];
+        const bool hitPad = equals(control.kind, "pad") && hitPadVariant(control.variant);
+        if (equals(control.kind, "pad")) value = hitPad ? ([self hitPadFlashActive:control.notePitch] ? 1.f : 0.f) : ((_instrument->isNoteActive(control.notePitch) || _activeNote == control.notePitch) ? 1.f : 0.f);
         const auto frame = static_cast<NSInteger>(std::lround(value * std::max(0, visual.frames - 1)));
-        [self drawAtlas:[self imageNamed:visual.file] file:visual frame:frame];
+        if (hitPad && value > .5f) {
+            NSImage* image = [self imageNamed:visual.file];
+            const NSInteger columns = std::max(1, visual.columns), row = frame / columns, column = frame % columns;
+            const CGFloat sourceY = image.size.height - (row + 1) * visual.h, insetX = visual.w * .08, insetY = visual.h * .08;
+            [image drawInRect:NSMakeRect(visual.x + insetX, visual.y + insetY, visual.w - 2 * insetX, visual.h - 2 * insetY)
+                     fromRect:NSMakeRect(column * visual.w, sourceY, visual.w, visual.h)
+                    operation:NSCompositingOperationSourceOver fraction:.68 respectFlipped:YES
+                        hints:@{NSImageHintInterpolation: @(NSImageInterpolationHigh)}];
+        } else [self drawAtlas:[self imageNamed:visual.file] file:visual frame:frame];
     }
 
     if constexpr (project::kIsPrismEq || project::kHasPrismModule) {

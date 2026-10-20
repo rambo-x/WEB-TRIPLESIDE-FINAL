@@ -53,6 +53,7 @@ public:
 
     void queueEditorNote(int pitch, int velocity, bool on) noexcept;
     bool isNoteActive(int pitch) const noexcept;
+    unsigned noteTriggerCount(int pitch) const noexcept;
     float outputPeak(int channel) const noexcept { return peaks[static_cast<size_t>(channel)].load(std::memory_order_relaxed); }
     float outputRms(int channel) const noexcept { return rms[static_cast<size_t>(channel)].load(std::memory_order_relaxed); }
     float gainReduction(int moduleIndex = -1) const noexcept;
@@ -95,7 +96,7 @@ private:
     void renderFrame(float&, float&, std::array<float, project::kGroups.size()>&);
     bool renderTempoVoiceFrame(Voice&, std::size_t, const project::ZoneInfo&, const WavFile&, float, float&, float&);
     void prepareTempoStretchers(); void applyMasterPan(float&, float&) noexcept; void setWavePitchTarget(OscVoice&,double,bool) noexcept;
-    Voice& acquireVoice(); OscVoice& acquireOscVoice(); void configureWaveGenerator(); void resetDsp(); void applyCustomImpulses(); void applyToneAndSpace(float&, float&); void processEffectFrame(float, float, float&, float&); void updatePrismEq();
+    Voice& acquireVoice(); OscVoice& acquireOscVoice(); void configureGlobalTuning(); void configureWaveGenerator(); void resetDsp(); void applyCustomImpulses(); void applyToneAndSpace(float&, float&); void processEffectFrame(float, float, float&, float&); void updatePrismEq();
     std::vector<WavFile> samples;
     std::vector<WavFile> impulseResponses;
     std::array<Voice, project::kPolyphony> voices{};
@@ -109,6 +110,7 @@ private:
     std::array<std::atomic<float>, project::kDspModules.size()> compressorGainReductions{};
     std::array<UiNote, 128> uiNotes{}; std::atomic<unsigned> uiWrite{0}, uiRead{0};
     std::array<std::atomic<unsigned>, 128> activeMidiNotes{};
+    std::array<std::atomic<unsigned>, 128> noteTriggers{};
     float filterLeft=0, filterRight=0;
     StereoBiquad prismLowCut, prismLowBody, prismMidFocus, prismPresence, prismAir;
     std::array<float,5> prismFrequencies{}, prismGains{}, prismQs{}; std::array<bool,5> prismEnabled{};
@@ -132,6 +134,7 @@ private:
     bool bypass=project::kDefaultBypass>=.5f, instrumentUsesDspRack=false;
     bool mute=false, solo=false, sustain=project::kDefaultSustain; int articulation=0, mic=0; std::uint64_t voiceAge=0;
     float pitchBend=.5f, smoothedPitchBend=.5f, modulation=0; double modulationPhase=0;
+    int tuningModule=-1; bool globalTuningEnabled=false; float globalTuneSemitones=0, globalFineCents=0;
     int waveGeneratorModule=-1, waveShape=0, waveOctave=0, waveSemitone=0, waveOsc2Shape=0, waveOsc2Octave=0, waveNoiseColor=1, waveUnisonVoices=1;
     float waveFineCents=0, waveLevel=.65f, wavePulseWidth=.5f, waveMix=1, waveAttack=0, waveDecay=.2f, waveSustain=1, waveRelease=.18f;
     float waveVelocitySensitivity=1, waveVelocityCurve=1, waveVelocityMinLevel=0;
