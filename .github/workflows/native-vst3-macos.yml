@@ -78,6 +78,39 @@ jobs:
             --build-jobs "$(sysctl -n hw.ncpu)"
           ccache --show-stats
 
+      - name: Exercise installer and uninstaller
+        run: |
+          output="$RUNNER_TEMP/tripleside-macos-output"
+          artifact_count="$(find "$output/artifacts" -maxdepth 1 -type f -name '*-macos-installer-and-uninstaller.zip' | wc -l | tr -d ' ')"
+          test "$artifact_count" = 1
+          archive="$(find "$output/artifacts" -maxdepth 1 -type f -name '*-macos-installer-and-uninstaller.zip' -print -quit)"
+          download="$output/download"
+          mkdir -p "$download"
+          ditto -x -k "$archive" "$download"
+          package_count="$(find "$download" -maxdepth 1 -type f -name '*-macos-installer.pkg' | wc -l | tr -d ' ')"
+          uninstaller_count="$(find "$download" -maxdepth 1 -type d -name 'Uninstall *.app' | wc -l | tr -d ' ')"
+          test "$package_count" = 1
+          test "$uninstaller_count" = 1
+          package="$(find "$download" -maxdepth 1 -type f -name '*-macos-installer.pkg' -print -quit)"
+          uninstaller="$(find "$download" -maxdepth 1 -type d -name 'Uninstall *.app' -print -quit)"
+          bundle_name="$(basename "$package" -macos-installer.pkg)"
+          package_slug="$(printf '%s' "$bundle_name" | tr '[:upper:]_' '[:lower:]-' | tr -cd 'a-z0-9-')"
+          package_id="com.triplesidestudio.vst3.${package_slug:-plugin}"
+          installed_bundle="/Library/Audio/Plug-Ins/VST3/${bundle_name}.vst3"
+          sudo installer -pkg "$package" -target /
+          test -d "$installed_bundle"
+          installed_module="$(find "$installed_bundle/Contents/MacOS" -maxdepth 1 -type f -print -quit)"
+          test -n "$installed_module"
+          lipo "$installed_module" -verify_arch arm64 x86_64
+          codesign --verify --deep --strict "$installed_bundle"
+          pkgutil --pkg-info "$package_id" >/dev/null
+          sudo "$uninstaller/Contents/MacOS/uninstall" --silent
+          test ! -e "$installed_bundle"
+          if pkgutil --pkg-info "$package_id" >/dev/null 2>&1; then
+            echo "Uninstaller meninggalkan receipt paket $package_id" >&2
+            exit 1
+          fi
+
       - name: Upload macOS VST3 artifact
         uses: actions/upload-artifact@v4
         with:

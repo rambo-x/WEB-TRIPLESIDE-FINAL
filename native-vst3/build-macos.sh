@@ -109,6 +109,21 @@ for architecture in ${architectures//;/ }; do
     lipo "$module" -verify_arch "$architecture"
 done
 
+module_symbols="$(nm -gU "$module")"
+grep -Eq '(^|[[:space:]])_?GetPluginFactory$' <<<"$module_symbols" || {
+    echo "Entry point GetPluginFactory tidak ditemukan di modul macOS" >&2
+    exit 1
+}
+
+bundle_resources="$bundle/Contents/Resources"
+[[ -f "$bundle_resources/project.json" ]] || { echo "Manifest project tidak ditemukan di bundle macOS" >&2; exit 1; }
+[[ -f "$bundle_resources/Manrope-wght.ttf" ]] || { echo "Font runtime tidak ditemukan di bundle macOS" >&2; exit 1; }
+while IFS= read -r -d '' generated_asset; do
+    bundled_asset="$bundle_resources/$(basename "$generated_asset")"
+    [[ -f "$bundled_asset" ]] || { echo "Resource runtime macOS tidak ditemukan: $(basename "$generated_asset")" >&2; exit 1; }
+    cmp -s "$generated_asset" "$bundled_asset" || { echo "Resource runtime macOS tidak identik: $(basename "$generated_asset")" >&2; exit 1; }
+done < <(find "$generated_dir/assets" -maxdepth 1 -type f -print0)
+
 codesign --force --deep --sign - "$bundle"
 codesign --verify --deep --strict "$bundle"
 if [[ -n "$validator_path" ]]; then "$validator_path" "$bundle"; fi
@@ -148,7 +163,17 @@ mkdir -p "$uninstaller/Contents/MacOS" "$uninstaller/Contents/Resources"
 cp "$runtime_root/packaging/macos/uninstall.applescript" "$uninstaller/Contents/Resources/uninstall.applescript"
 cat > "$uninstaller/Contents/MacOS/uninstall" <<LAUNCHER
 #!/bin/sh
-exec /usr/bin/osascript "\$(dirname "\$0")/../Resources/uninstall.applescript" "/Library/Audio/Plug-Ins/VST3/${bundle_name}.vst3" "${package_id}" "${bundle_name}"
+plugin_path="/Library/Audio/Plug-Ins/VST3/${bundle_name}.vst3"
+package_id="${package_id}"
+product_name="${bundle_name}"
+if [ "\${1:-}" = "--silent" ]; then
+    case "\$plugin_path" in "/Library/Audio/Plug-Ins/VST3/"*.vst3) ;; *) exit 2 ;; esac
+    case "\$package_id" in com.triplesidestudio.vst3.*) ;; *) exit 2 ;; esac
+    /bin/rm -rf -- "\$plugin_path"
+    /usr/sbin/pkgutil --forget "\$package_id" >/dev/null 2>&1 || true
+    exit 0
+fi
+exec /usr/bin/osascript "\$(dirname "\$0")/../Resources/uninstall.applescript" "\$plugin_path" "\$package_id" "\$product_name"
 LAUNCHER
 chmod 755 "$uninstaller/Contents/MacOS/uninstall"
 cat > "$uninstaller/Contents/Info.plist" <<PLIST

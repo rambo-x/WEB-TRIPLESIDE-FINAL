@@ -18,6 +18,19 @@ def test_macos_builder_outputs_pkg_and_scoped_uninstaller_app():
     assert "preset" in uninstaller.lower()
     assert "rm -rf -- " in uninstaller
     assert "rm -rf /Library/Audio/Plug-Ins/VST3" not in uninstaller
+    assert 'if [ "\\${1:-}" = "--silent" ]' in script
+    assert '/bin/rm -rf -- "\\$plugin_path"' in script
+
+
+def test_macos_smoke_exercises_installer_uninstaller_and_universal_bundle():
+    workflow = (REPOSITORY / ".github/workflows/native-vst3-macos.yml").read_text(encoding="utf-8")
+
+    assert "Exercise installer and uninstaller" in workflow
+    assert 'sudo installer -pkg "$package" -target /' in workflow
+    assert 'lipo "$installed_module" -verify_arch arm64 x86_64' in workflow
+    assert 'codesign --verify --deep --strict "$installed_bundle"' in workflow
+    assert 'sudo "$uninstaller/Contents/MacOS/uninstall" --silent' in workflow
+    assert 'test ! -e "$installed_bundle"' in workflow
 
 
 def test_windows_builder_outputs_native_exe_with_registered_uninstaller():

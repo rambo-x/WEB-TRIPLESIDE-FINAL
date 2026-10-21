@@ -17,16 +17,22 @@ auth=(-H "Authorization: Bearer $worker_token")
 job_json="$(curl --fail --silent --show-error \
   "${auth[@]}" -H 'Content-Type: application/json' \
   --data "$(jq -nc --arg worker_id "$worker_id" '{worker_id:$worker_id,target_platform:"macos"}')" \
-  "$api_base/vst-worker/claim" || true)"
+  "$api_base/vst-worker/claim")"
 [[ -n "$job_json" ]] || exit 0
 
 job_id="$(jq -r '.job_id' <<<"$job_json")"
 lease_token="$(jq -r '.lease_token' <<<"$job_json")"
+spec_sha256="$(jq -r '.spec_sha256 // empty' <<<"$job_json")"
+[[ "$job_id" =~ ^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$ && -n "$lease_token" && "$lease_token" != "null" ]] || {
+  echo "Respons claim macOS tidak memiliki job_id atau lease_token" >&2
+  exit 2
+}
 job_root="$work_root/$job_id"
 samples_dir="$job_root/samples"
 output_dir="$job_root/output"
 spec_path="$job_root/project.json"
 background_path="$job_root/plugin-background"
+rm -rf "$job_root"
 mkdir -p "$samples_dir" "$output_dir"
 jq '.spec' <<<"$job_json" >"$spec_path"
 
@@ -48,12 +54,21 @@ fail_job() {
 }
 trap fail_job ERR
 
+log_failure() {
+  printf '%s\n' "$1" >>"$job_root/build.log"
+  false
+}
+
+[[ "$spec_sha256" =~ ^[a-fA-F0-9]{64}$ ]] || log_failure "Spec build macOS tidak memiliki checksum yang valid"
+
 sample_count="$(jq '.samples | length' <<<"$job_json")"
 for ((index=0; index<sample_count; index++)); do
   filename="$(jq -r ".samples[$index].filename" <<<"$job_json")"
+  filename_lower="$(printf '%s' "$filename" | tr '[:upper:]' '[:lower:]')"
+  [[ "$filename_lower" == *.wav ]] || log_failure "Runtime native Steinberg hanya menerima sample WAV: $filename"
   destination="$samples_dir/$(basename "$filename")"
   status preparing "$((3 + index))" "Mengunduh sample $((index + 1))/$sample_count"
-  curl --fail --location --silent --show-error \
+  curl --fail --location --proto '=https' --proto-redir '=https' --max-redirs 3 --silent --show-error \
     "$(jq -r ".samples[$index].download_url" <<<"$job_json")" -o "$destination"
   expected_size="$(jq -r ".samples[$index].size_bytes" <<<"$job_json")"
   expected_hash="$(jq -r ".samples[$index].sha256" <<<"$job_json")"
@@ -66,7 +81,10 @@ background_url="$(jq -r '.background.download_url // empty' <<<"$job_json")"
 if [[ -n "$background_url" ]]; then
   status preparing 20 "Mengunduh background interface"
   if [[ "$background_url" == /* ]]; then background_url="${api_base%/api}$background_url"; fi
-  curl --fail --location --silent --show-error "$background_url" -o "$background_path"
+  [[ "$background_url" == https://* ]] || log_failure "URL background build harus menggunakan HTTPS"
+  curl --fail --location --proto '=https' --proto-redir '=https' --max-redirs 3 --silent --show-error "$background_url" -o "$background_path"
+  background_size="$(stat -f %z "$background_path")"
+  (( background_size > 0 && background_size <= 10 * 1024 * 1024 )) || log_failure "Ukuran background build tidak valid: $background_size byte"
 fi
 
 build_args=(
@@ -79,6 +97,10 @@ build_args=(
 )
 if [[ -f "$background_path" ]]; then build_args+=(--background-image "$background_path"); fi
 visual_mode="$(jq -r '.spec.visual_contract.mode // empty' <<<"$job_json")"
+if [[ -z "$visual_mode" ]]; then
+  dsp_profile="$(jq -r '.spec.dsp_profile // empty' <<<"$job_json")"
+  if [[ "$dsp_profile" == "prism_eq" ]]; then visual_mode="native_live"; else visual_mode="shared_preview"; fi
+fi
 if [[ "$visual_mode" == "shared_preview" ]]; then
   site_root="${api_base%/api}"
   build_args+=(--visual-render-url "$site_root/vst-visual-render")
@@ -107,12 +129,12 @@ wait "$build_pid"
 
 zip_path="$(tail -n 1 "$job_root/build.log")"
 [[ -f "$zip_path" ]] || { echo "Artifact ZIP macOS tidak ditemukan" >>"$job_root/build.log"; false; }
-status validating 92 "Memvalidasi paket Universal VST3 macOS"
+status validating 92 "Memvalidasi entry point, resource, dan paket Universal VST3 macOS"
 artifact_hash="$(shasum -a 256 "$zip_path" | awk '{print $1}')"
 curl --fail --silent --show-error "${auth[@]}" \
   -H "X-Lease-Token: $lease_token" \
   -H "X-Artifact-SHA256: $artifact_hash" \
-  -H 'X-Validator-Name: Universal Mach-O + codesign + pkgbuild' \
+  -H 'X-Validator-Name: Universal Mach-O + codesign + resources + GetPluginFactory + pkgbuild' \
   -F "file=@$zip_path;type=application/zip" \
   "$api_base/vst-worker/jobs/$job_id/artifact" >/dev/null
 

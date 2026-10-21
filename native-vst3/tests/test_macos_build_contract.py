@@ -12,6 +12,9 @@ def test_macos_builder_is_universal_cached_and_queue_independent():
     assert 'architectures="arm64;x86_64"' in script
     assert 'lipo "$module" -verify_arch "$architecture"' in script
     assert "codesign --verify --deep --strict" in script
+    assert 'nm -gU "$module"' in script
+    assert "GetPluginFactory tidak ditemukan" in script
+    assert 'cmp -s "$generated_asset" "$bundled_asset"' in script
     assert "ccache" in script
     assert "workflow_dispatch:" in workflow
     assert "actions/cache@v4" in workflow
@@ -94,3 +97,16 @@ def test_macos_worker_reports_elapsed_compiler_time():
     assert "elapsed_seconds=" in worker
     assert 'elapsed_text="$((elapsed_seconds / 60)) menit' in worker
     assert 'Compiler macOS aktif · berjalan $elapsed_text' in worker
+
+
+def test_macos_worker_matches_windows_input_and_visual_contract_guards():
+    worker = (REPOSITORY / "tools/run-macos-vst-worker.sh").read_text(encoding="utf-8")
+
+    assert 'spec_sha256="$(jq -r' in worker
+    assert "Runtime native Steinberg hanya menerima sample WAV" in worker
+    assert "--proto '=https' --proto-redir '=https'" in worker
+    assert "background_size" in worker
+    assert 'dsp_profile="$(jq -r' in worker
+    assert 'visual_mode="native_live"' in worker
+    assert 'visual_mode="shared_preview"' in worker
+    assert "resources + GetPluginFactory + pkgbuild" in worker
