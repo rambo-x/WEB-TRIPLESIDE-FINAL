@@ -1,0 +1,28 @@
+/* Export only: preserve the exact designer box model, hide editing affordances. */
+body.vst-visual-render { margin: 0; background: transparent !important; visibility: hidden; }
+.vst-visual-render .maker-plugin-canvas {
+  visibility: visible; position: fixed !important; left: 0; top: 0;
+  transform: none !important;
+}
+.vst-visual-render .maker-plugin-canvas *,
+.vst-visual-render .maker-plugin-canvas *::before,
+.vst-visual-render .maker-plugin-canvas *::after { animation: none !important; transition: none !important; }
+.vst-visual-render .maker-plugin-canvas__header,
+.vst-visual-render .maker-canvas-control__delete,
+.vst-visual-render .maker-canvas-control__drag-mark,
+.vst-visual-render .maker-canvas-control__replace,
+.vst-visual-render .maker-canvas-control__resize,
+.vst-visual-render .maker-canvas-control__resize-width,
+.vst-visual-render .maker-plugin-canvas__background-resize { visibility: hidden !important; }
+.vst-visual-render .maker-plugin-canvas__brand-object::after { display: none; }
+.vst-visual-render.vst-static .maker-canvas-control { visibility: hidden; }
+.vst-visual-render.vst-layer .maker-plugin-canvas { background: transparent !important; border-color: transparent !important; box-shadow: none !important; }
+.vst-visual-render.vst-layer .maker-plugin-canvas__background,
+.vst-visual-render.vst-layer .maker-plugin-canvas__brand-object,
+.vst-visual-render.vst-layer .maker-canvas-control { visibility: hidden; }
+.vst-visual-render.vst-layer .maker-functional-panel,
+.vst-visual-render.vst-static .maker-functional-panel { visibility: hidden; }
+.vst-visual-render.vst-layer .maker-plugin-canvas--project-performancegrid::before { visibility: hidden; }
+.vst-visual-render.vst-layer .maker-canvas-control.vst-target { visibility: visible; }
+.vst-visual-render.vst-key .maker-canvas-control.vst-target { visibility: hidden; }
+.vst-visual-render.vst-key .vst-key-target { visibility: visible; }

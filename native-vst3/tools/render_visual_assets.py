@@ -55,7 +55,6 @@ def clear_visual_capture_outputs(assets):
         'visual_reference*.png',
         'visual_backdrop.png',
         'visual_control_*.png',
-        'visual_panel_child.png',
         'visual_keys_*.png',
         'visual_recomposed*.png',
         'visual_difference*.png',
@@ -162,10 +161,6 @@ def render(spec_path, url, browser=None):
             # otherwise-static scene; normal controls keep the transparent path.
             page.add_style_tag(content='.vst-visual-render.vst-static .maker-canvas-control.vst-target { visibility: visible; }')
             backdrop_image = Image.open(assets/'visual_backdrop.png').convert('RGBA')
-            panel_child_asset = assets/'visual_panel_child.png'
-            if any(control.get('parent_panel_id') for control in controls):
-                Image.new('RGBA', (1, 1), (0, 0, 0, 0)).save(panel_child_asset)
-
             def capture(rect, with_backdrop=False):
                 if with_backdrop:
                     page.evaluate("document.body.classList.replace('vst-layer','vst-static')")
@@ -180,14 +175,17 @@ def render(spec_path, url, browser=None):
                 return bake_context_delta(captured, backdrop)
 
             for index, control in enumerate(controls):
-                if control.get('parent_panel_id'):
-                    placeholder = dict(x=0, y=0, width=1, height=1)
-                    manifest['controls'].append(dict(
-                        file=panel_child_asset.name, rect=placeholder, hit=placeholder,
-                        frames=1, columns=1,
-                    ))
-                    print(f'Using native panel visual {index+1}/{len(controls)}: {control["kind"]}', flush=True)
-                    continue
+                parent_panel_id = str(control.get('parent_panel_id') or '')
+                page.evaluate('(f) => window.__vstVisual.setFrame(f)', dict(
+                    panelId=parent_panel_id or None,
+                    id=control['id'],
+                    value=control.get('value', 0),
+                ))
+                if parent_panel_id:
+                    page.wait_for_function(
+                        '(id) => [...document.querySelectorAll("[data-vst-control]")].some(e => e.dataset.vstControl === id)',
+                        arg=str(control.get('id') or ''),
+                    )
                 dom_index = page.locator('[data-vst-control]').evaluate_all(
                     '(elements, id) => elements.findIndex(element => element.dataset.vstControl === id)',
                     str(control.get('id') or ''),
@@ -238,7 +236,7 @@ def render(spec_path, url, browser=None):
                     element.locator('[data-vst-pitch]').evaluate_all("es => es.forEach(e => e.style.visibility='hidden')")
                 for frame in range(frames):
                     value = frame * 100 / max(1, frames-1)
-                    state = dict(id=control['id'], value=value)
+                    state = dict(id=control['id'], value=value, panelId=parent_panel_id or None)
                     if kind == 'pad' and frame:
                         state['pitch'] = control.get('note_pitch', 60)
                     page.evaluate('(f) => window.__vstVisual.setFrame(f)', state)

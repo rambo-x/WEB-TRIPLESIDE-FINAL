@@ -7334,7 +7334,7 @@ function PanelFeatureContent({ panel, controls, engineModules = [], presets, mid
   );
 }
 
-function InterfaceWorkspace({ previewActions = null, accentColor, uiColor = "#09090b", pluginName, manufacturerName, pluginVersion, pluginKind = "instrument", instrumentType, brandTagline, brandFont, brandSize = 24, brandX = 18, brandY = 13, brandAlign = "left", uiTemplate, projectTemplate, keyboardKeys, onKeyboardKeysChange, canvasWidth, canvasHeight, backgroundImageUrl, backgroundImageName, backgroundFit, backgroundOpacity, backgroundImageX = 50, backgroundImageY = 50, backgroundImageWidth = 100, backgroundImageHeight = 100, componentStyle = "css", pricing = DEFAULT_VST_PRICING, gridSnapEnabled = true, gridSize = 8, resizeAspectLocked = true, backgroundUploadEndpoint, customBackgroundEnabled = true, imageUploadEndpoint = "", imageUploadEnabled = false, onCanvasChange, canUndo = false, canRedo = false, onUndo, onRedo, midiPressedPitches, activeHitPitches = new Set(), velocity, sustainEnabled, pitchBendEnabled = true, modulationEnabled = true, pitchBendValue, modulationValue, onPitchBendChange, onModulationChange, meterAnalyserRef, controls, engineModules, presets = [], midiSequences = [], samplerGroups = [], onFeatureChange, selectedControlId, selectedControlIds = [], onNoteOn, onNoteOff, onAdd, onSelect, onUpdate, onUpdateMany, onMoveLayer, onRemove, onRemoveSelected, onDrop }) {
+function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentColor, uiColor = "#09090b", pluginName, manufacturerName, pluginVersion, pluginKind = "instrument", instrumentType, brandTagline, brandFont, brandSize = 24, brandX = 18, brandY = 13, brandAlign = "left", uiTemplate, projectTemplate, keyboardKeys, onKeyboardKeysChange, canvasWidth, canvasHeight, backgroundImageUrl, backgroundImageName, backgroundFit, backgroundOpacity, backgroundImageX = 50, backgroundImageY = 50, backgroundImageWidth = 100, backgroundImageHeight = 100, componentStyle = "css", pricing = DEFAULT_VST_PRICING, gridSnapEnabled = true, gridSize = 8, resizeAspectLocked = true, backgroundUploadEndpoint, customBackgroundEnabled = true, imageUploadEndpoint = "", imageUploadEnabled = false, onCanvasChange, canUndo = false, canRedo = false, onUndo, onRedo, midiPressedPitches, activeHitPitches = new Set(), velocity, sustainEnabled, pitchBendEnabled = true, modulationEnabled = true, pitchBendValue, modulationValue, onPitchBendChange, onModulationChange, meterAnalyserRef, controls, engineModules, presets = [], midiSequences = [], samplerGroups = [], onFeatureChange, selectedControlId, selectedControlIds = [], onNoteOn, onNoteOff, onAdd, onSelect, onUpdate, onUpdateMany, onMoveLayer, onRemove, onRemoveSelected, onDrop }) {
   const selectedControl = controls.find((control) => control.id === selectedControlId);
   const selectedEngineModule = engineModules.find((module) => module.id === selectedControl?.moduleId);
   const selectedEngineModuleOption = dspRackOption(selectedEngineModule?.type);
@@ -7411,6 +7411,11 @@ function InterfaceWorkspace({ previewActions = null, accentColor, uiColor = "#09
   const [backgroundSelected, setBackgroundSelected] = useState(false);
   const [brandSelected, setBrandSelected] = useState(false);
   const [previewScale, setPreviewScale] = useState(1);
+  useEffect(() => {
+    if (visualOpenPanelId !== undefined) {
+      setOpenPanelId(visualOpenPanelId || null);
+    }
+  }, [visualOpenPanelId]);
   const canvasBaseWidth = Math.max(320, Number(canvasWidth) || 1024);
   const canvasBaseHeight = Math.max(320, Number(canvasHeight) || 460);
   const openPanel = controls.find((control) => control.id === openPanelId && control.kind === "panel_button") || null;

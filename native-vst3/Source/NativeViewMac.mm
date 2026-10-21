@@ -234,6 +234,9 @@ namespace project = tripleside::project;
 - (void)drawOpenPanel;
 - (void)updateMidiPlayback;
 - (NSRect)panelRect:(NSInteger)index;
+- (NSRect)panelChildRect:(NSInteger)index;
+- (NSInteger)panelControlAt:(NSPoint)point;
+- (void)drawPanelControl:(NSInteger)index;
 - (BOOL)panelMouseDown:(NSPoint)point;
 - (BOOL)importMidiPath:(NSString*)path;
 - (std::filesystem::path)exportMidiSequence:(NSInteger)index;
@@ -353,6 +356,33 @@ namespace project = tripleside::project;
     const CGFloat left = std::clamp(project::kCanvasWidth * x / 100. - width * .5, 0., std::max<CGFloat>(0, project::kCanvasWidth - width));
     const CGFloat top = std::clamp(project::kCanvasHeight * y / 100. - height * .5, 0., std::max<CGFloat>(0, project::kCanvasHeight - height));
     return NSMakeRect(left, top, width, height);
+}
+
+- (NSRect)panelChildRect:(NSInteger)index {
+    if (index < 0 || static_cast<std::size_t>(index) >= project::kControls.size()) return NSZeroRect;
+    const NSInteger parent = project::kPanelControls[static_cast<std::size_t>(index)].parentPanelIndex;
+    if (parent < 0) return NSZeroRect;
+    const auto& control = project::kControls[static_cast<std::size_t>(index)];
+    const NSRect panel = [self panelRect:parent];
+    const CGFloat contentTop = NSMinY(panel) + 44;
+    const CGFloat width = std::min<CGFloat>(control.width, NSWidth(panel) - 16);
+    const CGFloat height = std::min<CGFloat>(control.height, NSMaxY(panel) - contentTop - 12);
+    const CGFloat centerX = NSMinX(panel) + NSWidth(panel) * control.x / 100.;
+    const CGFloat centerY = contentTop + (NSMaxY(panel) - contentTop) * control.y / 100.;
+    const CGFloat left = std::clamp(centerX - width * .5, NSMinX(panel) + 8, NSMaxX(panel) - 8 - width);
+    const CGFloat top = std::clamp(centerY - height * .5, contentTop, NSMaxY(panel) - 8 - height);
+    return NSMakeRect(left, top, width, height);
+}
+
+- (NSInteger)panelControlAt:(NSPoint)point {
+    if (_openPanel < 0) return -1;
+    for (NSInteger index = static_cast<NSInteger>(project::kControls.size()) - 1; index >= 0; --index) {
+        if (project::kPanelControls[static_cast<std::size_t>(index)].parentPanelIndex != _openPanel) continue;
+        const auto& control = project::kControls[static_cast<std::size_t>(index)];
+        if (!interactiveKind(control.kind)) continue;
+        if (NSPointInRect(point, [self panelChildRect:index])) return index;
+    }
+    return -1;
 }
 
 - (void)setParameter:(ParamID)parameter value:(float)value {
@@ -588,6 +618,8 @@ namespace project = tripleside::project;
         if (project::kGroups.empty()) [@"Belum ada sampler group untuk ditampilkan." drawInRect:NSMakeRect(left, top + 20, right - left, 100)
             withAttributes:panelTextAttributes(10, rgbColor(0x71717a), NSTextAlignmentCenter, NSFontWeightMedium)];
     }
+    for (std::size_t index = 0; index < project::kControls.size(); ++index)
+        if (project::kPanelControls[index].parentPanelIndex == _openPanel) [self drawPanelControl:static_cast<NSInteger>(index)];
     const NSRect resize = NSMakeRect(NSMaxX(panelRect) - 22, NSMaxY(panelRect) - 22, 20, 20);
     [accent setStroke];
     NSBezierPath* grip = [NSBezierPath bezierPath]; grip.lineWidth = 1.5;
@@ -877,6 +909,29 @@ namespace project = tripleside::project;
              fraction:1 respectFlipped:YES hints:@{NSImageHintInterpolation: @(NSImageInterpolationHigh)}];
 }
 
+- (void)drawPanelControl:(NSInteger)index {
+    if (index < 0 || static_cast<std::size_t>(index) >= project::kControls.size()
+        || static_cast<std::size_t>(index) >= project::kVisualControls.size()) return;
+    const auto& control = project::kControls[static_cast<std::size_t>(index)];
+    const auto& visual = project::kVisualControls[static_cast<std::size_t>(index)];
+    NSImage* image = [self imageNamed:visual.file];
+    if (!image || visual.w <= 0 || visual.h <= 0 || visual.hw <= 0 || visual.hh <= 0 || visual.frames <= 0) return;
+    float value = displayedValue(*_instrument, static_cast<std::size_t>(index), _selectedPrismBand);
+    if (equals(control.kind, "pad")) value = hitPadVariant(control.variant)
+        ? ([self hitPadFlashActive:control.notePitch] ? 1.f : 0.f)
+        : ((_instrument->isNoteActive(control.notePitch) || _activeNote == control.notePitch) ? 1.f : 0.f);
+    const NSInteger frame = std::clamp<NSInteger>(static_cast<NSInteger>(std::lround(value * std::max(0, visual.frames - 1))), 0, visual.frames - 1);
+    const NSInteger columns = std::max(1, visual.columns), row = frame / columns, column = frame % columns;
+    const CGFloat sourceY = image.size.height - (row + 1) * visual.h;
+    const NSRect hit = [self panelChildRect:index];
+    const CGFloat scaleX = NSWidth(hit) / visual.hw, scaleY = NSHeight(hit) / visual.hh;
+    const NSRect destination = NSMakeRect(NSMinX(hit) + (visual.x - visual.hx) * scaleX,
+        NSMinY(hit) + (visual.y - visual.hy) * scaleY, visual.w * scaleX, visual.h * scaleY);
+    [image drawInRect:destination fromRect:NSMakeRect(column * visual.w, sourceY, visual.w, visual.h)
+             operation:NSCompositingOperationSourceOver fraction:1 respectFlipped:YES
+                 hints:@{NSImageHintInterpolation: @(NSImageInterpolationHigh)}];
+}
+
 - (void)drawRect:(NSRect)dirtyRect {
     [super drawRect:dirtyRect];
     [[NSColor colorWithCalibratedWhite:.035 alpha:1] setFill];
@@ -1154,6 +1209,29 @@ namespace project = tripleside::project;
             return;
         }
     }
+    const NSInteger panelControl = [self panelControlAt:point];
+    if (panelControl >= 0) {
+        _dragControl = panelControl;
+        const auto& control = project::kControls[static_cast<std::size_t>(_dragControl)];
+        if (event.clickCount >= 2 && (equals(control.kind, "knob") || equals(control.kind, "fader"))) {
+            [self setControl:_dragControl value:neutralControlValue(control)];
+            _dragControl = -1;
+        } else if (equals(control.kind, "pad")) {
+            _activeNote = control.notePitch;
+            _instrument->queueEditorNote(static_cast<int>(_activeNote), 112, true);
+            _dragControl = -1;
+        } else {
+            const auto parameter = displayedParameter(*_instrument, static_cast<std::size_t>(_dragControl), _selectedPrismBand);
+            _dragStartValue = parameter == kNoParamId ? control.value
+                                                      : static_cast<float>(_instrument->getParamNormalized(parameter));
+            _dragStartY = point.y;
+            if (equals(control.kind, "button") || equals(control.kind, "mute") || equals(control.kind, "solo")) {
+                [self setControl:_dragControl value:_dragStartValue >= .5f ? 0.f : 1.f];
+                _dragControl = -1;
+            }
+        }
+        return;
+    }
     if (event.clickCount >= 2 && _openPanel >= 0 && equals(project::kPanelControls[static_cast<std::size_t>(_openPanel)].panelType, "mixer")) {
         const NSRect panel = [self panelRect:_openPanel];
         const CGFloat left = NSMinX(panel) + 16, top = NSMinY(panel) + 60;
@@ -1300,6 +1378,18 @@ namespace project = tripleside::project;
 
 - (void)scrollWheel:(NSEvent*)event {
     const NSPoint point = [self designPoint:[self convertPoint:event.locationInWindow fromView:nil]];
+    const NSInteger panelControl = [self panelControlAt:point];
+    if (panelControl >= 0) {
+        const auto& control = project::kControls[static_cast<std::size_t>(panelControl)];
+        if (equals(control.kind, "knob") || equals(control.kind, "fader")) {
+            const auto parameter = displayedParameter(*_instrument, static_cast<std::size_t>(panelControl), _selectedPrismBand);
+            if (parameter != kNoParamId) {
+                const auto current = static_cast<float>(_instrument->getParamNormalized(parameter));
+                [self setControl:panelControl value:current + (event.scrollingDeltaY > 0 ? .02f : -.02f)];
+                return;
+            }
+        }
+    }
     if (_openPanel >= 0) {
         const NSRect panel = [self panelRect:_openPanel];
         if (NSPointInRect(point, panel) && point.y >= NSMinY(panel) + 44) {

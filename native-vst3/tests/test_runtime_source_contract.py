@@ -278,6 +278,11 @@ def test_native_component_labels_apply_saved_position_presets():
     assert "D2D1_RECT_F NativeView::labelRect" in source
     assert 'startsWith(currentLabelPosition,"bottom-")' in source
     assert 'containsIgnoreCase(currentLabelPosition,"right")' in source
+    assert 'std::clamp(width*.06f,4.f,8.f)' in source
+    assert 'DWRITE_TEXT_ALIGNMENT_TRAILING' in source
+    assert 'currentLabelControlRect.left+inset' in source
+    assert 'currentLabelControlRect.right-inset' in source
+    assert 'column=width/3.f' not in source
     assert "currentLabelControlRect.bottom-height-verticalShift" in source
     assert "frameBottom=r.bottom" in source
     assert "labelRect(D2D1::RectF(r.left,r.top" in source
@@ -287,6 +292,7 @@ def test_native_component_labels_apply_saved_position_presets():
 def test_native_panel_runtime_uses_separate_panel_manifest_contract():
     header = (SOURCE_DIR / "NativeView.h").read_text(encoding="utf-8")
     source = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+    mac_source = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
 
     assert "hitPanelChild(float,float) const" in header
     assert "project::kPanelControls[i].parentPanelIndex==openPanelIndex" in source
@@ -296,6 +302,22 @@ def test_native_panel_runtime_uses_separate_panel_manifest_contract():
     assert "project::kControls[static_cast<size_t>(openPanelIndex)].panelType" not in source
     assert "panelRuntimeBounds[openPanelIndex]" in source
     assert "hitPanelChild(x,y)" in source
+    assert "drawVisualControl(i);else drawControl(i)" in source
+    assert "panelChildRect" in mac_source
+    assert "panelControlAt" in mac_source
+    assert "drawPanelControl" in mac_source
+
+
+def test_visual_capture_rasterizes_panel_children_from_the_shared_preview():
+    renderer = (SOURCE_DIR.parent.parent / "frontend" / "src" / "pages" / "VstVisualRender.jsx").read_text(encoding="utf-8")
+    workspace = (SOURCE_DIR.parent.parent / "frontend" / "src" / "pages" / "VstMakerPreview.jsx").read_text(encoding="utf-8")
+    capture = (SOURCE_DIR.parent / "tools" / "render_visual_assets.py").read_text(encoding="utf-8")
+
+    assert "visualOpenPanelId={frame.panelId ?? null}" in renderer
+    assert "if (visualOpenPanelId !== undefined)" in workspace
+    assert "panelId=parent_panel_id or None" in capture
+    assert "Using native panel visual" not in capture
+    assert "visual_panel_child.png" not in capture
 
 
 def test_native_user_presets_are_persistent_overwritable_and_deletable():
