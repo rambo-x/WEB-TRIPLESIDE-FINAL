@@ -45,7 +45,7 @@ def test_macos_panels_follow_preview_and_are_fully_interactive():
     assert '@"GROOVE BROWSER"' in view
     assert '@"GROOVE LIBRARY"' in view
     assert "Simpan kondisi" in view
-    assert '[self applyFactoryPreset:row]' in view
+    assert '[self applyFactoryPreset:absolute]' in view
     assert 'groupParameterId(static_cast<int>(group), 1)' in view
     assert '[self startMidiSequence:source]' in view
     assert '_midiTimer' not in view
@@ -63,6 +63,13 @@ def test_macos_panels_follow_preview_and_are_fully_interactive():
     assert 'NSApplicationSupportDirectory' in view
     assert '@"OVR"' not in view
     assert '_presetNameInput' in view
+    assert '_presetScrollOffset' in view
+    assert '_selectedPresetRow' in view
+    assert '_hoveredPresetRow' in view
+    assert 'NSTrackingMouseMoved' in view
+    assert 'thumbHeight' in view
+    assert 'bezierPathWithOvalInRect' in view
+    assert '!equals(project::kControls[static_cast<std::size_t>(index)].kind, "fader")' in view
 
 
 def test_macos_queue_has_offset_schedule_and_server_watchdog():

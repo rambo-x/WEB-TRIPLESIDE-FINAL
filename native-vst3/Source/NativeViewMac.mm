@@ -180,6 +180,10 @@ namespace project = tripleside::project;
     NSInteger _playingMidiSequence;
     NSInteger _midiDragCandidate;
     NSInteger _grooveScrollOffset;
+    NSInteger _presetScrollOffset;
+    NSInteger _selectedPresetRow;
+    NSInteger _hoveredPresetRow;
+    NSTrackingArea* _trackingArea;
     CGFloat _panelX, _panelY, _panelWidth, _panelHeight;
     CGFloat _panelDragX, _panelDragY, _midiDragX, _midiDragY;
     std::map<int, std::array<CGFloat, 4>> _panelRuntimeBounds;
@@ -226,6 +230,9 @@ namespace project = tripleside::project;
         _playingMidiSequence = -1;
         _midiDragCandidate = -1;
         _grooveScrollOffset = 0;
+        _presetScrollOffset = 0;
+        _selectedPresetRow = -1;
+        _hoveredPresetRow = -1;
         _presetNameFocused = NO;
         _panelX = 50;
         _panelY = 52;
@@ -251,6 +258,15 @@ namespace project = tripleside::project;
 
 - (BOOL)isFlipped { return YES; }
 - (BOOL)acceptsFirstResponder { return YES; }
+
+- (void)updateTrackingAreas {
+    [super updateTrackingAreas];
+    if (_trackingArea) [self removeTrackingArea:_trackingArea];
+    _trackingArea = [[NSTrackingArea alloc] initWithRect:NSZeroRect
+        options:NSTrackingMouseMoved | NSTrackingMouseEnteredAndExited | NSTrackingActiveInActiveApp | NSTrackingInVisibleRect
+        owner:self userInfo:nil];
+    [self addTrackingArea:_trackingArea];
+}
 
 - (BOOL)hitPadFlashActive:(int)pitch {
     if (pitch < 0 || pitch >= 128) return NO;
@@ -336,6 +352,7 @@ namespace project = tripleside::project;
     _panelDragMode = 0;
     _midiDragCandidate = -1;
     _presetNameFocused = NO;
+    _hoveredPresetRow = -1;
     [self.window invalidateCursorRectsForView:self];
     [self setNeedsDisplay:YES];
 }
@@ -471,26 +488,43 @@ namespace project = tripleside::project;
         fillRounded(save, 9, accent);
         [@"▣  Simpan kondisi" drawInRect:NSMakeRect(NSMinX(save) + 6, NSMinY(save) + 10, NSWidth(save) - 12, 15)
           withAttributes:panelTextAttributes(9, NSColor.whiteColor, NSTextAlignmentCenter, NSFontWeightBold)];
-        CGFloat y = top + 47;
-        auto drawPreset = [&](NSString* name, NSString* category, BOOL user, NSInteger userIndex) {
-            if (y + 41 > NSMaxY(panelRect) - 12) return;
-            const NSRect row = NSMakeRect(left, y, right - left, 41);
-            fillRounded(row, 10, rgbColor(0xffffff, .025)); strokeRounded(NSInsetRect(row, .5, .5), 10, rgbColor(0xffffff, .08));
+        const NSInteger total = static_cast<NSInteger>(project::kPresets.size() + _userPresets.size());
+        const CGFloat rowStart = top + 47;
+        const NSInteger capacity = std::max<NSInteger>(1, static_cast<NSInteger>((NSMaxY(panelRect) - 12 - rowStart + 6) / 47));
+        const NSInteger maxOffset = std::max<NSInteger>(0, total - capacity);
+        _presetScrollOffset = std::clamp(_presetScrollOffset, static_cast<NSInteger>(0), maxOffset);
+        const BOOL scrollable = maxOffset > 0;
+        const CGFloat contentRight = right - (scrollable ? 12 : 0);
+        CGFloat y = rowStart;
+        for (NSInteger slot = 0; slot < capacity && _presetScrollOffset + slot < total; ++slot, y += 47) {
+            const NSInteger absolute = _presetScrollOffset + slot;
+            const BOOL user = absolute >= static_cast<NSInteger>(project::kPresets.size());
+            const NSInteger userIndex = absolute - static_cast<NSInteger>(project::kPresets.size());
+            NSString* name = user ? [NSString stringWithUTF8String:_userPresets[static_cast<std::size_t>(userIndex)].name.c_str()]
+                                  : [NSString stringWithUTF8String:project::kPresets[static_cast<std::size_t>(absolute)].name ?: "Preset"];
+            const BOOL selected = absolute == _selectedPresetRow, hovered = absolute == _hoveredPresetRow;
+            const NSRect row = NSMakeRect(left, y, contentRight - left, 41);
+            fillRounded(row, 10, selected ? rgbColor(project::kAccentRgb, .11) : hovered ? rgbColor(project::kAccentRgb, .065) : rgbColor(0xffffff, .025));
+            strokeRounded(NSInsetRect(row, .5, .5), 10, selected ? rgbColor(project::kAccentRgb, .58) : hovered ? rgbColor(project::kAccentRgb, .32) : rgbColor(0xffffff, .08));
             [name drawInRect:NSMakeRect(left + 14, y + 7, NSWidth(row) - (user ? 104 : 76), 16)
               withAttributes:panelTextAttributes(10, rgbColor(0xe4e4e7), NSTextAlignmentLeft, NSFontWeightBold)];
-            [category drawInRect:NSMakeRect(user ? right - 95 : right - 68, y + 9, 58, 14)
-              withAttributes:panelTextAttributes(7, rgbColor(0x71717a), NSTextAlignmentCenter, NSFontWeightBold)];
+            [(user ? @"USER" : @"FACTORY") drawInRect:NSMakeRect(user ? contentRight - 95 : contentRight - 68, y + 9, 58, 14)
+              withAttributes:panelTextAttributes(7, selected ? accent : rgbColor(0x71717a), NSTextAlignmentCenter, NSFontWeightBold)];
             if (user) {
-                fillRounded(NSMakeRect(right - 27, y + 7, 27, 27), 7, rgbColor(0xffffff, .05));
+                fillRounded(NSMakeRect(contentRight - 27, y + 7, 27, 27), 7, rgbColor(0xffffff, .05));
                 [rgbColor(0xfb7185) setStroke]; NSBezierPath* removeIcon = [NSBezierPath bezierPath]; removeIcon.lineWidth = 1.4;
-                [removeIcon moveToPoint:NSMakePoint(right - 19, y + 15)]; [removeIcon lineToPoint:NSMakePoint(right - 8, y + 26)];
-                [removeIcon moveToPoint:NSMakePoint(right - 8, y + 15)]; [removeIcon lineToPoint:NSMakePoint(right - 19, y + 26)]; [removeIcon stroke];
+                [removeIcon moveToPoint:NSMakePoint(contentRight - 19, y + 15)]; [removeIcon lineToPoint:NSMakePoint(contentRight - 8, y + 26)];
+                [removeIcon moveToPoint:NSMakePoint(contentRight - 8, y + 15)]; [removeIcon lineToPoint:NSMakePoint(contentRight - 19, y + 26)]; [removeIcon stroke];
             }
-            (void)userIndex; y += 47;
-        };
-        for (const auto& preset : project::kPresets) drawPreset([NSString stringWithUTF8String:preset.name ?: "Preset"], @"FACTORY", NO, -1);
-        for (std::size_t index = 0; index < _userPresets.size(); ++index) drawPreset([NSString stringWithUTF8String:_userPresets[index].name.c_str()], @"USER", YES, static_cast<NSInteger>(index));
-        if (project::kPresets.empty() && _userPresets.empty()) [@"Belum ada preset. Atur suara lalu simpan kondisi saat ini." drawInRect:NSMakeRect(left, top + 50, right - left, 100)
+        }
+        if (scrollable) {
+            const CGFloat trackHeight = std::max<CGFloat>(1, NSMaxY(panelRect) - 12 - rowStart);
+            const CGFloat thumbHeight = std::max<CGFloat>(28, trackHeight * capacity / std::max<NSInteger>(1, total));
+            const CGFloat thumbTop = rowStart + (trackHeight - thumbHeight) * _presetScrollOffset / std::max<NSInteger>(1, maxOffset);
+            fillRounded(NSMakeRect(right - 6, rowStart, 6, trackHeight), 3, rgbColor(0xffffff, .07));
+            fillRounded(NSMakeRect(right - 6, thumbTop, 6, thumbHeight), 3, rgbColor(project::kAccentRgb, .65));
+        }
+        if (!total) [@"Belum ada preset. Atur suara lalu simpan kondisi saat ini." drawInRect:NSMakeRect(left, top + 50, right - left, 100)
             withAttributes:panelTextAttributes(10, rgbColor(0x71717a), NSTextAlignmentCenter, NSFontWeightMedium)];
     } else if (equals(panel.panelType, "mixer")) {
         CGFloat x = left;
@@ -504,12 +538,14 @@ namespace project = tripleside::project;
             [@"VOL" drawInRect:NSMakeRect(x + 10, top + 38, 92, 12) withAttributes:panelTextAttributes(7, rgbColor(0x71717a), NSTextAlignmentLeft, NSFontWeightMedium)];
             fillRounded(NSMakeRect(x + 10, top + 53, 92, 5), 3, rgbColor(0xffffff, .10));
             fillRounded(NSMakeRect(x + 10, top + 53, 92 * volume, 5), 3, accent);
+            [accent setFill]; [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(x + 4 + 92 * volume, top + 49.5, 12, 12)] fill];
             [@"PAN" drawInRect:NSMakeRect(x + 10, top + 71, 92, 12) withAttributes:panelTextAttributes(7, rgbColor(0x71717a), NSTextAlignmentLeft, NSFontWeightMedium)];
             fillRounded(NSMakeRect(x + 10, top + 86, 92, 5), 3, rgbColor(0xffffff, .10));
             fillRounded(NSMakeRect(x + 10, top + 86, 92 * pan, 5), 3, accent);
+            [accent setFill]; [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(x + 4 + 92 * pan, top + 82.5, 12, 12)] fill];
             for (int slot = 2; slot <= 3; ++slot) {
                 const NSRect button = NSMakeRect(x + 10 + (slot - 2) * 48, top + 105, 44, 28);
-                fillRounded(button, 6, _instrument->getParamNormalized(groupParameterId(static_cast<int>(index), slot)) >= .5 ? accent : rgbColor(0xffffff, .10));
+                fillRounded(button, 6, _instrument->getParamNormalized(groupParameterId(static_cast<int>(index), slot)) >= .5 ? accent : rgbColor(0x27272a));
                 [(slot == 2 ? @"M" : @"S") drawInRect:NSMakeRect(NSMinX(button), NSMinY(button) + 7, NSWidth(button), 14)
                   withAttributes:panelTextAttributes(8, NSColor.whiteColor, NSTextAlignmentCenter, NSFontWeightBold)];
             }
@@ -593,6 +629,8 @@ namespace project = tripleside::project;
     if (_presetNameInput.empty() || std::any_of(_userPresets.begin(), _userPresets.end(), [&](const auto& preset) { return preset.name == _presetNameInput; })) return;
     if (_userPresets.size() >= 128) _userPresets.erase(_userPresets.begin());
     _userPresets.push_back([self captureUserPreset:_presetNameInput]);
+    _selectedPresetRow = static_cast<NSInteger>(project::kPresets.size() + _userPresets.size() - 1);
+    _presetScrollOffset = _selectedPresetRow;
     _presetNameInput.clear(); _presetNameFocused = NO;
     [self persistUserPresets];
 }
@@ -676,13 +714,26 @@ namespace project = tripleside::project;
         const CGFloat fieldWidth = std::max<CGFloat>(80, right - left - 156);
         if (point.y >= top && point.y <= top + 35) { if (point.x <= left + fieldWidth) { _presetNameFocused = YES; [self.window makeFirstResponder:self]; } else if (point.x >= left + fieldWidth + 8) [self saveUserPreset]; [self setNeedsDisplay:YES]; return YES; }
         _presetNameFocused = NO;
-        if (point.y >= top + 47) {
-            const NSInteger row = static_cast<NSInteger>((point.y - (top + 47)) / 47);
-            if (row >= 0 && row < static_cast<NSInteger>(project::kPresets.size())) { [self applyFactoryPreset:row]; return YES; }
-            const NSInteger user = row - static_cast<NSInteger>(project::kPresets.size());
-            if (user >= 0 && user < static_cast<NSInteger>(_userPresets.size())) {
-                if (point.x >= right - 27) { _userPresets.erase(_userPresets.begin() + user); [self persistUserPresets]; }
-                else [self applyUserPreset:user];
+        const CGFloat rowStart = top + 47;
+        const NSInteger total = static_cast<NSInteger>(project::kPresets.size() + _userPresets.size());
+        const NSInteger capacity = std::max<NSInteger>(1, static_cast<NSInteger>((NSMaxY(rect) - 12 - rowStart + 6) / 47));
+        const NSInteger maxOffset = std::max<NSInteger>(0, total - capacity);
+        _presetScrollOffset = std::clamp(_presetScrollOffset, static_cast<NSInteger>(0), maxOffset);
+        const CGFloat contentRight = right - (maxOffset > 0 ? 12 : 0);
+        if (point.y >= rowStart && point.x >= left && point.x <= contentRight) {
+            const NSInteger slot = static_cast<NSInteger>((point.y - rowStart) / 47), absolute = _presetScrollOffset + slot;
+            const CGFloat rowOffset = std::fmod(point.y - rowStart, 47.);
+            if (slot >= 0 && slot < capacity && rowOffset <= 41 && absolute >= 0 && absolute < total) {
+                _selectedPresetRow = absolute;
+                if (absolute < static_cast<NSInteger>(project::kPresets.size())) [self applyFactoryPreset:absolute];
+                else {
+                    const NSInteger user = absolute - static_cast<NSInteger>(project::kPresets.size());
+                    if (point.x >= contentRight - 27) {
+                        _userPresets.erase(_userPresets.begin() + user);
+                        _selectedPresetRow = -1;
+                        [self persistUserPresets];
+                    } else [self applyUserPreset:user];
+                }
                 [self setNeedsDisplay:YES]; return YES;
             }
         }
@@ -1027,6 +1078,30 @@ namespace project = tripleside::project;
     }
 }
 
+- (void)mouseMoved:(NSEvent*)event {
+    const NSPoint point = [self designPoint:[self convertPoint:event.locationInWindow fromView:nil]];
+    NSInteger nextHovered = -1;
+    if (_openPanel >= 0 && equals(project::kPanelControls[static_cast<std::size_t>(_openPanel)].panelType, "preset_browser")) {
+        const NSRect panel = [self panelRect:_openPanel];
+        const CGFloat left = NSMinX(panel) + 16, right = NSMaxX(panel) - 16, rowStart = NSMinY(panel) + 107;
+        const NSInteger total = static_cast<NSInteger>(project::kPresets.size() + _userPresets.size());
+        const NSInteger capacity = std::max<NSInteger>(1, static_cast<NSInteger>((NSMaxY(panel) - 12 - rowStart + 6) / 47));
+        const NSInteger maxOffset = std::max<NSInteger>(0, total - capacity);
+        const CGFloat contentRight = right - (maxOffset > 0 ? 12 : 0);
+        if (point.x >= left && point.x <= contentRight && point.y >= rowStart && point.y <= NSMaxY(panel) - 12) {
+            const NSInteger slot = static_cast<NSInteger>((point.y - rowStart) / 47), absolute = _presetScrollOffset + slot;
+            const CGFloat rowOffset = std::fmod(point.y - rowStart, 47.);
+            if (slot >= 0 && slot < capacity && rowOffset <= 41 && absolute < total) nextHovered = absolute;
+        }
+    }
+    if (nextHovered != _hoveredPresetRow) { _hoveredPresetRow = nextHovered; [self setNeedsDisplay:YES]; }
+}
+
+- (void)mouseExited:(NSEvent*)event {
+    (void)event;
+    if (_hoveredPresetRow >= 0) { _hoveredPresetRow = -1; [self setNeedsDisplay:YES]; }
+}
+
 - (void)mouseDown:(NSEvent*)event {
     [self.window makeFirstResponder:self];
     const NSPoint point = [self designPoint:[self convertPoint:event.locationInWindow fromView:nil]];
@@ -1177,16 +1252,42 @@ namespace project = tripleside::project;
 
 - (void)scrollWheel:(NSEvent*)event {
     const NSPoint point = [self designPoint:[self convertPoint:event.locationInWindow fromView:nil]];
-    if (_openPanel >= 0 && equals(project::kPanelControls[static_cast<std::size_t>(_openPanel)].panelType, "midi_map")) {
+    if (_openPanel >= 0) {
         const NSRect panel = [self panelRect:_openPanel];
         if (NSPointInRect(point, panel) && point.y >= NSMinY(panel) + 44) {
-            const auto visible = [self visibleMidiSequences];
-            const CGFloat rowStart = NSMinY(panel) + 83;
-            const NSInteger capacity = std::max<NSInteger>(1, static_cast<NSInteger>((NSMaxY(panel) - 12 - rowStart + 6) / 53));
-            const NSInteger maxOffset = std::max<NSInteger>(0, static_cast<NSInteger>(visible.size()) - capacity);
             const NSInteger direction = event.scrollingDeltaY > 0 ? -1 : 1;
-            _grooveScrollOffset = std::clamp(_grooveScrollOffset + direction, static_cast<NSInteger>(0), maxOffset);
-            [self.window invalidateCursorRectsForView:self]; [self setNeedsDisplay:YES]; return;
+            const auto& panelInfo = project::kPanelControls[static_cast<std::size_t>(_openPanel)];
+            if (equals(panelInfo.panelType, "midi_map")) {
+                const auto visible = [self visibleMidiSequences];
+                const CGFloat rowStart = NSMinY(panel) + 83;
+                const NSInteger capacity = std::max<NSInteger>(1, static_cast<NSInteger>((NSMaxY(panel) - 12 - rowStart + 6) / 53));
+                const NSInteger maxOffset = std::max<NSInteger>(0, static_cast<NSInteger>(visible.size()) - capacity);
+                _grooveScrollOffset = std::clamp(_grooveScrollOffset + direction, static_cast<NSInteger>(0), maxOffset);
+                [self.window invalidateCursorRectsForView:self]; [self setNeedsDisplay:YES]; return;
+            }
+            if (equals(panelInfo.panelType, "preset_browser")) {
+                const CGFloat rowStart = NSMinY(panel) + 107;
+                const NSInteger total = static_cast<NSInteger>(project::kPresets.size() + _userPresets.size());
+                const NSInteger capacity = std::max<NSInteger>(1, static_cast<NSInteger>((NSMaxY(panel) - 12 - rowStart + 6) / 47));
+                const NSInteger maxOffset = std::max<NSInteger>(0, total - capacity);
+                _presetScrollOffset = std::clamp(_presetScrollOffset + direction, static_cast<NSInteger>(0), maxOffset);
+                [self setNeedsDisplay:YES]; return;
+            }
+            if (equals(panelInfo.panelType, "mixer")) {
+                const CGFloat left = NSMinX(panel) + 16, top = NSMinY(panel) + 60;
+                const NSInteger group = static_cast<NSInteger>((point.x - left) / 122);
+                if (group >= 0 && group < static_cast<NSInteger>(project::kGroups.size())) {
+                    const CGFloat localX = point.x - (left + group * 122), localY = point.y - top;
+                    NSInteger slot = -1;
+                    if (localX >= 4 && localX <= 108 && localY >= 34 && localY <= 66) slot = 0;
+                    else if (localX >= 4 && localX <= 108 && localY >= 67 && localY <= 99) slot = 1;
+                    if (slot >= 0) {
+                        const auto parameter = groupParameterId(static_cast<int>(group), static_cast<int>(slot));
+                        [self setParameter:parameter value:static_cast<float>(_instrument->getParamNormalized(parameter)) + (event.scrollingDeltaY > 0 ? .02f : -.02f)];
+                        [self setNeedsDisplay:YES]; return;
+                    }
+                }
+            }
         }
     }
     const NSInteger band = [self prismBandAt:point];
@@ -1199,7 +1300,7 @@ namespace project = tripleside::project;
         return;
     }
     const NSInteger index = [self controlAt:point];
-    if (index < 0 || !equals(project::kControls[static_cast<std::size_t>(index)].kind, "knob")) return;
+    if (index < 0 || (!equals(project::kControls[static_cast<std::size_t>(index)].kind, "knob") && !equals(project::kControls[static_cast<std::size_t>(index)].kind, "fader"))) return;
     const auto parameter = displayedParameter(*_instrument, static_cast<std::size_t>(index), _selectedPrismBand);
     if (parameter == kNoParamId) return;
     const auto current = static_cast<float>(_instrument->getParamNormalized(parameter));

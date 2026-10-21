@@ -305,8 +305,12 @@ def test_native_user_presets_are_persistent_overwritable_and_deletable():
     assert "deleteUserPreset(userRow)" in source
     assert "void overwriteUserPreset(int)" in header
     assert "void deleteUserPreset(int)" in header
-    assert 'L"FACTORY",false' in source
-    assert 'L"USER",true' in source
+    assert "presetScrollOffset" in header
+    assert "selectedPresetRow" in header
+    assert "hoveredPresetRow" in header
+    assert "thumbHeight" in source
+    assert "absolute==selectedPresetRow" in source
+    assert "absolute==hoveredPresetRow" in source
     assert 'L"OVR"' not in source
 
 
@@ -317,7 +321,22 @@ def test_windows_mixer_matches_preview_channel_cards():
     assert 'L"VOL"' in source
     assert 'L"PAN"' in source
     assert 'top+105' in source
+    assert "panelNameFormat" in source
+    assert "panelLabelFormat" in source
+    assert "panelButtonFormat" in source
+    assert "target->FillEllipse" in source
+    assert 'equals(panel.panelType,"mixer")' in source
+    assert 'groupParameterId(group,slot)' in source
     assert 'L"SAMPLER MIXER"' not in source
+
+
+def test_windows_wheel_supports_knobs_faders_mixer_and_preset_scroll():
+    source = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+
+    assert '!equals(c.kind,"knob")&&!equals(c.kind,"fader")' in source
+    assert 'equals(panel.panelType,"preset_browser")' in source
+    assert 'presetScrollOffset=std::clamp' in source
+    assert 'setParameter(id,static_cast<float>(instrument.getParamNormalized(id))+(delta>0?.02f:-.02f))' in source
 
 
 def test_native_panel_midi_player_honors_tempo_events():
