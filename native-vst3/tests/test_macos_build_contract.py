@@ -43,17 +43,19 @@ def test_macos_panels_follow_preview_and_are_fully_interactive():
     assert 'equals(kind, "panel_button")' in view
     assert '@"PRESET BROWSER"' in view
     assert '@"GROOVE BROWSER"' in view
-    assert "Tambahkan groove MIDI" in view
     assert '@"GROOVE LIBRARY"' in view
     assert "Simpan kondisi" in view
     assert '[self applyFactoryPreset:row]' in view
     assert 'groupParameterId(static_cast<int>(group), 1)' in view
     assert '[self startMidiSequence:source]' in view
     assert '_midiTimer = [NSTimer scheduledTimerWithTimeInterval:.01' in view
-    assert 'registerForDraggedTypes:@[NSPasteboardTypeFileURL]' in view
     assert 'beginDraggingSessionWithItems:@[item]' in view
     assert '_panelDragMode = 2' in view
-    assert '_hiddenMidiSequences.insert(source)' in view
+    assert '_grooveScrollOffset' in view
+    assert 'pointingHandCursor' in view
+    assert 'Tambahkan groove MIDI' not in view
+    assert 'registerForDraggedTypes:@[NSPasteboardTypeFileURL]' not in view
+    assert '_hiddenMidiSequences.insert(source)' not in view
     assert '[self loadUserPresets]' in view
     assert '[self persistUserPresets]' in view
     assert 'NSApplicationSupportDirectory' in view

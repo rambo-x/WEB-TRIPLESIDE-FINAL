@@ -58,10 +58,13 @@ def test_windows_groove_transport_loops_smoothly_and_survives_panel_close():
     assert "if(midiSequenceLoopEnabled(playingMidiSequence))" in source
     assert "drawGroovePanel(r)" in source
     assert "groovePanelMouseDown(r,x,y)" in source
-    assert "Tambahkan groove MIDI" in source
     assert "GROOVE LIBRARY" in source
-    assert "GetOpenFileNameW" in source
-    assert "hiddenMidiSequences.insert(source)" in source
+    assert "grooveScrollOffset" in header
+    assert "IDC_HAND" in source
+    assert "thumbHeight" in source
+    assert "GetOpenFileNameW" not in source
+    assert "DragAcceptFiles" not in source
+    assert "hiddenMidiSequences.insert(source)" not in source
     assert "playingMidiSequence==source" in source
     close_panel = source.split("void NativeView::closePanel()", 1)[1].split("}", 1)[0]
     assert "stopMidiSequence" not in close_panel
@@ -329,8 +332,10 @@ def test_native_midi_panel_is_a_groove_browser_without_cc_map_copy():
     source = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
 
     assert 'L"GROOVE BROWSER"' in source
-    assert 'Tambahkan groove MIDI' in source
-    assert 'L"\\u21E9 DRAG"' in source
+    assert 'Tambahkan groove MIDI' not in source
+    assert 'L"\\u21E9 DRAG"' not in source
+    assert 'countText' not in source
+    assert 'midiDragCandidate=source' in source
     assert 'playing?L"\\u25A0":L"\\u25B6"' in source
     assert 'midiPlaying?L"STOP":L"PLAY"' not in source
     assert "MIDI PLAYER & MAP" not in source

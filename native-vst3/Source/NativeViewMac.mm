@@ -180,6 +180,7 @@ namespace project = tripleside::project;
     NSInteger _selectedMidiSequence;
     NSInteger _playingMidiSequence;
     NSInteger _midiDragCandidate;
+    NSInteger _grooveScrollOffset;
     CGFloat _panelX, _panelY, _panelWidth, _panelHeight;
     CGFloat _panelDragX, _panelDragY, _midiDragX, _midiDragY;
     std::map<int, std::array<CGFloat, 4>> _panelRuntimeBounds;
@@ -226,6 +227,7 @@ namespace project = tripleside::project;
         _selectedMidiSequence = project::kMidiSequences.empty() ? -1 : 0;
         _playingMidiSequence = -1;
         _midiDragCandidate = -1;
+        _grooveScrollOffset = 0;
         _panelX = 50;
         _panelY = 52;
         _panelWidth = 88;
@@ -242,7 +244,6 @@ namespace project = tripleside::project;
         _midiTimer = [NSTimer scheduledTimerWithTimeInterval:.01 repeats:YES block:^(NSTimer*) {
             [weakSelf updateMidiPlayback];
         }];
-        [self registerForDraggedTypes:@[NSPasteboardTypeFileURL]];
     }
     return self;
 }
@@ -331,6 +332,7 @@ namespace project = tripleside::project;
         _panelX = info.panelX; _panelY = info.panelY;
         _panelWidth = info.panelWidth; _panelHeight = info.panelHeight;
     }
+    [self.window invalidateCursorRectsForView:self];
     [self setNeedsDisplay:YES];
 }
 
@@ -339,6 +341,7 @@ namespace project = tripleside::project;
     _openPanel = -1;
     _panelDragMode = 0;
     _midiDragCandidate = -1;
+    [self.window invalidateCursorRectsForView:self];
     [self setNeedsDisplay:YES];
 }
 
@@ -397,43 +400,43 @@ namespace project = tripleside::project;
     [rgbColor(0xffffff, .08) setFill];
     NSRectFill(NSMakeRect(NSMinX(panelRect), NSMaxY(header) - 1, NSWidth(panelRect), 1));
     NSString* title = [NSString stringWithUTF8String:control.label ?: "Panel"];
-    [title drawInRect:NSMakeRect(NSMinX(panelRect) + 16, NSMinY(panelRect) + 13, std::max<CGFloat>(80, NSWidth(panelRect) * .45), 18)
-       withAttributes:panelTextAttributes(12, rgbColor(0xfafafa), NSTextAlignmentLeft, NSFontWeightBold)];
     NSString* type = equals(panel.panelType, "preset_browser") ? @"PRESET BROWSER" : equals(panel.panelType, "mixer") ? @"MIXER" : @"GROOVE BROWSER";
-    [type drawInRect:NSMakeRect(NSMinX(panelRect) + std::min<CGFloat>(220, NSWidth(panelRect) * .5), NSMinY(panelRect) + 15, std::max<CGFloat>(80, NSWidth(panelRect) * .3), 15)
+    const BOOL groovePanel = equals(panel.panelType, "midi_map");
+    if (!groovePanel) [title drawInRect:NSMakeRect(NSMinX(panelRect) + 16, NSMinY(panelRect) + 13, std::max<CGFloat>(80, NSWidth(panelRect) * .45), 18)
+       withAttributes:panelTextAttributes(12, rgbColor(0xfafafa), NSTextAlignmentLeft, NSFontWeightBold)];
+    [type drawInRect:NSMakeRect(groovePanel ? NSMinX(panelRect) + 16 : NSMinX(panelRect) + std::min<CGFloat>(220, NSWidth(panelRect) * .5), NSMinY(panelRect) + 15, groovePanel ? NSWidth(panelRect) - 64 : std::max<CGFloat>(80, NSWidth(panelRect) * .3), 15)
       withAttributes:panelTextAttributes(8, rgbColor(project::kAccentRgb), NSTextAlignmentLeft, NSFontWeightBold)];
     const NSRect close = NSMakeRect(NSMaxX(panelRect) - 39, NSMinY(panelRect) + 8, 27, 27);
     fillRounded(close, 14, rgbColor(0xffffff, .05));
-    [@"×" drawInRect:NSMakeRect(NSMinX(close), NSMinY(close) + 4, NSWidth(close), 18)
-       withAttributes:panelTextAttributes(15, rgbColor(0xa1a1aa), NSTextAlignmentCenter, NSFontWeightMedium)];
+    [rgbColor(0xa1a1aa) setStroke]; NSBezierPath* closeIcon = [NSBezierPath bezierPath]; closeIcon.lineWidth = 1.5;
+    [closeIcon moveToPoint:NSMakePoint(NSMidX(close) - 4.5, NSMidY(close) - 4.5)]; [closeIcon lineToPoint:NSMakePoint(NSMidX(close) + 4.5, NSMidY(close) + 4.5)];
+    [closeIcon moveToPoint:NSMakePoint(NSMidX(close) + 4.5, NSMidY(close) - 4.5)]; [closeIcon lineToPoint:NSMakePoint(NSMidX(close) - 4.5, NSMidY(close) + 4.5)]; [closeIcon stroke];
 
     const CGFloat left = NSMinX(panelRect) + 16;
     const CGFloat right = NSMaxX(panelRect) - 16;
     const CGFloat top = NSMinY(panelRect) + 60;
     if (equals(panel.panelType, "midi_map")) {
-        const NSRect drop = NSMakeRect(left, top, right - left, 74);
-        fillRounded(drop, 12, rgbColor(project::kAccentRgb, .07));
-        strokeRounded(NSInsetRect(drop, .5, .5), 12, rgbColor(project::kAccentRgb, .60));
-        [@"⇧  Tambahkan groove MIDI" drawInRect:NSMakeRect(left + 8, top + 29, right - left - 16, 18)
-           withAttributes:panelTextAttributes(10, rgbColor(0xd4d4d8), NSTextAlignmentCenter, NSFontWeightMedium)];
-        [@"GROOVE LIBRARY" drawInRect:NSMakeRect(left, top + 86, 180, 14)
+        [@"GROOVE LIBRARY" drawInRect:NSMakeRect(left, top, 180, 14)
             withAttributes:panelTextAttributes(8, rgbColor(0xa1a1aa), NSTextAlignmentLeft, NSFontWeightBold)];
         const auto visible = [self visibleMidiSequences];
-        NSString* count = [NSString stringWithFormat:@"%lu pola", static_cast<unsigned long>(visible.size())];
-        [count drawInRect:NSMakeRect(right - 90, top + 86, 90, 14)
-           withAttributes:panelTextAttributes(8, rgbColor(0xa1a1aa), NSTextAlignmentRight, NSFontWeightMedium)];
-        CGFloat rowTop = top + 108;
-        for (const int sourceIndex : visible) {
-            if (rowTop + 47 > NSMaxY(panelRect) - 12) break;
+        const CGFloat rowStart = top + 23;
+        const NSInteger capacity = std::max<NSInteger>(1, static_cast<NSInteger>((NSMaxY(panelRect) - 12 - rowStart + 6) / 53));
+        const NSInteger maxOffset = std::max<NSInteger>(0, static_cast<NSInteger>(visible.size()) - capacity);
+        _grooveScrollOffset = std::clamp(_grooveScrollOffset, static_cast<NSInteger>(0), maxOffset);
+        const BOOL scrollable = maxOffset > 0;
+        const CGFloat contentRight = right - (scrollable ? 12 : 0);
+        CGFloat rowTop = rowStart;
+        for (NSInteger rowIndex = 0; rowIndex < capacity && _grooveScrollOffset + rowIndex < static_cast<NSInteger>(visible.size()); ++rowIndex) {
+            const int sourceIndex = visible[static_cast<std::size_t>(_grooveScrollOffset + rowIndex)];
             const BOOL selected = sourceIndex == _selectedMidiSequence;
             const BOOL playing = sourceIndex == _playingMidiSequence;
-            const NSRect row = NSMakeRect(left, rowTop, right - left, 47);
+            const NSRect row = NSMakeRect(left, rowTop, contentRight - left, 47);
             fillRounded(row, 10, selected ? rgbColor(project::kAccentRgb, .11) : rgbColor(0xffffff, .025));
             strokeRounded(NSInsetRect(row, .5, .5), 10, selected ? rgbColor(project::kAccentRgb, .58) : rgbColor(0xffffff, .07));
             [@"♫" drawInRect:NSMakeRect(left + 9, rowTop + 14, 18, 18)
               withAttributes:panelTextAttributes(14, selected ? accent : rgbColor(0x71717a), NSTextAlignmentCenter, NSFontWeightMedium)];
             NSString* name = [self midiName:sourceIndex];
-            [name drawInRect:NSMakeRect(left + 34, rowTop + 8, std::max<CGFloat>(40, NSWidth(row) - 192), 15)
+            [name drawInRect:NSMakeRect(left + 34, rowTop + 8, std::max<CGFloat>(40, NSWidth(row) - 112), 15)
               withAttributes:panelTextAttributes(10, rgbColor(0xe4e4e7), NSTextAlignmentLeft, NSFontWeightBold)];
             int duration = 0, ppq = 480; float bpm = 120;
             if (sourceIndex < static_cast<int>(project::kMidiSequences.size())) {
@@ -445,25 +448,26 @@ namespace project = tripleside::project;
                 duration = sequence.durationTicks; ppq = sequence.ppq; if (!sequence.tempos.empty()) bpm = sequence.tempos.front().bpm;
             }
             NSString* meta = [NSString stringWithFormat:@"%d bar · %.0f BPM", std::max(1, static_cast<int>(std::ceil(duration / std::max(1., ppq * 4.)))), bpm];
-            [meta drawInRect:NSMakeRect(left + 34, rowTop + 25, std::max<CGFloat>(40, NSWidth(row) - 192), 13)
+            [meta drawInRect:NSMakeRect(left + 34, rowTop + 25, std::max<CGFloat>(40, NSWidth(row) - 112), 13)
               withAttributes:panelTextAttributes(8, rgbColor(0x71717a), NSTextAlignmentLeft, NSFontWeightMedium)];
-            [@"⇩ DRAG" drawInRect:NSMakeRect(right - 150, rowTop + 17, 48, 13)
-              withAttributes:panelTextAttributes(7, rgbColor(0x71717a), NSTextAlignmentCenter, NSFontWeightBold)];
-            const NSRect loop = NSMakeRect(right - 98, rowTop + 9, 30, 28);
+            const NSRect loop = NSMakeRect(contentRight - 64, rowTop + 9, 30, 28);
             fillRounded(loop, 9, [self midiSequenceLoopEnabled:sourceIndex] ? rgbColor(project::kAccentRgb, .26) : rgbColor(0xffffff, .05));
             [@"↻" drawInRect:NSMakeRect(NSMinX(loop), NSMinY(loop) + 6, 30, 15)
               withAttributes:panelTextAttributes(12, [self midiSequenceLoopEnabled:sourceIndex] ? accent : rgbColor(0x71717a), NSTextAlignmentCenter, NSFontWeightBold)];
-            const NSRect play = NSMakeRect(right - 62, rowTop + 9, 30, 28);
+            const NSRect play = NSMakeRect(contentRight - 30, rowTop + 9, 30, 28);
             fillRounded(play, 9, accent);
             [(playing ? @"■" : @"▶") drawInRect:NSMakeRect(NSMinX(play), NSMinY(play) + 7, 30, 14)
               withAttributes:panelTextAttributes(10, NSColor.whiteColor, NSTextAlignmentCenter, NSFontWeightBold)];
-            const NSRect remove = NSMakeRect(right - 26, rowTop + 9, 26, 28);
-            fillRounded(remove, 9, rgbColor(0xffffff, .05));
-            [@"×" drawInRect:NSMakeRect(NSMinX(remove), NSMinY(remove) + 5, 26, 16)
-              withAttributes:panelTextAttributes(13, rgbColor(0xa1a1aa), NSTextAlignmentCenter, NSFontWeightMedium)];
             rowTop += 53;
         }
-        if (visible.empty()) [@"Belum ada groove. Tambahkan file .mid atau .midi." drawInRect:NSMakeRect(left, top + 122, right - left, 80)
+        if (scrollable) {
+            const CGFloat trackHeight = std::max<CGFloat>(1, NSMaxY(panelRect) - 12 - rowStart);
+            const CGFloat thumbHeight = std::max<CGFloat>(28, trackHeight * capacity / visible.size());
+            const CGFloat thumbTop = rowStart + (trackHeight - thumbHeight) * _grooveScrollOffset / std::max<NSInteger>(1, maxOffset);
+            fillRounded(NSMakeRect(right - 6, rowStart, 6, trackHeight), 3, rgbColor(0xffffff, .07));
+            fillRounded(NSMakeRect(right - 6, thumbTop, 6, thumbHeight), 3, rgbColor(project::kAccentRgb, .65));
+        }
+        if (visible.empty()) [@"Belum ada groove pada project ini." drawInRect:NSMakeRect(left, rowStart, right - left, 80)
             withAttributes:panelTextAttributes(10, rgbColor(0x71717a), NSTextAlignmentCenter, NSFontWeightMedium)];
     } else if (equals(panel.panelType, "preset_browser")) {
         const NSRect field = NSMakeRect(left, top, std::max<CGFloat>(80, right - left - 156), 35);
@@ -655,26 +659,21 @@ namespace project = tripleside::project;
     const auto& panel = project::kPanelControls[static_cast<std::size_t>(_openPanel)];
     const CGFloat left = NSMinX(rect) + 16, right = NSMaxX(rect) - 16, top = NSMinY(rect) + 60;
     if (equals(panel.panelType, "midi_map")) {
-        if (point.y >= top && point.y <= top + 74) {
-            NSOpenPanel* picker = [NSOpenPanel openPanel]; picker.allowsMultipleSelection = NO; picker.canChooseDirectories = NO;
-            picker.allowedFileTypes = @[@"mid", @"midi"];
-            if ([picker runModal] == NSModalResponseOK) [self importMidiPath:picker.URL.path];
-            return YES;
-        }
         const auto visible = [self visibleMidiSequences];
-        if (point.y >= top + 108) {
-            const NSInteger row = static_cast<NSInteger>((point.y - (top + 108)) / 53);
-            const CGFloat rowOffset = std::fmod(point.y - (top + 108), 53.);
-            if (row >= 0 && row < static_cast<NSInteger>(visible.size()) && rowOffset <= 47) {
+        const CGFloat rowStart = top + 23;
+        if (point.y >= rowStart) {
+            const NSInteger slot = static_cast<NSInteger>((point.y - rowStart) / 53);
+            const CGFloat rowOffset = std::fmod(point.y - rowStart, 53.);
+            const NSInteger row = _grooveScrollOffset + slot;
+            const NSInteger capacity = std::max<NSInteger>(1, static_cast<NSInteger>((NSMaxY(rect) - 12 - rowStart + 6) / 53));
+            const BOOL scrollable = static_cast<NSInteger>(visible.size()) > capacity;
+            const CGFloat contentRight = right - (scrollable ? 12 : 0);
+            if (slot >= 0 && row >= 0 && row < static_cast<NSInteger>(visible.size()) && rowOffset <= 47 && point.x >= left && point.x <= contentRight) {
                 const int source = visible[static_cast<std::size_t>(row)]; _selectedMidiSequence = source;
-                if (point.x >= right - 98 && point.x <= right - 68) _midiLoopOverrides[source] = ![self midiSequenceLoopEnabled:source];
-                else if (point.x >= right - 62 && point.x <= right - 32) {
+                if (point.x >= contentRight - 64 && point.x <= contentRight - 34) _midiLoopOverrides[source] = ![self midiSequenceLoopEnabled:source];
+                else if (point.x >= contentRight - 30) {
                     if (_playingMidiSequence == source) [self stopMidiSequence]; else [self startMidiSequence:source];
-                } else if (point.x >= right - 26) {
-                    if (_playingMidiSequence == source) [self stopMidiSequence];
-                    _hiddenMidiSequences.insert(source);
-                    const auto next = [self visibleMidiSequences]; _selectedMidiSequence = next.empty() ? -1 : next.front();
-                } else if (point.x >= right - 150 && point.x <= right - 102) {
+                } else {
                     _midiDragCandidate = source; _midiDragX = point.x; _midiDragY = point.y;
                 }
                 [self setNeedsDisplay:YES]; return YES;
@@ -1074,6 +1073,21 @@ namespace project = tripleside::project;
     [self setNeedsDisplay:YES];
 }
 
+- (void)resetCursorRects {
+    [super resetCursorRects];
+    if (_openPanel < 0 || !equals(project::kPanelControls[static_cast<std::size_t>(_openPanel)].panelType, "midi_map")) return;
+    const NSRect panel = [self panelRect:_openPanel];
+    const auto visible = [self visibleMidiSequences];
+    const CGFloat left = NSMinX(panel) + 16, right = NSMaxX(panel) - 16, rowStart = NSMinY(panel) + 83;
+    const NSInteger capacity = std::max<NSInteger>(1, static_cast<NSInteger>((NSMaxY(panel) - 12 - rowStart + 6) / 53));
+    const BOOL scrollable = static_cast<NSInteger>(visible.size()) > capacity;
+    CGFloat scale = 1, offsetX = 0, offsetY = 0; [self canvasScale:&scale offsetX:&offsetX offsetY:&offsetY];
+    for (NSInteger row = 0; row < capacity && _grooveScrollOffset + row < static_cast<NSInteger>(visible.size()); ++row) {
+        const NSRect designRect = NSMakeRect(left, rowStart + row * 53, right - left - (scrollable ? 12 : 0), 47);
+        [self addCursorRect:NSMakeRect(offsetX + NSMinX(designRect) * scale, offsetY + NSMinY(designRect) * scale, NSWidth(designRect) * scale, NSHeight(designRect) * scale) cursor:NSCursor.pointingHandCursor];
+    }
+}
+
 - (void)mouseDown:(NSEvent*)event {
     [self.window makeFirstResponder:self];
     const NSPoint point = [self designPoint:[self convertPoint:event.locationInWindow fromView:nil]];
@@ -1193,16 +1207,11 @@ namespace project = tripleside::project;
 }
 
 - (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)sender {
-    if (_openPanel < 0 || !equals(project::kPanelControls[static_cast<std::size_t>(_openPanel)].panelType, "midi_map")) return NSDragOperationNone;
-    const NSPoint point = [self designPoint:[self convertPoint:sender.draggingLocation fromView:nil]];
-    const NSRect panel = [self panelRect:_openPanel];
-    return NSPointInRect(point, panel) ? NSDragOperationCopy : NSDragOperationNone;
+    (void)sender; return NSDragOperationNone;
 }
 
 - (BOOL)performDragOperation:(id<NSDraggingInfo>)sender {
-    NSPasteboard* board = sender.draggingPasteboard;
-    NSArray<NSURL*>* urls = [board readObjectsForClasses:@[[NSURL class]] options:@{NSPasteboardURLReadingFileURLsOnlyKey: @YES}];
-    return urls.count > 0 && [self importMidiPath:urls.firstObject.path];
+    (void)sender; return NO;
 }
 
 - (void)keyDown:(NSEvent*)event {
@@ -1222,6 +1231,18 @@ namespace project = tripleside::project;
 
 - (void)scrollWheel:(NSEvent*)event {
     const NSPoint point = [self designPoint:[self convertPoint:event.locationInWindow fromView:nil]];
+    if (_openPanel >= 0 && equals(project::kPanelControls[static_cast<std::size_t>(_openPanel)].panelType, "midi_map")) {
+        const NSRect panel = [self panelRect:_openPanel];
+        if (NSPointInRect(point, panel) && point.y >= NSMinY(panel) + 44) {
+            const auto visible = [self visibleMidiSequences];
+            const CGFloat rowStart = NSMinY(panel) + 83;
+            const NSInteger capacity = std::max<NSInteger>(1, static_cast<NSInteger>((NSMaxY(panel) - 12 - rowStart + 6) / 53));
+            const NSInteger maxOffset = std::max<NSInteger>(0, static_cast<NSInteger>(visible.size()) - capacity);
+            const NSInteger direction = event.scrollingDeltaY > 0 ? -1 : 1;
+            _grooveScrollOffset = std::clamp(_grooveScrollOffset + direction, static_cast<NSInteger>(0), maxOffset);
+            [self.window invalidateCursorRectsForView:self]; [self setNeedsDisplay:YES]; return;
+        }
+    }
     const NSInteger band = [self prismBandAt:point];
     if (band >= 0) {
         _selectedPrismBand = band;

@@ -76,7 +76,7 @@ target_compile_definitions(TripleSideNativeInstrument PRIVATE TRIPLESIDE_NATIVE_
 
 if(WIN32)
     target_compile_definitions(TripleSideNativeInstrument PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
-    target_link_libraries(TripleSideNativeInstrument PRIVATE sdk d2d1 dwrite windowscodecs ole32 shell32 comdlg32 winhttp bcrypt crypt32 advapi32)
+    target_link_libraries(TripleSideNativeInstrument PRIVATE sdk d2d1 dwrite windowscodecs ole32 shell32 winhttp bcrypt crypt32 advapi32)
 elseif(APPLE)
     target_compile_options(TripleSideNativeInstrument PRIVATE
         $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
