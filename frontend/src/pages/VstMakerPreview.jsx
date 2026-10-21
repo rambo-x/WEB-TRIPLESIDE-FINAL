@@ -6176,7 +6176,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
             {activeEditorTab === "interface" && (
             <>
             <section className="rounded-3xl border border-white/10 bg-[#0a0a0c] p-5 md:p-7">
-              <div className="maker-designer-heading-row">
+              <div className="maker-designer-heading-row" style={{ zIndex: 40 }}>
                 <SectionHeading number="01" title="Plugin & VST Designer" description="Tambahkan knob, fader, pad, atau keyboard, lalu susun di kanvas." />
                 <div className="maker-designer-project-actions">
                   {customerMode && (
