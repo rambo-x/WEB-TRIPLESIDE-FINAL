@@ -166,7 +166,6 @@ namespace project = tripleside::project;
     NativeInstrument* _instrument;
     NSMutableDictionary<NSString*, NSImage*>* _images;
     NSTimer* _timer;
-    NSTimer* _midiTimer;
     NSInteger _dragControl;
     CGFloat _dragStartY;
     float _dragStartValue;
@@ -187,10 +186,9 @@ namespace project = tripleside::project;
     std::vector<RuntimeMidiSequence> _importedMidi;
     std::map<int, bool> _midiLoopOverrides;
     std::set<int> _hiddenMidiSequences;
-    std::vector<std::pair<int, int>> _midiPlayingNotes;
     std::vector<RuntimeUserPreset> _userPresets;
-    std::size_t _midiEventCursor;
-    double _midiStartedAt;
+    std::string _presetNameInput;
+    BOOL _presetNameFocused;
 }
 - (instancetype)initWithFrame:(NSRect)frame instrument:(NativeInstrument*)instrument;
 - (BOOL)hitPadFlashActive:(int)pitch;
@@ -228,21 +226,18 @@ namespace project = tripleside::project;
         _playingMidiSequence = -1;
         _midiDragCandidate = -1;
         _grooveScrollOffset = 0;
+        _presetNameFocused = NO;
         _panelX = 50;
         _panelY = 52;
         _panelWidth = 88;
         _panelHeight = 78;
-        _midiEventCursor = 0;
-        _midiStartedAt = 0;
         [self loadUserPresets];
         _padTriggerGenerations.fill(0);
         _padFlashUntil.fill(0);
         __weak TripleSideNativeMacView* weakSelf = self;
         _timer = [NSTimer scheduledTimerWithTimeInterval:(1.0 / 30.0) repeats:YES block:^(NSTimer*) {
-            [weakSelf setNeedsDisplay:YES];
-        }];
-        _midiTimer = [NSTimer scheduledTimerWithTimeInterval:.01 repeats:YES block:^(NSTimer*) {
             [weakSelf updateMidiPlayback];
+            [weakSelf setNeedsDisplay:YES];
         }];
     }
     return self;
@@ -250,8 +245,7 @@ namespace project = tripleside::project;
 
 - (void)dealloc {
     [_timer invalidate];
-    [_midiTimer invalidate];
-    for (const auto& note : _midiPlayingNotes) if (_instrument) _instrument->queueEditorNote(note.first, 0, false);
+    if (_instrument) _instrument->stopGroove();
     if (_activeNote >= 0 && _instrument) _instrument->queueEditorNote(static_cast<int>(_activeNote), 0, false);
 }
 
@@ -341,6 +335,7 @@ namespace project = tripleside::project;
     _openPanel = -1;
     _panelDragMode = 0;
     _midiDragCandidate = -1;
+    _presetNameFocused = NO;
     [self.window invalidateCursorRectsForView:self];
     [self setNeedsDisplay:YES];
 }
@@ -369,20 +364,17 @@ namespace project = tripleside::project;
 }
 
 - (void)stopMidiSequence {
-    for (const auto& note : _midiPlayingNotes) _instrument->queueEditorNote(note.first, 0, false);
-    _midiPlayingNotes.clear();
+    _instrument->stopGroove();
     _playingMidiSequence = -1;
-    _midiEventCursor = 0;
 }
 
 - (void)startMidiSequence:(NSInteger)index {
     [self stopMidiSequence];
-    const NSInteger count = static_cast<NSInteger>(project::kMidiSequences.size() + _importedMidi.size());
-    if (index < 0 || index >= count || _hiddenMidiSequences.contains(static_cast<int>(index))) return;
+    const NSInteger count = static_cast<NSInteger>(project::kMidiSequences.size());
+    if (index < 0 || index >= count) return;
     _selectedMidiSequence = index;
     _playingMidiSequence = index;
-    _midiStartedAt = NSProcessInfo.processInfo.systemUptime;
-    _midiEventCursor = 0;
+    _instrument->startGroove(static_cast<int>(index), [self midiSequenceLoopEnabled:index]);
 }
 
 - (void)drawOpenPanel {
@@ -472,8 +464,9 @@ namespace project = tripleside::project;
     } else if (equals(panel.panelType, "preset_browser")) {
         const NSRect field = NSMakeRect(left, top, std::max<CGFloat>(80, right - left - 156), 35);
         fillRounded(field, 9, rgbColor(0x09090b)); strokeRounded(NSInsetRect(field, .5, .5), 9, rgbColor(0xffffff, .10));
-        [@"Nama preset baru" drawInRect:NSInsetRect(field, 10, 10)
-           withAttributes:panelTextAttributes(10, rgbColor(0x71717a), NSTextAlignmentLeft, NSFontWeightRegular)];
+        NSString* presetFieldText = _presetNameInput.empty() ? @"Nama preset baru" : [NSString stringWithUTF8String:_presetNameInput.c_str()];
+        [presetFieldText drawInRect:NSInsetRect(field, 10, 10)
+           withAttributes:panelTextAttributes(10, _presetNameInput.empty() ? rgbColor(0x71717a) : rgbColor(0xf4f4f5), NSTextAlignmentLeft, NSFontWeightRegular)];
         const NSRect save = NSMakeRect(NSMaxX(field) + 8, top, right - NSMaxX(field) - 8, 35);
         fillRounded(save, 9, accent);
         [@"▣  Simpan kondisi" drawInRect:NSMakeRect(NSMinX(save) + 6, NSMinY(save) + 10, NSWidth(save) - 12, 15)
@@ -488,10 +481,10 @@ namespace project = tripleside::project;
             [category drawInRect:NSMakeRect(user ? right - 95 : right - 68, y + 9, 58, 14)
               withAttributes:panelTextAttributes(7, rgbColor(0x71717a), NSTextAlignmentCenter, NSFontWeightBold)];
             if (user) {
-                fillRounded(NSMakeRect(right - 66, y + 7, 34, 27), 7, rgbColor(project::kAccentRgb, .22));
-                [@"OVR" drawInRect:NSMakeRect(right - 66, y + 14, 34, 12) withAttributes:panelTextAttributes(7, accent, NSTextAlignmentCenter, NSFontWeightBold)];
                 fillRounded(NSMakeRect(right - 27, y + 7, 27, 27), 7, rgbColor(0xffffff, .05));
-                [@"×" drawInRect:NSMakeRect(right - 27, y + 12, 27, 15) withAttributes:panelTextAttributes(12, rgbColor(0xfb7185), NSTextAlignmentCenter, NSFontWeightMedium)];
+                [rgbColor(0xfb7185) setStroke]; NSBezierPath* removeIcon = [NSBezierPath bezierPath]; removeIcon.lineWidth = 1.4;
+                [removeIcon moveToPoint:NSMakePoint(right - 19, y + 15)]; [removeIcon lineToPoint:NSMakePoint(right - 8, y + 26)];
+                [removeIcon moveToPoint:NSMakePoint(right - 8, y + 15)]; [removeIcon lineToPoint:NSMakePoint(right - 19, y + 26)]; [removeIcon stroke];
             }
             (void)userIndex; y += 47;
         };
@@ -561,7 +554,7 @@ namespace project = tripleside::project;
     for (int item = 0; item < preset.groupCount; ++item) {
         const auto& group = project::kPresetGroups[static_cast<std::size_t>(preset.groupOffset + item)];
         [self setParameter:groupParameterId(group.groupIndex, 0) value:group.volume];
-        [self setParameter:groupParameterId(group.groupIndex, 1) value:(group.pan + 1.f) * .5f];
+        [self setParameter:groupParameterId(group.groupIndex, 1) value:group.pan];
         [self setParameter:groupParameterId(group.groupIndex, 2) value:group.mute ? 1.f : 0.f];
         [self setParameter:groupParameterId(group.groupIndex, 3) value:group.solo ? 1.f : 0.f];
     }
@@ -595,12 +588,12 @@ namespace project = tripleside::project;
 }
 
 - (void)saveUserPreset {
-    int suffix = 1; std::string name;
-    do {
-        name = "User Preset " + std::to_string(suffix++);
-    } while (std::any_of(_userPresets.begin(), _userPresets.end(), [&](const auto& preset) { return preset.name == name; }));
+    while (!_presetNameInput.empty() && std::isspace(static_cast<unsigned char>(_presetNameInput.front()))) _presetNameInput.erase(_presetNameInput.begin());
+    while (!_presetNameInput.empty() && std::isspace(static_cast<unsigned char>(_presetNameInput.back()))) _presetNameInput.pop_back();
+    if (_presetNameInput.empty() || std::any_of(_userPresets.begin(), _userPresets.end(), [&](const auto& preset) { return preset.name == _presetNameInput; })) return;
     if (_userPresets.size() >= 128) _userPresets.erase(_userPresets.begin());
-    _userPresets.push_back([self captureUserPreset:name]);
+    _userPresets.push_back([self captureUserPreset:_presetNameInput]);
+    _presetNameInput.clear(); _presetNameFocused = NO;
     [self persistUserPresets];
 }
 
@@ -670,7 +663,7 @@ namespace project = tripleside::project;
             const CGFloat contentRight = right - (scrollable ? 12 : 0);
             if (slot >= 0 && row >= 0 && row < static_cast<NSInteger>(visible.size()) && rowOffset <= 47 && point.x >= left && point.x <= contentRight) {
                 const int source = visible[static_cast<std::size_t>(row)]; _selectedMidiSequence = source;
-                if (point.x >= contentRight - 64 && point.x <= contentRight - 34) _midiLoopOverrides[source] = ![self midiSequenceLoopEnabled:source];
+                if (point.x >= contentRight - 64 && point.x <= contentRight - 34) { _midiLoopOverrides[source] = ![self midiSequenceLoopEnabled:source]; if (_playingMidiSequence == source) _instrument->setGrooveLoop(_midiLoopOverrides[source]); }
                 else if (point.x >= contentRight - 30) {
                     if (_playingMidiSequence == source) [self stopMidiSequence]; else [self startMidiSequence:source];
                 } else {
@@ -681,14 +674,14 @@ namespace project = tripleside::project;
         }
     } else if (equals(panel.panelType, "preset_browser")) {
         const CGFloat fieldWidth = std::max<CGFloat>(80, right - left - 156);
-        if (point.y >= top && point.y <= top + 35 && point.x >= left + fieldWidth + 8) { [self saveUserPreset]; [self setNeedsDisplay:YES]; return YES; }
+        if (point.y >= top && point.y <= top + 35) { if (point.x <= left + fieldWidth) { _presetNameFocused = YES; [self.window makeFirstResponder:self]; } else if (point.x >= left + fieldWidth + 8) [self saveUserPreset]; [self setNeedsDisplay:YES]; return YES; }
+        _presetNameFocused = NO;
         if (point.y >= top + 47) {
             const NSInteger row = static_cast<NSInteger>((point.y - (top + 47)) / 47);
             if (row >= 0 && row < static_cast<NSInteger>(project::kPresets.size())) { [self applyFactoryPreset:row]; return YES; }
             const NSInteger user = row - static_cast<NSInteger>(project::kPresets.size());
             if (user >= 0 && user < static_cast<NSInteger>(_userPresets.size())) {
                 if (point.x >= right - 27) { _userPresets.erase(_userPresets.begin() + user); [self persistUserPresets]; }
-                else if (point.x >= right - 66) { const auto name = _userPresets[static_cast<std::size_t>(user)].name; _userPresets[static_cast<std::size_t>(user)] = [self captureUserPreset:name]; [self persistUserPresets]; }
                 else [self applyUserPreset:user];
                 [self setNeedsDisplay:YES]; return YES;
             }
@@ -712,61 +705,7 @@ namespace project = tripleside::project;
 }
 
 - (void)updateMidiPlayback {
-    if (_playingMidiSequence < 0) return;
-    const double elapsed = (NSProcessInfo.processInfo.systemUptime - _midiStartedAt) * 1000.;
-    auto tickMilliseconds = [](int tick, int ppq, const auto& tempos, int offset, int count) {
-        double milliseconds = 0, bpm = 120; int previousTick = 0;
-        for (int index = 0; index < count; ++index) {
-            const auto& tempo = tempos[static_cast<std::size_t>(offset + index)];
-            const int tempoTick = std::clamp(tempo.tick, previousTick, tick);
-            milliseconds += (tempoTick - previousTick) * 60000. / (std::max(1, ppq) * bpm);
-            previousTick = tempoTick; bpm = std::clamp(static_cast<double>(tempo.bpm), 20., 400.);
-            if (tempo.tick >= tick) break;
-        }
-        if (previousTick < tick) milliseconds += (tick - previousTick) * 60000. / (std::max(1, ppq) * bpm);
-        return milliseconds;
-    };
-    auto dispatch = [&](int note, int velocity, int channel, bool on, double due) {
-        if (due > elapsed) return false;
-        if (on) { _instrument->queueEditorNote(note, std::max(1, velocity), true); _midiPlayingNotes.emplace_back(note, channel); }
-        else {
-            _instrument->queueEditorNote(note, 0, false);
-            const auto found = std::find(_midiPlayingNotes.begin(), _midiPlayingNotes.end(), std::pair<int, int>{note, channel});
-            if (found != _midiPlayingNotes.end()) _midiPlayingNotes.erase(found);
-        }
-        return true;
-    };
-    auto finish = [&](double end) {
-        if (elapsed <= end + 5) return;
-        if ([self midiSequenceLoopEnabled:_playingMidiSequence]) {
-            for (const auto& note : _midiPlayingNotes) _instrument->queueEditorNote(note.first, 0, false);
-            _midiPlayingNotes.clear(); _midiStartedAt = NSProcessInfo.processInfo.systemUptime; _midiEventCursor = 0;
-        } else [self stopMidiSequence];
-    };
-    if (_playingMidiSequence < static_cast<NSInteger>(project::kMidiSequences.size())) {
-        const auto& sequence = project::kMidiSequences[static_cast<std::size_t>(_playingMidiSequence)];
-        while (_midiEventCursor < static_cast<std::size_t>(sequence.eventCount)) {
-            const auto& event = project::kMidiEvents[static_cast<std::size_t>(sequence.eventOffset) + _midiEventCursor];
-            if (!dispatch(event.note, event.velocity, event.channel, event.noteOn,
-                          tickMilliseconds(event.tick, sequence.ppq, project::kMidiTempos, sequence.tempoOffset, sequence.tempoCount))) break;
-            ++_midiEventCursor;
-        }
-        if (_midiEventCursor >= static_cast<std::size_t>(sequence.eventCount))
-            finish(tickMilliseconds(sequence.durationTicks, sequence.ppq, project::kMidiTempos, sequence.tempoOffset, sequence.tempoCount));
-    } else {
-        const auto runtime = static_cast<std::size_t>(_playingMidiSequence - static_cast<NSInteger>(project::kMidiSequences.size()));
-        if (runtime >= _importedMidi.size()) { [self stopMidiSequence]; return; }
-        const auto& sequence = _importedMidi[runtime];
-        while (_midiEventCursor < sequence.events.size()) {
-            const auto& event = sequence.events[_midiEventCursor];
-            if (!dispatch(event.note, event.velocity, event.channel, event.on,
-                          tickMilliseconds(event.tick, sequence.ppq, sequence.tempos, 0, static_cast<int>(sequence.tempos.size())))) break;
-            ++_midiEventCursor;
-        }
-        if (_midiEventCursor >= sequence.events.size())
-            finish(tickMilliseconds(sequence.durationTicks, sequence.ppq, sequence.tempos, 0, static_cast<int>(sequence.tempos.size())));
-    }
-    [self setNeedsDisplay:YES];
+    _playingMidiSequence = _instrument->groovePlayingSequence();
 }
 
 - (BOOL)importMidiPath:(NSString*)path {
@@ -1215,6 +1154,13 @@ namespace project = tripleside::project;
 }
 
 - (void)keyDown:(NSEvent*)event {
+    if (_presetNameFocused) {
+        if (event.keyCode == 51 || event.keyCode == 117) { if (!_presetNameInput.empty()) _presetNameInput.pop_back(); }
+        else if (event.keyCode == 36 || event.keyCode == 76) [self saveUserPreset];
+        else if (event.keyCode == 53) _presetNameFocused = NO;
+        else if (_presetNameInput.size() < 48) { NSString* characters = event.characters; if (characters.length) { const char* utf8 = characters.UTF8String; if (utf8) _presetNameInput.append(utf8, std::min<std::size_t>(std::strlen(utf8), 48 - _presetNameInput.size())); } }
+        [self setNeedsDisplay:YES]; return;
+    }
     if ((event.keyCode == 51 || event.keyCode == 117) && (project::kIsPrismEq || project::kHasPrismModule) && _instrument->prismBandEnabled(static_cast<int>(_selectedPrismBand))) {
         const auto enabled = kPrismEnabledBaseId + static_cast<ParamID>(_selectedPrismBand);
         _instrument->beginEdit(enabled); _instrument->setParamNormalized(enabled, 0); _instrument->performEdit(enabled, 0); _instrument->endEdit(enabled);

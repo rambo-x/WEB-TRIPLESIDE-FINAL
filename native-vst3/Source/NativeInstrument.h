@@ -52,6 +52,10 @@ public:
     REFCOUNT_METHODS(Steinberg::Vst::SingleComponentEffect)
 
     void queueEditorNote(int pitch, int velocity, bool on) noexcept;
+    void startGroove(int sequence, bool loop) noexcept;
+    void stopGroove() noexcept;
+    void setGrooveLoop(bool loop) noexcept;
+    int groovePlayingSequence() const noexcept { return grooveActive.load(std::memory_order_relaxed); }
     bool isNoteActive(int pitch) const noexcept;
     unsigned noteTriggerCount(int pitch) const noexcept;
     float outputPeak(int channel) const noexcept { return peaks[static_cast<size_t>(channel)].load(std::memory_order_relaxed); }
@@ -90,6 +94,7 @@ private:
     void applyParameterValue(Steinberg::Vst::ParamID, float) noexcept;
     void applyModuleControl(std::size_t, float) noexcept; void applyPrismRackParameter(int,int,float) noexcept;
     void applyEventsAt(Steinberg::Vst::IEventList*, Steinberg::int32&, int); void drainEditorNotes();
+    void applyGrooveCommand() noexcept; void processGrooveSample() noexcept; void releaseGrooveNotes() noexcept;
     void setMidiNoteActive(int pitch, bool on) noexcept;
     void setSustain(bool on) noexcept;
     void noteOn(int pitch, int velocity, Steinberg::int32 noteId); void noteOff(int pitch, Steinberg::int32 noteId);
@@ -109,6 +114,9 @@ private:
     std::array<std::atomic<float>, kAnalysisSampleCount> analysisSamplesLeft{},analysisSamplesRight{}; std::atomic<std::uint64_t> analysisWrite{0};
     std::array<std::atomic<float>, project::kDspModules.size()> compressorGainReductions{};
     std::array<UiNote, 128> uiNotes{}; std::atomic<unsigned> uiWrite{0}, uiRead{0};
+    std::atomic<int> grooveCommand{-2}, grooveActive{-1}; std::atomic<bool> grooveLoop{false};
+    int audioGrooveIndex=-1; std::size_t grooveEventCursor=0, grooveTempoCursor=0; double grooveTick=0, grooveBpm=120;
+    std::array<unsigned char,128> grooveHeldNotes{};
     std::array<std::atomic<unsigned>, 128> activeMidiNotes{};
     std::array<std::atomic<unsigned>, 128> noteTriggers{};
     float filterLeft=0, filterRight=0;

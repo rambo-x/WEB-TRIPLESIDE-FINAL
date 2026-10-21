@@ -48,7 +48,9 @@ def test_macos_panels_follow_preview_and_are_fully_interactive():
     assert '[self applyFactoryPreset:row]' in view
     assert 'groupParameterId(static_cast<int>(group), 1)' in view
     assert '[self startMidiSequence:source]' in view
-    assert '_midiTimer = [NSTimer scheduledTimerWithTimeInterval:.01' in view
+    assert '_midiTimer' not in view
+    assert '[weakSelf updateMidiPlayback]' in view
+    assert '_instrument->startGroove' in view
     assert 'beginDraggingSessionWithItems:@[item]' in view
     assert '_panelDragMode = 2' in view
     assert '_grooveScrollOffset' in view
@@ -59,6 +61,8 @@ def test_macos_panels_follow_preview_and_are_fully_interactive():
     assert '[self loadUserPresets]' in view
     assert '[self persistUserPresets]' in view
     assert 'NSApplicationSupportDirectory' in view
+    assert '@"OVR"' not in view
+    assert '_presetNameInput' in view
 
 
 def test_macos_queue_has_offset_schedule_and_server_watchdog():

@@ -67,9 +67,9 @@ private:
     struct RuntimeMidiSequence { std::wstring name; int ppq=480,durationTicks=0; bool loopEnabled=false; std::vector<RuntimeMidiEvent> events; std::vector<RuntimeMidiTempo> tempos; }; std::vector<RuntimeMidiSequence> importedMidi;
     std::map<int,bool> midiLoopOverrides;
     std::set<int> hiddenMidiSequences;
-    bool midiPlaying=false; std::uint64_t midiStartedMs=0; size_t midiEventCursor=0; std::vector<std::pair<int,int>> midiPlayingNotes;
+    bool midiPlaying=false;
     bool currentControlUsesFilmstrip=true,currentControlShowCorrelationMeter=true;
-    bool licenseInputFocused=false; std::wstring licenseInput; wchar_t licenseForwardedKey=0; std::uint64_t licenseForwardedAt=0;
+    bool licenseInputFocused=false,presetNameFocused=false; std::wstring licenseInput,presetNameInput; wchar_t licenseForwardedKey=0,presetForwardedKey=0; std::uint64_t licenseForwardedAt=0,presetForwardedAt=0;
     std::map<size_t,std::array<float,2>> visualMeterLevels;
     std::map<size_t,std::uint64_t> visualMeterUpdatedMs;
     std::array<float,128> spectrumLevels{}; std::uint64_t spectrumUpdatedMs=0; float vectorscopeCorrelation=0;

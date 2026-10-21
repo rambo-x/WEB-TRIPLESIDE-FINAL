@@ -47,15 +47,19 @@ def test_native_view_rotates_procedural_controls_and_hit_testing():
 def test_windows_groove_transport_loops_smoothly_and_survives_panel_close():
     header = (SOURCE_DIR / "NativeView.h").read_text(encoding="utf-8")
     source = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+    instrument_header = (SOURCE_DIR / "NativeInstrument.h").read_text(encoding="utf-8")
+    instrument_source = (SOURCE_DIR / "NativeInstrument.cpp").read_text(encoding="utf-8")
 
-    assert "SetTimer(hwnd,2,10,nullptr)" in source
-    assert "case WM_TIMER:if(w==2)" in source
-    assert "KillTimer(hwnd,2)" in source
+    assert "SetTimer(hwnd,2,10,nullptr)" not in source
+    assert "processGrooveSample()" in instrument_header
+    assert "processGrooveSample();renderFrame" in instrument_source
+    assert "grooveCommand.exchange" in instrument_source
+    assert "grooveTick+=" in instrument_source
     assert "playingMidiSequence" in header
     assert "midiSequenceLoopEnabled" in header
     assert "toggleMidiSequenceLoop" in source
     assert "project::kMidiSequences[static_cast<size_t>(index)].loopEnabled" in source
-    assert "if(midiSequenceLoopEnabled(playingMidiSequence))" in source
+    assert "instrument.setGrooveLoop" in source
     assert "drawGroovePanel(r)" in source
     assert "groovePanelMouseDown(r,x,y)" in source
     assert "GROOVE LIBRARY" in source
@@ -296,22 +300,38 @@ def test_native_user_presets_are_persistent_overwritable_and_deletable():
     assert "persistUserPresets()" in source
     assert 'L"TripleSide Studio"/L"VST3 Presets"' in source
     assert "MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH" in source
-    assert "overwriteUserPreset(userRow)" in source
+    assert 'L"\\u25A3  Simpan kondisi"' in source
+    assert "presetNameInput" in header
     assert "deleteUserPreset(userRow)" in source
     assert "void overwriteUserPreset(int)" in header
     assert "void deleteUserPreset(int)" in header
-    assert 'DrawTextW(L"FACTORY",7' in source
+    assert 'L"FACTORY",false' in source
+    assert 'L"USER",true' in source
+    assert 'L"OVR"' not in source
+
+
+def test_windows_mixer_matches_preview_channel_cards():
+    source = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+
+    assert 'x+=122' in source
+    assert 'L"VOL"' in source
+    assert 'L"PAN"' in source
+    assert 'top+105' in source
+    assert 'L"SAMPLER MIXER"' not in source
 
 
 def test_native_panel_midi_player_honors_tempo_events():
     header = (SOURCE_DIR / "NativeView.h").read_text(encoding="utf-8")
     source = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+    instrument = (SOURCE_DIR / "NativeInstrument.cpp").read_text(encoding="utf-8")
 
     assert "struct RuntimeMidiTempo" in header
     assert "sequence.tempos.push_back" in source
     assert "60000000.0/micros" in source
     assert "project::kMidiTempos" in source
-    assert "60000.0/(std::max(1,ppq)*bpm)" in source
+    assert "grooveTempoCursor" in instrument
+    assert "tempo.tick>grooveTick" in instrument
+    assert "sequence.ppq)*grooveBpm/(60.*" in instrument
 
 
 def test_native_panel_exports_embedded_midi_as_a_daw_file_drag():
