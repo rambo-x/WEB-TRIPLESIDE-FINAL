@@ -56,6 +56,11 @@ def clear_visual_capture_outputs(assets):
         'visual_backdrop.png',
         'visual_control_*.png',
         'visual_keys_*.png',
+        'visual_panel_reference_*.png',
+        'visual_panel_backdrop_*.png',
+        'visual_panel_recomposed_*.png',
+        'visual_panel_difference_*.png',
+        'visual_panel_comparison_*.json',
         'visual_recomposed*.png',
         'visual_difference*.png',
         'visual_comparison*.json',
@@ -105,7 +110,7 @@ def render(spec_path, url, browser=None):
     assets = spec_path.parent / 'assets'
     assets.mkdir(exist_ok=True)
     clear_visual_capture_outputs(assets)
-    manifest = dict(version=1, width=width, height=height, controls=[], keys=[],
+    manifest = dict(version=1, width=width, height=height, controls=[], keys=[], panels=[],
                     spec_sha256=hashlib.sha256(spec_path.read_bytes()).hexdigest())
     with sync_playwright() as p:
         launch = dict(headless=True)
@@ -152,6 +157,31 @@ def render(spec_path, url, browser=None):
             page.screenshot(path=str(assets/'visual_reference_active.png'), clip=clip, omit_background=True)
             manifest['active_check'] = dict(id=changed['id'] if changed else '', value=100, pitches=active_pitches)
             page.locator('[data-vst-pitch]').evaluate_all('es => es.forEach(e => e.classList.remove("is-pressed"))')
+            page.evaluate('window.__vstVisual.setFrame({})')
+            # Panel children are only visible while their parent is open. Save
+            # an independent open-panel reference plus the same scene with its
+            # child controls hidden, so the verifier can recompose each panel
+            # without contaminating the closed-canvas reference below.
+            page.add_style_tag(content='body.vst-panel-static .maker-canvas-control.is-panel-child { visibility: hidden !important; }')
+            parent_panel_ids = list(dict.fromkeys(
+                str(control.get('parent_panel_id') or '')
+                for control in controls if control.get('parent_panel_id')
+            ))
+            for panel_index, panel_id in enumerate(parent_panel_ids):
+                page.evaluate('(f) => window.__vstVisual.setFrame(f)', dict(panelId=panel_id))
+                page.wait_for_function(
+                    '(id) => [...document.querySelectorAll("[data-vst-control]")].some(e => e.dataset.vstControl === id)',
+                    arg=next(str(control.get('id') or '') for control in controls if str(control.get('parent_panel_id') or '') == panel_id),
+                )
+                reference_file = f'visual_panel_reference_{panel_index}.png'
+                backdrop_file = f'visual_panel_backdrop_{panel_index}.png'
+                page.screenshot(path=str(assets/reference_file), clip=clip, omit_background=True)
+                page.evaluate("document.body.classList.add('vst-panel-static')")
+                page.screenshot(path=str(assets/backdrop_file), clip=clip, omit_background=True)
+                page.evaluate("document.body.classList.remove('vst-panel-static')")
+                manifest['panels'].append(dict(
+                    id=panel_id, reference=reference_file, backdrop=backdrop_file,
+                ))
             page.evaluate('window.__vstVisual.setFrame({})')
             page.evaluate("document.body.classList.add('vst-static')")
             page.screenshot(path=str(assets/'visual_backdrop.png'), clip=clip, omit_background=True)

@@ -316,8 +316,16 @@ def test_visual_capture_rasterizes_panel_children_from_the_shared_preview():
     assert "visualOpenPanelId={frame.panelId ?? null}" in renderer
     assert "if (visualOpenPanelId !== undefined)" in workspace
     assert "panelId=parent_panel_id or None" in capture
+    assert "visual_panel_reference_" in capture
+    assert "visual_panel_backdrop_" in capture
+    assert ".maker-canvas-control.is-panel-child" in capture
     assert "Using native panel visual" not in capture
     assert "visual_panel_child.png" not in capture
+
+    verifier = (SOURCE_DIR.parent / "tools" / "verify_visual_assets.py").read_text(encoding="utf-8")
+    assert "if control.get('parent_panel_id')" in verifier
+    assert "def verify_panels(spec_path)" in verifier
+    assert "Panel {panel_index} visual composition differs" in verifier
 
 
 def test_native_user_presets_are_persistent_overwritable_and_deletable():
