@@ -7896,12 +7896,6 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
         <div className="maker-interface-preview maker-interface-preview-stack">
           <div className="maker-interface-preview-toolbar rounded-xl border border-white/[0.06] bg-black/20 px-3 py-2 text-[10px] text-zinc-500">
             <div className="maker-preview-toolbar-main">
-              <div className="inline-flex overflow-hidden rounded-lg border border-white/10">
-                <button type="button" onClick={onUndo} disabled={!canUndo} className="inline-flex h-8 items-center gap-1.5 px-2.5 font-semibold text-zinc-300 hover:bg-white/5 hover:text-white disabled:cursor-not-allowed disabled:opacity-30" aria-label="Urungkan perubahan Designer" title="Undo (Ctrl/Cmd + Z)"><Undo2 className="h-3.5 w-3.5" /> Undo</button>
-                <button type="button" onClick={onRedo} disabled={!canRedo} className="inline-flex h-8 items-center gap-1.5 border-l border-white/10 px-2.5 font-semibold text-zinc-300 hover:bg-white/5 hover:text-white disabled:cursor-not-allowed disabled:opacity-30" aria-label="Ulangi perubahan Designer" title="Redo (Ctrl/Cmd + Shift + Z)"><Redo2 className="h-3.5 w-3.5" /> Redo</button>
-              </div>
-              <span className="text-[9px] text-zinc-600">Ctrl/Cmd + D untuk duplikat pilihan</span>
-              {backgroundImageUrl && <><span className="ml-auto text-zinc-300">Background {Math.round(backgroundImageWidth)}% × {Math.round(backgroundImageHeight)}%</span><span>· tarik gambar untuk memindahkan</span><span>· tarik sudut kanan bawah untuk resize</span><button type="button" onClick={() => onCanvasChange({ backgroundImageX: 50, backgroundImageY: 50, backgroundImageWidth: 100, backgroundImageHeight: 100 })} className="rounded-lg border border-white/10 px-2.5 py-1.5 text-[9px] font-semibold text-zinc-300 hover:bg-white/5">Reset ukuran</button></>}
               {previewActions && <div className="maker-preview-project-actions">{previewActions}</div>}
             </div>
             <div className="maker-preview-toolbar-snap-row">
@@ -7931,6 +7925,10 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                     className={`maker-grid-size-compact ${gridSnapEnabled && gridSize === size ? "is-selected" : ""}`}
                   >{size}</button>
                 ))}
+              </div>
+              <div className="inline-flex h-[1.55rem] overflow-hidden rounded-[0.45rem] border border-white/10" role="group" aria-label="Riwayat perubahan Designer">
+                <button type="button" onClick={onUndo} disabled={!canUndo} className="grid w-7 place-items-center text-zinc-400 hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:opacity-25" aria-label="Urungkan perubahan Designer" title="Undo (Ctrl/Cmd + Z)"><Undo2 className="h-3.5 w-3.5" /></button>
+                <button type="button" onClick={onRedo} disabled={!canRedo} className="grid w-7 place-items-center border-l border-white/10 text-zinc-400 hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:opacity-25" aria-label="Ulangi perubahan Designer" title="Redo (Ctrl/Cmd + Shift + Z)"><Redo2 className="h-3.5 w-3.5" /></button>
               </div>
               <button
                 type="button"
@@ -8810,9 +8808,7 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
             </button>
           </div>
         </div>
-      ) : (
-        <p className="maker-interface-inspector rounded-xl border border-white/5 bg-[#111014] px-4 py-3 text-[10px] text-zinc-600">Pilih kontrol di preview untuk mengubahnya. Tahan Ctrl (atau Cmd di Mac) lalu klik untuk memilih beberapa kontrol.</p>
-      )}
+      ) : null}
       <div className="maker-interface-ui-colors grid grid-cols-2 gap-3 rounded-2xl border border-white/[0.07] bg-[#111014] p-4">
         <label>
           <FieldLabel>Warna aksen UI</FieldLabel>
