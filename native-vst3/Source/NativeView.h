@@ -56,6 +56,7 @@ private:
     bool captureVisual(const wchar_t*);
 #endif
     Microsoft::WRL::ComPtr<IDWriteFactory> writeFactory; Microsoft::WRL::ComPtr<IDWriteTextFormat> textFormat,brandFormat,brandMetaFormat,brandTagFormat,smallFormat,meterFormat,meterLabelFormat,panelHeaderFormat,panelTypeFormat,panelPresetFormat,panelNameFormat,panelLabelFormat,panelButtonFormat;
+    Microsoft::WRL::ComPtr<IDWriteInlineObject> panelEllipsis;
     Microsoft::WRL::ComPtr<IDWriteInMemoryFontFileLoader> brandFontLoader; std::vector<Microsoft::WRL::ComPtr<IDWriteFontFile>> embeddedFontFiles; Microsoft::WRL::ComPtr<IDWriteFontCollection1> brandFontCollection;
     Microsoft::WRL::ComPtr<IWICImagingFactory> wicFactory; Microsoft::WRL::ComPtr<ID2D1Bitmap> background,knobFilmstrip,pultecKnobFilmstrip,modernSpectrumKnob,studioScallopKnob,blackPrecisionKnob,crimsonWingKnob,blackCrimsonWingKnob,regentWhiteWingKnob,graphiteRidgeKnob,buttonFilmstrip,faderFilmstrip,meterFilmstrip,mechanicalToggleOff,mechanicalToggleOn;
     int activeControl=-1,activeNote=-1,wheelControl=-1,wheelRemainder=0,selectedPrismBand=0,dragPrismBand=-1; float dragStartY=0,dragStartValue=0; D2D1_RECT_F currentLabelControlRect{};

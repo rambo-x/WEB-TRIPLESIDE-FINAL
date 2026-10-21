@@ -5,6 +5,7 @@
 #include "pluginterfaces/gui/iplugview.h"
 
 #import <Cocoa/Cocoa.h>
+#import <CoreText/CoreText.h>
 
 #include <algorithm>
 #include <array>
@@ -26,6 +27,30 @@ using namespace Steinberg::Vst;
 namespace {
 bool equals(const char* left, const char* right) {
     return left && right && std::strcmp(left, right) == 0;
+}
+
+bool startsWith(const char* value, const char* prefix) {
+    return value && prefix && std::strncmp(value, prefix, std::strlen(prefix)) == 0;
+}
+
+bool containsIgnoreCase(const char* value, const char* needle) {
+    if (!value || !needle) return false;
+    std::string haystack(value), query(needle);
+    std::transform(haystack.begin(), haystack.end(), haystack.begin(), [](unsigned char character) { return static_cast<char>(std::tolower(character)); });
+    std::transform(query.begin(), query.end(), query.begin(), [](unsigned char character) { return static_cast<char>(std::tolower(character)); });
+    return haystack.find(query) != std::string::npos;
+}
+
+float neutralControlValue(const project::ControlInfo& control) {
+    const auto* parameter = control.parameter ? control.parameter : "";
+    if (containsIgnoreCase(control.label, "low cut") || (project::kIsPrismEq && equals(parameter, "tone"))) return 0.f;
+    if (control.moduleIndex >= 0 || startsWith(control.variant, "pan-") || (startsWith(parameter, "group_") && std::strstr(parameter, "_pan"))) return .5f;
+    if (project::kIsPrismEq && (equals(parameter, "drive") || equals(parameter, "compress") || equals(parameter, "tone") || equals(parameter, "width") || equals(parameter, "space"))) return .5f;
+    if (equals(parameter, "input") || equals(parameter, "tone") || equals(parameter, "width")) return .5f;
+    if (equals(parameter, "output")) return .75f;
+    if (equals(parameter, "volume") || equals(parameter, "mix")) return 1.f;
+    if (equals(parameter, "drive") || equals(parameter, "compress") || equals(parameter, "attack") || equals(parameter, "release") || equals(parameter, "space")) return 0.f;
+    return .5f;
 }
 
 bool interactiveKind(const char* kind) {
@@ -56,11 +81,20 @@ NSColor* rgbColor(unsigned rgb, CGFloat alpha = 1) {
 }
 
 NSDictionary* panelTextAttributes(CGFloat size, NSColor* color, NSTextAlignment alignment = NSTextAlignmentLeft, NSFontWeight weight = NSFontWeightRegular) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        const auto path = NativeInstrument::resourceDirectory() / "Manrope-wght.ttf";
+        NSString* value = [NSString stringWithUTF8String:path.string().c_str()];
+        if (value.length) CTFontManagerRegisterFontsForURL((__bridge CFURLRef)[NSURL fileURLWithPath:value], kCTFontManagerScopeProcess, nullptr);
+    });
     NSMutableParagraphStyle* paragraph = [[NSMutableParagraphStyle alloc] init];
     paragraph.alignment = alignment;
     paragraph.lineBreakMode = NSLineBreakByTruncatingTail;
+    NSFontDescriptor* descriptor = [[NSFontDescriptor fontDescriptorWithFontAttributes:@{ NSFontFamilyAttribute: @"Manrope" }]
+        fontDescriptorByAddingAttributes:@{ NSFontTraitsAttribute: @{ NSFontWeightTrait: @(weight) } }];
+    NSFont* font = [NSFont fontWithDescriptor:descriptor size:size] ?: [NSFont systemFontOfSize:size weight:weight];
     return @{
-        NSFontAttributeName: [NSFont systemFontOfSize:size weight:weight],
+        NSFontAttributeName: font,
         NSForegroundColorAttributeName: color,
         NSParagraphStyleAttributeName: paragraph,
     };
@@ -529,24 +563,24 @@ namespace project = tripleside::project;
     } else if (equals(panel.panelType, "mixer")) {
         CGFloat x = left;
         for (std::size_t index = 0; index < project::kGroups.size() && x + 112 <= right; ++index, x += 122) {
-            const NSRect channel = NSMakeRect(x, top, 112, std::max<CGFloat>(120, NSMaxY(panelRect) - top - 16));
+            const NSRect channel = NSMakeRect(x, top, 112, std::max<CGFloat>(40, std::min<CGFloat>(159, NSMaxY(panelRect) - top - 16)));
             fillRounded(channel, 12, rgbColor(0xffffff, .025)); strokeRounded(NSInsetRect(channel, .5, .5), 12, rgbColor(0xffffff, .08));
             NSString* name = [NSString stringWithUTF8String:project::kGroups[index].name ?: "Group"];
-            [name drawInRect:NSMakeRect(x + 10, top + 10, 92, 15) withAttributes:panelTextAttributes(9, rgbColor(0xe4e4e7), NSTextAlignmentLeft, NSFontWeightBold)];
+            [name drawInRect:NSMakeRect(x + 11, top + 11, 90, 14) withAttributes:panelTextAttributes(9, rgbColor(0xe4e4e7), NSTextAlignmentLeft, NSFontWeightBold)];
             const float volume = _instrument->getParamNormalized(groupParameterId(static_cast<int>(index), 0));
             const float pan = _instrument->getParamNormalized(groupParameterId(static_cast<int>(index), 1));
-            [@"VOL" drawInRect:NSMakeRect(x + 10, top + 38, 92, 12) withAttributes:panelTextAttributes(7, rgbColor(0x71717a), NSTextAlignmentLeft, NSFontWeightMedium)];
-            fillRounded(NSMakeRect(x + 10, top + 53, 92, 5), 3, rgbColor(0xffffff, .10));
-            fillRounded(NSMakeRect(x + 10, top + 53, 92 * volume, 5), 3, accent);
-            [accent setFill]; [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(x + 4 + 92 * volume, top + 49.5, 12, 12)] fill];
-            [@"PAN" drawInRect:NSMakeRect(x + 10, top + 71, 92, 12) withAttributes:panelTextAttributes(7, rgbColor(0x71717a), NSTextAlignmentLeft, NSFontWeightMedium)];
-            fillRounded(NSMakeRect(x + 10, top + 86, 92, 5), 3, rgbColor(0xffffff, .10));
-            fillRounded(NSMakeRect(x + 10, top + 86, 92 * pan, 5), 3, accent);
-            [accent setFill]; [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(x + 4 + 92 * pan, top + 82.5, 12, 12)] fill];
+            [@"VOL" drawInRect:NSMakeRect(x + 11, top + 35, 90, 11) withAttributes:panelTextAttributes(7, rgbColor(0x71717a), NSTextAlignmentLeft, NSFontWeightMedium)];
+            fillRounded(NSMakeRect(x + 11, top + 53, 90, 5), 3, rgbColor(0xffffff, .10));
+            fillRounded(NSMakeRect(x + 11, top + 53, 90 * volume, 5), 3, accent);
+            [accent setFill]; [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(x + 5 + 90 * volume, top + 49.5, 12, 12)] fill];
+            [@"PAN" drawInRect:NSMakeRect(x + 11, top + 80, 90, 11) withAttributes:panelTextAttributes(7, rgbColor(0x71717a), NSTextAlignmentLeft, NSFontWeightMedium)];
+            fillRounded(NSMakeRect(x + 11, top + 98, 90, 5), 3, rgbColor(0xffffff, .10));
+            fillRounded(NSMakeRect(x + 11, top + 98, 90 * pan, 5), 3, accent);
+            [accent setFill]; [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(x + 5 + 90 * pan, top + 94.5, 12, 12)] fill];
             for (int slot = 2; slot <= 3; ++slot) {
-                const NSRect button = NSMakeRect(x + 10 + (slot - 2) * 48, top + 105, 44, 28);
+                const NSRect button = NSMakeRect(x + 11 + (slot - 2) * 47.5, top + 126, 42.5, 22);
                 fillRounded(button, 6, _instrument->getParamNormalized(groupParameterId(static_cast<int>(index), slot)) >= .5 ? accent : rgbColor(0x27272a));
-                [(slot == 2 ? @"M" : @"S") drawInRect:NSMakeRect(NSMinX(button), NSMinY(button) + 7, NSWidth(button), 14)
+                [(slot == 2 ? @"M" : @"S") drawInRect:NSMakeRect(NSMinX(button), NSMinY(button) + 5, NSWidth(button), 12)
                   withAttributes:panelTextAttributes(8, NSColor.whiteColor, NSTextAlignmentCenter, NSFontWeightBold)];
             }
         }
@@ -741,12 +775,12 @@ namespace project = tripleside::project;
         const NSInteger group = static_cast<NSInteger>((point.x - left) / 122);
         if (group >= 0 && group < static_cast<NSInteger>(project::kGroups.size())) {
             const CGFloat localX = point.x - (left + group * 122), localY = point.y - top;
-            if (localX >= 10 && localX <= 102 && localY >= 46 && localY <= 64)
-                [self setParameter:groupParameterId(static_cast<int>(group), 0) value:static_cast<float>((localX - 10) / 92)];
-            else if (localX >= 10 && localX <= 102 && localY >= 79 && localY <= 97)
-                [self setParameter:groupParameterId(static_cast<int>(group), 1) value:static_cast<float>((localX - 10) / 92)];
-            else if (localY >= 105 && localY <= 133) {
-                const int slot = localX >= 58 ? 3 : 2; const auto parameter = groupParameterId(static_cast<int>(group), slot);
+            if (localX >= 11 && localX <= 101 && localY >= 35 && localY <= 64)
+                [self setParameter:groupParameterId(static_cast<int>(group), 0) value:static_cast<float>((localX - 11) / 90)];
+            else if (localX >= 11 && localX <= 101 && localY >= 80 && localY <= 109)
+                [self setParameter:groupParameterId(static_cast<int>(group), 1) value:static_cast<float>((localX - 11) / 90)];
+            else if (localY >= 126 && localY <= 148) {
+                const int slot = localX >= 58.5 ? 3 : 2; const auto parameter = groupParameterId(static_cast<int>(group), slot);
                 [self setParameter:parameter value:_instrument->getParamNormalized(parameter) >= .5 ? 0 : 1];
             }
             [self setNeedsDisplay:YES]; return YES;
@@ -1119,6 +1153,16 @@ namespace project = tripleside::project;
             return;
         }
     }
+    if (event.clickCount >= 2 && _openPanel >= 0 && equals(project::kPanelControls[static_cast<std::size_t>(_openPanel)].panelType, "mixer")) {
+        const NSRect panel = [self panelRect:_openPanel];
+        const CGFloat left = NSMinX(panel) + 16, top = NSMinY(panel) + 60;
+        const NSInteger group = static_cast<NSInteger>((point.x - left) / 122);
+        if (group >= 0 && group < static_cast<NSInteger>(project::kGroups.size())) {
+            const CGFloat localX = point.x - (left + group * 122), localY = point.y - top;
+            if (localX >= 11 && localX <= 101 && localY >= 35 && localY <= 64) { [self setParameter:groupParameterId(static_cast<int>(group), 0) value:1.f]; return; }
+            if (localX >= 11 && localX <= 101 && localY >= 80 && localY <= 109) { [self setParameter:groupParameterId(static_cast<int>(group), 1) value:.5f]; return; }
+        }
+    }
     if ([self panelMouseDown:point]) return;
     if (event.clickCount >= 2 && (project::kIsPrismEq || project::kHasPrismModule)) {
         for (std::size_t index = 0; index < project::kControls.size(); ++index) {
@@ -1145,7 +1189,10 @@ namespace project = tripleside::project;
     _dragControl = [self controlAt:point];
     if (_dragControl < 0) return;
     const auto& control = project::kControls[static_cast<std::size_t>(_dragControl)];
-    if (equals(control.kind, "panel_button")) {
+    if (event.clickCount >= 2 && (equals(control.kind, "knob") || equals(control.kind, "fader"))) {
+        [self setControl:_dragControl value:neutralControlValue(control)];
+        _dragControl = -1;
+    } else if (equals(control.kind, "panel_button")) {
         if (_openPanel == _dragControl) [self closePanel]; else [self openPanel:_dragControl];
         _dragControl = -1;
     } else if (equals(control.kind, "keyboard")) {
@@ -1279,8 +1326,8 @@ namespace project = tripleside::project;
                 if (group >= 0 && group < static_cast<NSInteger>(project::kGroups.size())) {
                     const CGFloat localX = point.x - (left + group * 122), localY = point.y - top;
                     NSInteger slot = -1;
-                    if (localX >= 4 && localX <= 108 && localY >= 34 && localY <= 66) slot = 0;
-                    else if (localX >= 4 && localX <= 108 && localY >= 67 && localY <= 99) slot = 1;
+                    if (localX >= 5 && localX <= 107 && localY >= 30 && localY <= 68) slot = 0;
+                    else if (localX >= 5 && localX <= 107 && localY >= 75 && localY <= 113) slot = 1;
                     if (slot >= 0) {
                         const auto parameter = groupParameterId(static_cast<int>(group), static_cast<int>(slot));
                         [self setParameter:parameter value:static_cast<float>(_instrument->getParamNormalized(parameter)) + (event.scrollingDeltaY > 0 ? .02f : -.02f)];

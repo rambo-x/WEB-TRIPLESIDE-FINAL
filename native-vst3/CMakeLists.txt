@@ -83,6 +83,7 @@ elseif(APPLE)
     target_link_libraries(TripleSideNativeInstrument PRIVATE
         sdk
         "-framework Cocoa"
+        "-framework CoreText"
         "-framework IOKit"
         "-framework CoreGraphics"
         "-framework Foundation"
@@ -104,6 +105,11 @@ elseif(APPLE)
                 "$<TARGET_BUNDLE_CONTENT_DIR:TripleSideNativeInstrument>/Resources"
             VERBATIM)
     endif()
+    add_custom_command(TARGET TripleSideNativeInstrument POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/Assets/fonts/Manrope-wght.ttf"
+            "$<TARGET_BUNDLE_CONTENT_DIR:TripleSideNativeInstrument>/Resources/Manrope-wght.ttf"
+        VERBATIM)
 endif()
 
 option(TRIPLESIDE_BUILD_VISUAL_HOST "Build the internal HWND visual verification host" OFF)

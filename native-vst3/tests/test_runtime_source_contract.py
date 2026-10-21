@@ -237,9 +237,10 @@ def test_native_css_controls_and_branding_follow_preview_tokens():
     assert 'DrawTextW(L"VU",2' in source
 
 
-def test_native_knobs_support_preview_neutral_reset_and_mouse_wheel():
+def test_native_knobs_and_faders_support_preview_neutral_reset_and_mouse_wheel():
     header = (SOURCE_DIR / "NativeView.h").read_text(encoding="utf-8")
     source = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+    mac_source = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
 
     assert "wc.style=CS_DBLCLKS" in source
     assert "case WM_LBUTTONDBLCLK" in source
@@ -250,6 +251,11 @@ def test_native_knobs_support_preview_neutral_reset_and_mouse_wheel():
     assert 'equals(parameter,"volume")||equals(parameter,"mix")' in source
     assert 'equals(parameter,"output")' in source
     assert 'equals(parameter,"attack")||equals(parameter,"release")' in source
+    assert 'equals(c.kind,"knob")||equals(c.kind,"fader")' in source
+    assert 'equals(control.kind, "knob") || equals(control.kind, "fader")' in mac_source
+    assert "neutralControlValue(control)" in mac_source
+    assert "value:1.f" in mac_source
+    assert "value:.5f" in mac_source
     assert "current+steps*.01f" in source
 
 
@@ -257,7 +263,7 @@ def test_windows_double_click_retriggers_pad_and_keyboard_note_down():
     source = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
 
     assert "case WM_LBUTTONDBLCLK:ReleaseCapture();mouseUp();mouseDoubleClick" in source
-    assert "if(equals(c.kind,\"knob\")){" in source
+    assert "if(equals(c.kind,\"knob\")||equals(c.kind,\"fader\")){" in source
     assert "SetCapture(hwnd);mouseDown(x,y);" in source
 
 
@@ -316,18 +322,34 @@ def test_native_user_presets_are_persistent_overwritable_and_deletable():
 
 def test_windows_mixer_matches_preview_channel_cards():
     source = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+    mac_source = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
+    cmake = (SOURCE_DIR.parent / "CMakeLists.txt").read_text(encoding="utf-8")
 
     assert 'x+=122' in source
     assert 'L"VOL"' in source
     assert 'L"PAN"' in source
-    assert 'top+105' in source
+    assert 'slider(top+35,top+53,L"VOL",volume)' in source
+    assert 'slider(top+80,top+98,L"PAN",pan)' in source
+    assert 'top+126,bx+42.5f,top+148' in source
+    assert 'std::min(top+159.f,r.bottom-16)' in source
     assert "panelNameFormat" in source
+    assert "DWRITE_WORD_WRAPPING_NO_WRAP" in source
+    assert "CreateEllipsisTrimmingSign" in source
+    assert "D2D1_DRAW_TEXT_OPTIONS_CLIP" in source
     assert "panelLabelFormat" in source
     assert "panelButtonFormat" in source
+    assert 'CreateTextFormat(L"Manrope",brandCollection' in source
     assert "target->FillEllipse" in source
     assert 'equals(panel.panelType,"mixer")' in source
     assert 'groupParameterId(group,slot)' in source
     assert 'L"SAMPLER MIXER"' not in source
+    assert 'std::min<CGFloat>(159, NSMaxY(panelRect) - top - 16)' in mac_source
+    assert 'NSMakeRect(x + 11, top + 35, 90, 11)' in mac_source
+    assert 'NSMakeRect(x + 11, top + 80, 90, 11)' in mac_source
+    assert 'top + 126, 42.5, 22' in mac_source
+    assert 'CTFontManagerRegisterFontsForURL' in mac_source
+    assert '"-framework CoreText"' in cmake
+    assert 'Assets/fonts/Manrope-wght.ttf' in cmake
 
 
 def test_windows_wheel_supports_knobs_faders_mixer_and_preset_scroll():
@@ -547,6 +569,9 @@ def test_native_windows_draws_mixer_metal_fader_and_led_ladder_variants():
     view = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
 
     assert 'equals(currentControlVariant,"mixer-metal")' in view
+    assert '(r.right-r.left)*.72f' in view
+    assert 'thumbWidth=bodyWidth*.82f' in view
+    assert 'thumbHeight=std::clamp((body.bottom-body.top)*.10f,10.f,36.f)' in view
     assert 'equals(currentControlVariant,"mixer-led-ladder")' in view
     assert "const int columns=stereo?2:1,segments=16" in view
     assert 'equals(currentControlVariant,"mechanical-toggle")' in view
