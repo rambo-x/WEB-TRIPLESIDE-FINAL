@@ -1731,6 +1731,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
   const [buildLicenseDialogOpen, setBuildLicenseDialogOpen] = useState(false);
   const [buildRequestMode, setBuildRequestMode] = useState("export");
   const [buildTargetPlatform, setBuildTargetPlatform] = useState("windows");
+  const [buildActionMenuOpen, setBuildActionMenuOpen] = useState(null);
   const [authoritativeBuildQuote, setAuthoritativeBuildQuote] = useState(null);
   const [distributionBuildChoice, setDistributionBuildChoice] = useState({ enabled: false, quantity: 10, maxActivations: 1 });
   const [liveCustomerActivity, setLiveCustomerActivity] = useState({ items: [], editing_count: 0, building_count: 0, updated_at: "" });
@@ -1804,6 +1805,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
   const editorTabsRef = useRef(null);
   const newProjectMenuRef = useRef(null);
   const savedProjectsMenuRef = useRef(null);
+  const buildActionMenuRef = useRef(null);
   const initialTemplateAppliedRef = useRef(false);
   const isEffectProject = project.pluginKind === "effect";
   const waveGeneratorModule = project.engineModules.find((module) => module.type === "wave_generator") || null;
@@ -1893,6 +1895,20 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
   }, [buildLicenseDialogOpen, queueingBuild]);
 
   useEffect(() => {
+    if (!buildActionMenuOpen) return undefined;
+    const closeBuildActionMenu = (event) => {
+      if (event.key === "Escape") setBuildActionMenuOpen(null);
+      if (event.type === "pointerdown" && !buildActionMenuRef.current?.contains(event.target)) setBuildActionMenuOpen(null);
+    };
+    window.addEventListener("keydown", closeBuildActionMenu);
+    window.addEventListener("pointerdown", closeBuildActionMenu);
+    return () => {
+      window.removeEventListener("keydown", closeBuildActionMenu);
+      window.removeEventListener("pointerdown", closeBuildActionMenu);
+    };
+  }, [buildActionMenuOpen]);
+
+  useEffect(() => {
     if (!draftListOpen) return undefined;
     const closeSavedProjectsMenu = (event) => {
       if (event.key === "Escape") setDraftListOpen(false);
@@ -1948,6 +1964,9 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
   const latestBuild = buildJobs[0] || null;
   const latestReadyWindowsBuild = buildJobs.find((job) => job.status === "ready" && job.target_platform !== "macos") || null;
   const latestReadyMacBuild = buildJobs.find((job) => job.status === "ready" && job.target_platform === "macos") || null;
+  const windowsRebuildSlots = Number(latestReadyWindowsBuild?.correction_rebuilds_remaining || 0);
+  const macRebuildSlots = Number(latestReadyMacBuild?.correction_rebuilds_remaining || 0);
+  const hasRebuildSlots = customerMode && (windowsRebuildSlots > 0 || macRebuildSlots > 0);
   const latestReadyBuildDownloads = [
     { platform: "windows", label: "Windows", build: latestReadyWindowsBuild },
     { platform: "macos", label: "macOS", build: latestReadyMacBuild },
@@ -5318,6 +5337,11 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     enqueuePlatformBuild(targetPlatform, null, forceCorrectionRebuild);
   };
 
+  const selectPlatformBuild = (targetPlatform, forceCorrectionRebuild = false) => {
+    setBuildActionMenuOpen(null);
+    requestPlatformBuild(targetPlatform, forceCorrectionRebuild);
+  };
+
   const updateBuildJob = async (job, action) => {
     try {
       const { data } = await api.post(`${apiBase}/builds/${encodeURIComponent(job.id)}/${action}`);
@@ -6186,36 +6210,64 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
                       insufficient={insufficientCredits}
                     />
                   )}
-                  {customerMode && Number(latestReadyWindowsBuild?.correction_rebuilds_remaining || 0) > 0 && (
+                  <div ref={buildActionMenuRef} className="maker-build-actions">
                     <button
                       type="button"
-                      onClick={() => requestPlatformBuild("windows", true)}
+                      onClick={() => setBuildActionMenuOpen((current) => current === "export" ? null : "export")}
                       disabled={savingProject || queueingBuild || buildInProgress || readinessCount !== readinessItems.length}
-                      title="Rebuild Koreksi khusus VST3 Windows"
-                      className="inline-flex items-center gap-2 rounded-full border border-sky-300/25 bg-sky-300/[0.07] px-4 py-2.5 text-xs font-bold text-sky-200 hover:bg-sky-300/12 disabled:cursor-not-allowed disabled:opacity-35"
+                      aria-expanded={buildActionMenuOpen === "export"}
+                      aria-haspopup="menu"
+                      title={buildInProgress ? "Satu build sedang berjalan. Tunggu hingga selesai atau gagal." : readinessCount === readinessItems.length ? "Pilih platform untuk diekspor" : "Simpan dan unggah seluruh sample terlebih dahulu"}
+                      className="maker-build-action-button is-export"
                     >
-                      <WindowsIcon className="h-3.5 w-3.5" />Rebuild Windows · {Number(latestReadyWindowsBuild.correction_rebuilds_remaining)}x
+                      {queueingBuild || buildInProgress ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <PackagePlus className="h-3.5 w-3.5" />}
+                      <span>Export</span>
+                      <ChevronDown className={`h-3.5 w-3.5 transition-transform ${buildActionMenuOpen === "export" ? "rotate-180" : ""}`} />
                     </button>
-                  )}
-                  {customerMode && Number(latestReadyMacBuild?.correction_rebuilds_remaining || 0) > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => requestPlatformBuild("macos", true)}
-                      disabled={savingProject || queueingBuild || buildInProgress || readinessCount !== readinessItems.length}
-                      title="Rebuild Koreksi khusus Universal VST3 macOS"
-                      className="inline-flex items-center gap-2 rounded-full border border-zinc-200/25 bg-zinc-200/[0.07] px-4 py-2.5 text-xs font-bold text-zinc-100 hover:bg-zinc-200/12 disabled:cursor-not-allowed disabled:opacity-35"
-                    >
-                      <MacIcon className="h-3.5 w-3.5" />Rebuild macOS · {Number(latestReadyMacBuild.correction_rebuilds_remaining)}x
-                    </button>
-                  )}
-                  <button onClick={() => requestPlatformBuild("windows", false)} disabled={savingProject || queueingBuild || buildInProgress || readinessCount !== readinessItems.length} title={buildInProgress ? "Satu build sedang berjalan. Tunggu hingga selesai atau gagal." : readinessCount === readinessItems.length ? "Tinjau lisensi dan biaya sebelum mengantrekan build VST3 Windows" : "Simpan dan unggah seluruh sample terlebih dahulu"} className="inline-flex items-center gap-2 rounded-full border border-sky-300/20 bg-sky-300/[0.07] px-4 py-2.5 text-xs font-bold text-sky-200 hover:bg-sky-300/10 disabled:cursor-not-allowed disabled:opacity-35">
-                    {queueingBuild || buildInProgress ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <WindowsIcon className="h-3.5 w-3.5" />}
-                    {queueingBuild ? "Mengantrekan" : buildInProgress ? "Eksport sedang berjalan" : "Eksport VST Windows"}
-                  </button>
-                  <button onClick={() => requestPlatformBuild("macos", false)} disabled={savingProject || queueingBuild || buildInProgress || readinessCount !== readinessItems.length} title={buildInProgress ? "Satu build sedang berjalan. Tunggu hingga selesai atau gagal." : readinessCount === readinessItems.length ? "Build Universal VST3 untuk Apple Silicon dan Intel" : "Simpan dan unggah seluruh sample terlebih dahulu"} className="inline-flex items-center gap-2 rounded-full border border-zinc-200/20 bg-zinc-200/[0.07] px-4 py-2.5 text-xs font-bold text-zinc-100 hover:bg-zinc-200/10 disabled:cursor-not-allowed disabled:opacity-35">
-                    {queueingBuild || buildInProgress ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MacIcon className="h-3.5 w-3.5" />}
-                    {queueingBuild ? "Mengantrekan" : buildInProgress ? "Eksport sedang berjalan" : "Eksport VST macOS"}
-                  </button>
+                    {hasRebuildSlots && (
+                      <button
+                        type="button"
+                        onClick={() => setBuildActionMenuOpen((current) => current === "rebuild" ? null : "rebuild")}
+                        disabled={savingProject || queueingBuild || buildInProgress || readinessCount !== readinessItems.length}
+                        aria-expanded={buildActionMenuOpen === "rebuild"}
+                        aria-haspopup="menu"
+                        title="Pilih platform untuk Rebuild Koreksi"
+                        className="maker-build-action-button is-rebuild"
+                      >
+                        <Repeat2 className="h-3.5 w-3.5" />
+                        <span>Rebuild</span>
+                        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${buildActionMenuOpen === "rebuild" ? "rotate-180" : ""}`} />
+                      </button>
+                    )}
+                    {buildActionMenuOpen && (
+                      <div className={`maker-build-platform-menu is-${buildActionMenuOpen}`} role="menu" aria-label={buildActionMenuOpen === "rebuild" ? "Pilih platform rebuild" : "Pilih platform export"}>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => selectPlatformBuild("windows", buildActionMenuOpen === "rebuild")}
+                          disabled={buildActionMenuOpen === "rebuild" && windowsRebuildSlots <= 0}
+                        >
+                          <span className="maker-build-platform-menu__icon is-windows"><WindowsIcon /></span>
+                          <span className="maker-build-platform-menu__copy">
+                            <strong>{buildActionMenuOpen === "rebuild" ? "Rebuild Windows" : "Export Windows"}</strong>
+                            <small>{buildActionMenuOpen === "rebuild" ? windowsRebuildSlots > 0 ? `${windowsRebuildSlots} slot tersedia` : "Slot tidak tersedia" : "VST3 untuk Windows"}</small>
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => selectPlatformBuild("macos", buildActionMenuOpen === "rebuild")}
+                          disabled={buildActionMenuOpen === "rebuild" && macRebuildSlots <= 0}
+                        >
+                          <span className="maker-build-platform-menu__icon is-macos"><MacIcon /></span>
+                          <span className="maker-build-platform-menu__copy">
+                            <strong>{buildActionMenuOpen === "rebuild" ? "Rebuild macOS" : "Export macOS"}</strong>
+                            <small>{buildActionMenuOpen === "rebuild" ? macRebuildSlots > 0 ? `${macRebuildSlots} slot tersedia` : "Slot tidak tersedia" : "Universal Apple Silicon + Intel"}</small>
+                          </span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
               <InterfaceWorkspace

@@ -164,11 +164,21 @@ describe("VST Maker Wave Generator note routing", () => {
     expect(source).toContain("Maksimal 3 komponen dan 3 sample baru");
     expect(source).toContain("harga item baru tetap dibayar");
     expect(source).toContain("Maksimal 3 komponen boleh berganti skin");
-    expect(source).toContain('requestPlatformBuild("windows", true)');
-    expect(source).toContain('requestPlatformBuild("macos", true)');
-    expect(source).toContain("Rebuild Windows · {Number(latestReadyWindowsBuild.correction_rebuilds_remaining)}x");
-    expect(source).toContain("Rebuild macOS · {Number(latestReadyMacBuild.correction_rebuilds_remaining)}x");
+    expect(source).toContain('selectPlatformBuild("windows", buildActionMenuOpen === "rebuild")');
+    expect(source).toContain('selectPlatformBuild("macos", buildActionMenuOpen === "rebuild")');
+    expect(source).toContain('const hasRebuildSlots = customerMode && (windowsRebuildSlots > 0 || macRebuildSlots > 0);');
+    expect(source).toContain('buildActionMenuOpen === "rebuild" ? "Rebuild Windows" : "Export Windows"');
+    expect(source).toContain('buildActionMenuOpen === "rebuild" ? "Rebuild macOS" : "Export macOS"');
     expect(source).toContain("force_correction_rebuild");
+  });
+
+  test("groups export and rebuild platform choices into compact menus", () => {
+    expect(source).toContain('<span>Export</span>');
+    expect(source).toContain('<span>Rebuild</span>');
+    expect(source).toContain('aria-label={buildActionMenuOpen === "rebuild" ? "Pilih platform rebuild" : "Pilih platform export"}');
+    expect(source).toContain('disabled={buildActionMenuOpen === "rebuild" && windowsRebuildSlots <= 0}');
+    expect(source).toContain('disabled={buildActionMenuOpen === "rebuild" && macRebuildSlots <= 0}');
+    expect(source).toContain('!buildActionMenuRef.current?.contains(event.target)');
   });
 
 });
