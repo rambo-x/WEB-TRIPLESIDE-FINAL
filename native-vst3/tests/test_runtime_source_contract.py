@@ -432,6 +432,36 @@ def test_native_midi_panel_is_a_groove_browser_without_cc_map_copy():
     assert "MIDI PLAYER & MAP" not in source
 
 
+def test_all_panel_headers_use_only_the_panel_type_at_top_left():
+    preview = (SOURCE_DIR.parent.parent / "frontend" / "src" / "pages" / "VstMakerPreview.jsx").read_text(encoding="utf-8")
+    source = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+    mac_source = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
+
+    assert '<span>{openPanel.label}</span>' not in preview
+    assert 'openPanel.panelType === "preset_browser" ? "PRESET BROWSER"' in preview
+    assert 'auto title=wide(panel.label)' not in source
+    assert 'D2D1::RectF(r.left+16,r.top+14,r.right-48,r.top+31)' in source
+    assert "NSString* title" not in mac_source
+    assert "NSMakeRect(NSMinX(panelRect) + 16, NSMinY(panelRect) + 15" in mac_source
+
+
+def test_native_mixer_volume_and_pan_track_horizontal_mouse_drag():
+    header = (SOURCE_DIR / "NativeView.h").read_text(encoding="utf-8")
+    source = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+    mac_source = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
+
+    assert "mixerDragGroup=-1, mixerDragSlot=-1" in header
+    assert "mixerDragGroup=group;mixerDragSlot=0" in source
+    assert "mixerDragGroup=group;mixerDragSlot=1" in source
+    assert "std::clamp((x-trackLeft)/90.f,0.f,1.f)" in source
+    assert "mixerDragGroup=-1;mixerDragSlot=-1" in source
+    assert "_mixerDragGroup = group; _mixerDragSlot = 0" in mac_source
+    assert "_mixerDragGroup = group; _mixerDragSlot = 1" in mac_source
+    assert "std::clamp((point.x - trackLeft) / 90., 0., 1.)" in mac_source
+    assert "_mixerDragGroup = -1;" in mac_source
+    assert "_mixerDragSlot = -1;" in mac_source
+
+
 def test_native_canvas_uses_saved_ui_color():
     source = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
 

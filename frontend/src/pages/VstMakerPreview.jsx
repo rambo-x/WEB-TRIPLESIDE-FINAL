@@ -8033,7 +8033,6 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                   onPointerUp={endPanelInteraction}
                   onPointerCancel={endPanelInteraction}
                 >
-                  <span>{openPanel.label}</span>
                   <small>{openPanel.panelType === "preset_browser" ? "PRESET BROWSER" : openPanel.panelType === "mixer" ? "MIXER" : "GROOVE BROWSER"}</small>
                   <button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={() => { setOpenPanelId(null); onSelect(openPanel.id); }} aria-label="Tutup panel"><X size={15} /></button>
                 </header>

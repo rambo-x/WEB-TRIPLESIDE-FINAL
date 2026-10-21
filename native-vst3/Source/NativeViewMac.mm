@@ -211,6 +211,8 @@ namespace project = tripleside::project;
     std::array<double, 128> _padFlashUntil;
     NSInteger _openPanel;
     NSInteger _panelDragMode;
+    NSInteger _mixerDragGroup;
+    NSInteger _mixerDragSlot;
     NSInteger _selectedMidiSequence;
     NSInteger _playingMidiSequence;
     NSInteger _midiDragCandidate;
@@ -264,6 +266,8 @@ namespace project = tripleside::project;
         _dragPrismBand = -1;
         _openPanel = -1;
         _panelDragMode = 0;
+        _mixerDragGroup = -1;
+        _mixerDragSlot = -1;
         _selectedMidiSequence = project::kMidiSequences.empty() ? -1 : 0;
         _playingMidiSequence = -1;
         _midiDragCandidate = -1;
@@ -415,6 +419,8 @@ namespace project = tripleside::project;
     if (_openPanel >= 0) _panelRuntimeBounds[static_cast<int>(_openPanel)] = {_panelX, _panelY, _panelWidth, _panelHeight};
     _openPanel = -1;
     _panelDragMode = 0;
+    _mixerDragGroup = -1;
+    _mixerDragSlot = -1;
     _midiDragCandidate = -1;
     _presetNameFocused = NO;
     _hoveredPresetRow = -1;
@@ -462,7 +468,6 @@ namespace project = tripleside::project;
 - (void)drawOpenPanel {
     if (_openPanel < 0 || static_cast<std::size_t>(_openPanel) >= project::kControls.size()) return;
     const NSRect panelRect = [self panelRect:_openPanel];
-    const auto& control = project::kControls[static_cast<std::size_t>(_openPanel)];
     const auto& panel = project::kPanelControls[static_cast<std::size_t>(_openPanel)];
     NSColor* accent = rgbColor(project::kAccentRgb);
     fillRounded(panelRect, 18, rgbColor(0x09090b, .99));
@@ -473,12 +478,8 @@ namespace project = tripleside::project;
     [[NSBezierPath bezierPathWithRoundedRect:header xRadius:18 yRadius:18] fill];
     [rgbColor(0xffffff, .08) setFill];
     NSRectFill(NSMakeRect(NSMinX(panelRect), NSMaxY(header) - 1, NSWidth(panelRect), 1));
-    NSString* title = [NSString stringWithUTF8String:control.label ?: "Panel"];
     NSString* type = equals(panel.panelType, "preset_browser") ? @"PRESET BROWSER" : equals(panel.panelType, "mixer") ? @"MIXER" : @"GROOVE BROWSER";
-    const BOOL groovePanel = equals(panel.panelType, "midi_map");
-    if (!groovePanel) [title drawInRect:NSMakeRect(NSMinX(panelRect) + 16, NSMinY(panelRect) + 13, std::max<CGFloat>(80, NSWidth(panelRect) * .45), 18)
-       withAttributes:panelTextAttributes(12, rgbColor(0xfafafa), NSTextAlignmentLeft, NSFontWeightBold)];
-    [type drawInRect:NSMakeRect(groovePanel ? NSMinX(panelRect) + 16 : NSMinX(panelRect) + std::min<CGFloat>(220, NSWidth(panelRect) * .5), NSMinY(panelRect) + 15, groovePanel ? NSWidth(panelRect) - 64 : std::max<CGFloat>(80, NSWidth(panelRect) * .3), 15)
+    [type drawInRect:NSMakeRect(NSMinX(panelRect) + 16, NSMinY(panelRect) + 15, NSWidth(panelRect) - 64, 15)
       withAttributes:panelTextAttributes(8, rgbColor(project::kAccentRgb), NSTextAlignmentLeft, NSFontWeightBold)];
     const NSRect close = NSMakeRect(NSMaxX(panelRect) - 39, NSMinY(panelRect) + 8, 27, 27);
     fillRounded(close, 14, rgbColor(0xffffff, .05));
@@ -808,10 +809,13 @@ namespace project = tripleside::project;
         const NSInteger group = static_cast<NSInteger>((point.x - left) / 122);
         if (group >= 0 && group < static_cast<NSInteger>(project::kGroups.size())) {
             const CGFloat localX = point.x - (left + group * 122), localY = point.y - top;
-            if (localX >= 11 && localX <= 101 && localY >= 35 && localY <= 64)
+            if (localX >= 5 && localX <= 107 && localY >= 35 && localY <= 64) {
+                _mixerDragGroup = group; _mixerDragSlot = 0;
                 [self setParameter:groupParameterId(static_cast<int>(group), 0) value:static_cast<float>((localX - 11) / 90)];
-            else if (localX >= 11 && localX <= 101 && localY >= 80 && localY <= 109)
+            } else if (localX >= 5 && localX <= 107 && localY >= 80 && localY <= 109) {
+                _mixerDragGroup = group; _mixerDragSlot = 1;
                 [self setParameter:groupParameterId(static_cast<int>(group), 1) value:static_cast<float>((localX - 11) / 90)];
+            }
             else if (localY >= 126 && localY <= 148) {
                 const int slot = localX >= 58.5 ? 3 : 2; const auto parameter = groupParameterId(static_cast<int>(group), slot);
                 [self setParameter:parameter value:_instrument->getParamNormalized(parameter) >= .5 ? 0 : 1];
@@ -1238,8 +1242,8 @@ namespace project = tripleside::project;
         const NSInteger group = static_cast<NSInteger>((point.x - left) / 122);
         if (group >= 0 && group < static_cast<NSInteger>(project::kGroups.size())) {
             const CGFloat localX = point.x - (left + group * 122), localY = point.y - top;
-            if (localX >= 11 && localX <= 101 && localY >= 35 && localY <= 64) { [self setParameter:groupParameterId(static_cast<int>(group), 0) value:1.f]; return; }
-            if (localX >= 11 && localX <= 101 && localY >= 80 && localY <= 109) { [self setParameter:groupParameterId(static_cast<int>(group), 1) value:.5f]; return; }
+            if (localX >= 5 && localX <= 107 && localY >= 35 && localY <= 64) { [self setParameter:groupParameterId(static_cast<int>(group), 0) value:1.f]; return; }
+            if (localX >= 5 && localX <= 107 && localY >= 80 && localY <= 109) { [self setParameter:groupParameterId(static_cast<int>(group), 1) value:.5f]; return; }
         }
     }
     if ([self panelMouseDown:point]) return;
@@ -1324,6 +1328,14 @@ namespace project = tripleside::project;
         [self updatePrismBand:_dragPrismBand point:point];
         return;
     }
+    if (_mixerDragGroup >= 0 && _mixerDragSlot >= 0 && _openPanel >= 0
+        && equals(project::kPanelControls[static_cast<std::size_t>(_openPanel)].panelType, "mixer")) {
+        const NSRect panel = [self panelRect:_openPanel];
+        const CGFloat trackLeft = NSMinX(panel) + 16 + _mixerDragGroup * 122 + 11;
+        [self setParameter:groupParameterId(static_cast<int>(_mixerDragGroup), static_cast<int>(_mixerDragSlot))
+                       value:static_cast<float>(std::clamp((point.x - trackLeft) / 90., 0., 1.))];
+        return;
+    }
     if (_dragControl < 0) return;
     const auto& control = project::kControls[static_cast<std::size_t>(_dragControl)];
     const NSPoint localPoint = controlLocalPoint(control, point);
@@ -1339,6 +1351,8 @@ namespace project = tripleside::project;
     _dragControl = -1;
     _dragPrismBand = -1;
     _panelDragMode = 0;
+    _mixerDragGroup = -1;
+    _mixerDragSlot = -1;
     _midiDragCandidate = -1;
 }
 
