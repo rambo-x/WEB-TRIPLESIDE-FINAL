@@ -1,5 +1,9 @@
 export const WAVE_MIN_GAIN = 0.0001;
 export const WAVE_DECLICK_ATTACK_SECONDS = 0.003;
+// Exponential ramps cannot target absolute zero. Give the release a short
+// final linear tail so stopping an oscillator never cuts a non-zero waveform.
+export const WAVE_RELEASE_ZERO_SECONDS = 0.005;
+export const WAVE_SOURCE_STOP_PADDING_SECONDS = 0.005;
 // Direct keyboard gestures still need a few render quanta of headroom. Starting
 // an oscillator at currentTime can skip the silent edge of its attack ramp when
 // the audio thread has already entered the current render quantum.

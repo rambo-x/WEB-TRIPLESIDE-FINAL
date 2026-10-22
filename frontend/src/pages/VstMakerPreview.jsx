@@ -58,12 +58,31 @@ import { decodeAndPreprocessImpulse, normalizeImpulseSettings } from "../lib/vst
 import { parseMidiFile } from "../lib/vstMidiFile";
 import { MIDI_LOOKAHEAD_MS, MIDI_SCHEDULER_INTERVAL_MS, MIDI_START_DELAY_MS, buildMidiPlaybackTimeline } from "../lib/vstMidiScheduler";
 import { DEFAULT_STEP_NOTES, WAVE_GENERATOR_MODES, WAVE_NOTE_NAMES, WAVE_SCALE_OPTIONS, WAVE_SINGLE_CHORD_OPTIONS, createWaveGeneratorSequence, normalizeWaveGeneratorConfig } from "../lib/vstWaveGenerators";
-import { WAVE_CHORD_START_LOOKAHEAD_SECONDS, WAVE_DECLICK_ATTACK_SECONDS, WAVE_DIRECT_START_LOOKAHEAD_SECONDS, WAVE_MIN_GAIN, drainWaveVoiceRegistry, moveWaveVoiceRegistryToken, shouldScheduleWaveRelease, waveAmpEnvelopeValueAt, waveVoiceStartTime } from "../lib/vstWaveEnvelope";
+import { WAVE_CHORD_START_LOOKAHEAD_SECONDS, WAVE_DECLICK_ATTACK_SECONDS, WAVE_DIRECT_START_LOOKAHEAD_SECONDS, WAVE_MIN_GAIN, WAVE_RELEASE_ZERO_SECONDS, WAVE_SOURCE_STOP_PADDING_SECONDS, drainWaveVoiceRegistry, moveWaveVoiceRegistryToken, shouldScheduleWaveRelease, waveAmpEnvelopeValueAt, waveVoiceStartTime } from "../lib/vstWaveEnvelope";
 import { DEFAULT_VST_PRICING, componentCreditPrice, createVstTemplatePricingBaseline, formatCredits, isCustomVstBackground, normalizeVstPricing, quoteVstProjectCredits } from "../lib/vstMakerPricing";
 import { NEON_POP_DRUM_HITS, PREMIUM_PIANO_BACKGROUND_URL, REGENT_DEFAULT_CONTROLS, REGENT_WHITE_DEFAULT_CONTROLS, VST_PROJECT_TEMPLATES } from "../data/vstTemplates";
 import { DEFAULT_VST_FILMSTRIP_SKIN, VST_KNOB_ASSETS, filmstripFrameStyle } from "../data/vstFilmstripSkins";
 import VstMiniKeyboard from "../components/vst/VstMiniKeyboard";
 export { InterfaceWorkspace };
+
+// Equal MIDI pitches can overlap. Keep their playback tokens FIFO so the first
+// note-off cannot accidentally stop the newer retrigger.
+const enqueueMidiNoteToken = (registry, key, token) => {
+  const queue = registry.get(key);
+  if (Array.isArray(queue)) queue.push(token);
+  else registry.set(key, [token]);
+};
+
+const dequeueMidiNoteToken = (registry, key) => {
+  const queue = registry.get(key);
+  if (!Array.isArray(queue) || queue.length === 0) {
+    registry.delete(key);
+    return null;
+  }
+  const token = queue.shift();
+  if (queue.length === 0) registry.delete(key);
+  return token;
+};
 
 const WindowsIcon = ({ className = "" }) => (
   <svg className={className} viewBox="0 0 24 24" aria-hidden="true" fill="currentColor">
@@ -1780,6 +1799,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
   const [midiStatus, setMidiStatus] = useState("Belum terhubung");
   const [midiPressedPitches, setMidiPressedPitches] = useState(() => new Set());
   const [previewPressedPitches, setPreviewPressedPitches] = useState(() => new Set());
+  const [previewHitTriggers, setPreviewHitTriggers] = useState(() => new Map());
   const projectRef = useRef(project);
   const samplesRef = useRef(samples);
   const designerHistoryPastRef = useRef([]);
@@ -2735,25 +2755,29 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     try {
       const gain = voice.ampGain.gain;
       const releaseBeforeStart = Number(voice.ampEnvelope?.startAt) > now;
+      const releaseEndAt = now + releaseSeconds;
+      const silentAt = releaseEndAt + WAVE_RELEASE_ZERO_SECONDS;
       if (releaseBeforeStart) {
         gain.cancelScheduledValues(now);
-        gain.setValueAtTime(WAVE_MIN_GAIN, now);
+        gain.setValueAtTime(0, now);
       } else if (scheduledAtPerformance != null && voice.ampEnvelope) {
         const heldGain = waveAmpEnvelopeValueAt(voice.ampEnvelope, now);
         gain.cancelScheduledValues(now);
         gain.setValueAtTime(heldGain, now);
-        gain.exponentialRampToValueAtTime(WAVE_MIN_GAIN, now + releaseSeconds);
       } else if (typeof gain.cancelAndHoldAtTime === "function") {
         gain.cancelAndHoldAtTime(now);
-        gain.exponentialRampToValueAtTime(WAVE_MIN_GAIN, now + releaseSeconds);
       } else {
         gain.cancelScheduledValues(now);
         gain.setValueAtTime(Math.max(WAVE_MIN_GAIN, gain.value), now);
-        gain.exponentialRampToValueAtTime(WAVE_MIN_GAIN, now + releaseSeconds);
       }
-      voice.sources.forEach(({ source }) => source.stop(now + releaseSeconds + 0.02));
-      voice.vibratoLfo?.stop(now + releaseSeconds + 0.02);
-      voice.effectNodes?.chorusLfo?.stop(now + releaseSeconds + 0.02);
+      if (!releaseBeforeStart) {
+        gain.exponentialRampToValueAtTime(WAVE_MIN_GAIN, releaseEndAt);
+        gain.linearRampToValueAtTime(0, silentAt);
+      }
+      const sourceStopAt = (releaseBeforeStart ? now : silentAt) + WAVE_SOURCE_STOP_PADDING_SECONDS;
+      voice.sources.forEach(({ source }) => source.stop(sourceStopAt));
+      voice.vibratoLfo?.stop(sourceStopAt);
+      voice.effectNodes?.chorusLfo?.stop(sourceStopAt);
     } catch { /* voice already stopped */ }
     voice.releaseScheduledAt = now;
     if (voice.cleanupTimer) window.clearTimeout(voice.cleanupTimer);
@@ -3547,6 +3571,11 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       grooveVisualTimersRef.current.set(token, timers.filter((item) => item !== timer));
       if (active) hitPitchTokensRef.current.set(token, pitch);
       else hitPitchTokensRef.current.delete(token);
+      if (active) setPreviewHitTriggers((current) => {
+        const next = new Map(current);
+        next.set(pitch, (next.get(pitch) || 0) + 1);
+        return next;
+      });
       setPreviewPressedPitches((current) => {
         const next = new Set(current);
         if (active) next.add(pitch);
@@ -6570,6 +6599,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
                 onRedo={redoDesigner}
                 midiPressedPitches={midiPressedPitches}
                 activeHitPitches={previewPressedPitches}
+                activeHitTriggers={previewHitTriggers}
                 velocity={samplerVelocity}
                 sustainEnabled={samplerSustain}
                 pitchBendEnabled={project.pitchBendEnabled === true}
@@ -7700,27 +7730,30 @@ function useMidiGrooveTransport(midiSequences, onNoteOn, onNoteOff) {
                 } else {
                   sustainChannelsRef.current.delete(event.channel);
                   const sustained = sustainedTokensRef.current.get(event.channel) || new Set();
-                  sustained.forEach((token) => noteOffRef.current(token, playbackOptions));
+                  sustained.forEach((token) => {
+                    noteOffRef.current(token, playbackOptions);
+                    scheduledTokensRef.current.delete(token);
+                  });
                   sustainedTokensRef.current.delete(event.channel);
                 }
                 return;
               }
               const key = `${event.channel}:${event.note}`;
               if (event.type === "note_on") {
-                const previous = playingTokensRef.current.get(key);
-                if (previous) noteOffRef.current(previous, playbackOptions);
                 const token = `midi-file-${sequence.id}-${cycle}-${index}-${event.note}`;
-                playingTokensRef.current.set(key, token);
+                enqueueMidiNoteToken(playingTokensRef.current, key, token);
                 scheduledTokensRef.current.add(token);
                 noteOnRef.current(event.note, event.velocity, token, null, null, null, playbackOptions);
               } else {
-                const token = playingTokensRef.current.get(key);
+                const token = dequeueMidiNoteToken(playingTokensRef.current, key);
                 if (token && sustainChannelsRef.current.has(event.channel)) {
                   const sustained = sustainedTokensRef.current.get(event.channel) || new Set();
                   sustained.add(token);
                   sustainedTokensRef.current.set(event.channel, sustained);
-                } else if (token) noteOffRef.current(token, playbackOptions);
-                playingTokensRef.current.delete(key);
+                } else if (token) {
+                  noteOffRef.current(token, playbackOptions);
+                  scheduledTokensRef.current.delete(token);
+                }
               }
             });
             groupIndex += 1;
@@ -7878,7 +7911,7 @@ function PanelFeatureContent({ panel, controls, engineModules = [], presets, mid
   );
 }
 
-function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentColor, uiColor = "#09090b", pluginName, manufacturerName, pluginVersion, pluginKind = "instrument", instrumentType, brandTagline, brandFont, brandSize = 24, brandX = 18, brandY = 13, brandAlign = "left", uiTemplate, projectTemplate, keyboardKeys, onKeyboardKeysChange, canvasWidth, canvasHeight, backgroundImageUrl, backgroundImageName, backgroundFit, backgroundOpacity, backgroundImageX = 50, backgroundImageY = 50, backgroundImageWidth = 100, backgroundImageHeight = 100, componentStyle = "css", pricing = DEFAULT_VST_PRICING, gridSnapEnabled = true, gridSize = 8, resizeAspectLocked = true, backgroundUploadEndpoint, customBackgroundEnabled = true, imageUploadEndpoint = "", imageUploadEnabled = false, onCanvasChange, canUndo = false, canRedo = false, onUndo, onRedo, midiPressedPitches, activeHitPitches = new Set(), velocity, sustainEnabled, pitchBendEnabled = true, modulationEnabled = true, pitchBendValue, modulationValue, onPitchBendChange, onModulationChange, meterAnalyserRef, controls, engineModules, presets = [], midiSequences = [], samplerGroups = [], livePatternConfig = null, onLivePatternConfigChange, onFeatureChange, selectedControlId, selectedControlIds = [], onNoteOn, onNoteOff, onAdd, onSelect, onUpdate, onUpdateMany, onMoveLayer, onRemove, onRemoveSelected, onDrop }) {
+function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentColor, uiColor = "#09090b", pluginName, manufacturerName, pluginVersion, pluginKind = "instrument", instrumentType, brandTagline, brandFont, brandSize = 24, brandX = 18, brandY = 13, brandAlign = "left", uiTemplate, projectTemplate, keyboardKeys, onKeyboardKeysChange, canvasWidth, canvasHeight, backgroundImageUrl, backgroundImageName, backgroundFit, backgroundOpacity, backgroundImageX = 50, backgroundImageY = 50, backgroundImageWidth = 100, backgroundImageHeight = 100, componentStyle = "css", pricing = DEFAULT_VST_PRICING, gridSnapEnabled = true, gridSize = 8, resizeAspectLocked = true, backgroundUploadEndpoint, customBackgroundEnabled = true, imageUploadEndpoint = "", imageUploadEnabled = false, onCanvasChange, canUndo = false, canRedo = false, onUndo, onRedo, midiPressedPitches, activeHitPitches = new Set(), activeHitTriggers = new Map(), velocity, sustainEnabled, pitchBendEnabled = true, modulationEnabled = true, pitchBendValue, modulationValue, onPitchBendChange, onModulationChange, meterAnalyserRef, controls, engineModules, presets = [], midiSequences = [], samplerGroups = [], livePatternConfig = null, onLivePatternConfigChange, onFeatureChange, selectedControlId, selectedControlIds = [], onNoteOn, onNoteOff, onAdd, onSelect, onUpdate, onUpdateMany, onMoveLayer, onRemove, onRemoveSelected, onDrop }) {
   const selectedControl = controls.find((control) => control.id === selectedControlId);
   const selectedKeyboardPitches = selectedControl?.kind === "keyboard"
     ? Array.from({ length: selectedControl.keyCount ?? keyboardKeys }, (_, index) => 36 + index)
@@ -8767,6 +8800,7 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                     padActiveColor={control.padActiveColor ?? control.pad_active_color}
                     variant={control.component_variant || "rubber"}
                     externalPressed={boundLivePattern ? boundLivePatternActive : activeHitPitches.has(control.notePitch ?? 60) || midiPressedPitches.has(control.notePitch ?? 60)}
+                    externalTrigger={activeHitTriggers.get(control.notePitch ?? 60) || 0}
                     onNoteOn={boundLivePattern ? toggleBoundLivePattern : onNoteOn}
                     onNoteOff={boundLivePattern ? () => {} : onNoteOff}
                   />
@@ -10740,21 +10774,40 @@ function StereoVectorscopeDisplay({ analyserRef, accentColor, showCorrelationMet
   return <div className="maker-prism-spectrum maker-stereo-vectorscope" style={{ inset: 0, "--spectrum-color": isHexColor(accentColor) ? accentColor : "#F59E0B" }} aria-label="Stereo vectorscope and phase correlation meter"><canvas ref={canvasRef} className="maker-prism-spectrum__canvas" /></div>;
 }
 
-function SamplerPad({ controlId, label, notePitch, velocity, accentColor, padColor, padActiveColor, variant = "rubber", externalPressed = false, onNoteOn, onNoteOff }) {
+function SamplerPad({ controlId, label, notePitch, velocity, accentColor, padColor, padActiveColor, variant = "rubber", externalPressed = false, externalTrigger = 0, onNoteOn, onNoteOff }) {
   const activeRef = useRef(false);
   const tokenRef = useRef(null);
   const [pressed, setPressed] = useState(false);
   const [flashActive, setFlashActive] = useState(false);
+  const flashActiveRef = useRef(false);
   const flashTimerRef = useRef(null);
+  const flashFrameRef = useRef(null);
   const hitPad = ["hit-effect", "diffuse-hit", "smooth-diffuse-hit"].includes(variant);
   const triggerFlash = useCallback(() => {
     if (!hitPad) return;
     window.clearTimeout(flashTimerRef.current);
-    setFlashActive(true);
-    flashTimerRef.current = window.setTimeout(() => setFlashActive(false), 115);
+    window.cancelAnimationFrame(flashFrameRef.current);
+    const showFlash = () => {
+      flashActiveRef.current = true;
+      setFlashActive(true);
+      flashTimerRef.current = window.setTimeout(() => {
+        flashActiveRef.current = false;
+        setFlashActive(false);
+      }, 115);
+    };
+    if (flashActiveRef.current) {
+      // Drop the class for one paint so CSS starts a fresh hit pulse even when
+      // consecutive MIDI notes arrive before the previous 115 ms flash ended.
+      flashActiveRef.current = false;
+      setFlashActive(false);
+      flashFrameRef.current = window.requestAnimationFrame(showFlash);
+    } else showFlash();
   }, [hitPad]);
-  useEffect(() => () => window.clearTimeout(flashTimerRef.current), []);
-  useEffect(() => { if (externalPressed) triggerFlash(); }, [externalPressed, triggerFlash]);
+  useEffect(() => () => {
+    window.clearTimeout(flashTimerRef.current);
+    window.cancelAnimationFrame(flashFrameRef.current);
+  }, []);
+  useEffect(() => { if (externalPressed || externalTrigger > 0) triggerFlash(); }, [externalPressed, externalTrigger, triggerFlash]);
   const begin = (event) => {
     if (activeRef.current || (event.type === "keydown" && event.repeat)) return;
     event.preventDefault();

@@ -142,6 +142,16 @@ describe("VST Maker Wave Generator note routing", () => {
     expect(source).toContain("const now = voiceStartAt;");
     expect(source).toContain("const scheduledAtAudioTime = (context?.currentTime || 0) + WAVE_CHORD_START_LOOKAHEAD_SECONDS;");
     expect(source).toContain("const releaseBeforeStart = Number(voice.ampEnvelope?.startAt) > now;");
+    expect(source).toContain("gain.linearRampToValueAtTime(0, silentAt);");
+    expect(source).toContain("source.stop(sourceStopAt)");
+  });
+
+  test("re-triggers hit-pad flashes and keeps overlapping equal MIDI notes distinct", () => {
+    expect(source).toContain("setPreviewHitTriggers((current) => {");
+    expect(source).toContain("externalTrigger={activeHitTriggers.get(control.notePitch ?? 60) || 0}");
+    expect(source).toContain("flashFrameRef.current = window.requestAnimationFrame(showFlash);");
+    expect(source).toContain("enqueueMidiNoteToken(playingTokensRef.current, key, token);");
+    expect(source).toContain("dequeueMidiNoteToken(playingTokensRef.current, key);");
   });
 
   test("reuses expensive waveform data between notes", () => {

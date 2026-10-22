@@ -3,6 +3,8 @@ import {
   WAVE_CHORD_START_LOOKAHEAD_SECONDS,
   WAVE_DIRECT_START_LOOKAHEAD_SECONDS,
   WAVE_MIN_GAIN,
+  WAVE_RELEASE_ZERO_SECONDS,
+  WAVE_SOURCE_STOP_PADDING_SECONDS,
   drainWaveVoiceRegistry,
   moveWaveVoiceRegistryToken,
   shouldScheduleWaveRelease,
@@ -49,6 +51,11 @@ describe("Wave Generator amplitude envelope", () => {
     expect(shouldScheduleWaveRelease(12.098, 12.125)).toBe(false);
     expect(shouldScheduleWaveRelease(12.125, 12.098)).toBe(true);
     expect(shouldScheduleWaveRelease(12.098, 12.125, true)).toBe(true);
+  });
+
+  test("reserves a real zero-gain tail before an oscillator is stopped", () => {
+    expect(WAVE_RELEASE_ZERO_SECONDS).toBeGreaterThan(0);
+    expect(WAVE_SOURCE_STOP_PADDING_SECONDS).toBeGreaterThan(0);
   });
 
   test("detaches every unique mono voice before a retrigger creates its replacement", () => {
