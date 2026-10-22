@@ -294,6 +294,10 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
     if len(control_ids) != len(set(control_ids)):
         fail("control ids must be unique")
     control_indices = {control_id: index for index, control_id in enumerate(control_ids)}
+    midi_sequence_ids = [str(sequence.get("id") or f"midi-{index + 1}") for index, sequence in enumerate(midi_sequences)]
+    if len(midi_sequence_ids) != len(set(midi_sequence_ids)):
+        fail("MIDI sequence ids must be unique")
+    midi_sequence_indices = {sequence_id: index for index, sequence_id in enumerate(midi_sequence_ids)}
     panel_indices = {control_id: index for control_id, index in control_indices.items() if str(controls[index].get("kind") or "") == "panel_button"}
     for index, control in enumerate(controls):
         kind = str(control.get("kind") or "knob")
@@ -313,6 +317,7 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
         if parent_panel_id and parent_panel_id not in panel_indices:
             fail("control references an unknown panel button")
         indicator_source_id = str(control.get("indicator_source_id") or "")
+        midi_sequence_id = str(control.get("midi_sequence_id") or "")
         if kind != "indicator" and indicator_source_id:
             fail("indicator source is only valid for indicator controls")
         if indicator_source_id:
@@ -320,6 +325,10 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
                 fail("indicator references an invalid source control")
             if str(controls[control_indices[indicator_source_id]].get("kind") or "") == "indicator":
                 fail("indicator controls cannot use another indicator as their source")
+        if midi_sequence_id and kind not in {"button", "pad"}:
+            fail("MIDI sequence binding is only valid for button and pad controls")
+        if midi_sequence_id and midi_sequence_id not in midi_sequence_indices:
+            fail("control references an unknown MIDI sequence")
     control_lines, panel_lines, key_color_lines = [], [], []
     for index, control in enumerate(controls):
         label = "Control" if control.get("label") is None else control.get("label")
@@ -343,8 +352,8 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
                     parsed_key_colors.append((pitch, int(color_match.group(1), 16)))
             for pitch, color_rgb in sorted(parsed_key_colors):
                 key_color_lines.append(f"    KeyColorInfo{{{index}, {pitch}, 0x{color_rgb:06X}}},")
-        minimum_width = 240 if control_kind in {"keyboard", "spectrum"} else 32 if control_kind == "text" else 48
-        minimum_height = 120 if control_kind == "spectrum" else 112 if control_kind == "keyboard" else 24 if control_kind == "text" else 48
+        minimum_width = 240 if control_kind in {"keyboard", "spectrum"} else 12 if control_kind == "indicator" else 32 if control_kind == "text" else 48
+        minimum_height = 120 if control_kind == "spectrum" else 112 if control_kind == "keyboard" else 12 if control_kind == "indicator" else 24 if control_kind == "text" else 48
         fields = (
             cpp_string(control.get("id") or f"control-{index + 1}"),
             cpp_string(control.get("kind") or "knob"), cpp_string(label),
@@ -353,6 +362,7 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
                 dsp_module_ids.get(str(control.get("module_id") or ""), macro_module_indices.get(str(control.get("parameter") or ""), -1))
             ),
             str(control_indices.get(str(control.get("indicator_source_id") or ""), -1)),
+            str(midi_sequence_indices.get(str(control.get("midi_sequence_id") or ""), -1)),
             cpp_float(clamp(control.get("x"), 0, 100, 50)),
             cpp_float(clamp(control.get("y"), 0, 100, 50)), str(max(minimum_width, min(2048, int(control.get("width", 112))))),
             str(max(minimum_height, min(2048, int(control.get("height", 122))))), cpp_float(clamp(control.get("value"), 0, 100, 50) / 100),
@@ -386,6 +396,9 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
         fail("preset names must be unique")
     preset_lines, preset_value_lines, preset_group_lines, preset_module_lines, preset_module_parameter_lines = [], [], [], [], []
     for preset in presets:
+        preset_midi_sequence_id = str(preset.get("midi_sequence_id") or "")
+        if preset_midi_sequence_id and preset_midi_sequence_id not in midi_sequence_indices:
+            fail("preset references an unknown MIDI sequence")
         value_offset = len(preset_value_lines)
         for control_id, value in (preset.get("control_values") or {}).items():
             control_index = control_indices.get(str(control_id), -1)
@@ -417,6 +430,7 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
             cpp_string(preset.get("id") or f"preset-{len(preset_lines) + 1}"), cpp_string(preset.get("name") or "Preset"),
             cpp_bool(preset.get("category") == "factory"), str(value_offset), str(len(preset_value_lines) - value_offset),
             str(group_offset), str(len(preset_group_lines) - group_offset), str(module_offset), str(len(preset_module_lines) - module_offset),
+            str(midi_sequence_indices.get(preset_midi_sequence_id, -1)),
         )) + "},")
 
     midi_mapping_lines = []
@@ -517,10 +531,10 @@ namespace tripleside::project {{
 struct SampleInfo {{ const char* resourceFile; }};
 struct GroupInfo {{ const char* id; const char* name; float volume; float pan; bool mute; bool solo; }};
 struct ZoneInfo {{ int sampleIndex, groupIndex, articulationIndex, micIndex, roundRobinSet, rootPitch, lowPitch, highPitch, velocityLow, velocityHigh, roundRobin; float sampleStart, sampleEnd, loopStart, loopEnd, fadeInMs, fadeOutMs, loopCrossfadeMs; int tuneSemitones; float tuneCents, gainDb, pan; bool loopEnabled, tempoSync; float sourceBpm; std::array<int, 16> chokeTargetPitches; int chokeTargetCount; }};
-struct ControlInfo {{ const char* id; const char* kind; const char* label; const char* offLabel; const char* onLabel; const char* parameter; int moduleIndex; int indicatorSourceIndex; float x, y; int width, height; float value, opacity, rotation; unsigned int colorRgb; bool showBackground; int notePitch, keyCount; const char* labelPosition; int labelGap; const char* variant; const char* meterMode; const char* textFont; unsigned int textColorRgb; bool showCorrelationMeter; bool spectrumBand; bool useFilmstrip; }};
+struct ControlInfo {{ const char* id; const char* kind; const char* label; const char* offLabel; const char* onLabel; const char* parameter; int moduleIndex; int indicatorSourceIndex; int midiSequenceIndex; float x, y; int width, height; float value, opacity, rotation; unsigned int colorRgb; bool showBackground; int notePitch, keyCount; const char* labelPosition; int labelGap; const char* variant; const char* meterMode; const char* textFont; unsigned int textColorRgb; bool showCorrelationMeter; bool spectrumBand; bool useFilmstrip; }};
 struct KeyColorInfo {{ int control, pitch; unsigned int colorRgb; }};
 struct PanelControlInfo {{ int parentPanelIndex; const char* panelType; float panelX, panelY, panelWidth, panelHeight; }};
-struct PresetInfo {{ const char* id; const char* name; bool factory; int valueOffset, valueCount, groupOffset, groupCount, moduleOffset, moduleCount; }};
+struct PresetInfo {{ const char* id; const char* name; bool factory; int valueOffset, valueCount, groupOffset, groupCount, moduleOffset, moduleCount, midiSequenceIndex; }};
 struct PresetValueInfo {{ int controlIndex; float value; }};
 struct PresetGroupInfo {{ int groupIndex; float volume, pan; bool mute, solo; }};
 struct PresetModuleInfo {{ int moduleIndex; bool bypassed; float mix; int parameterOffset, parameterCount; }};

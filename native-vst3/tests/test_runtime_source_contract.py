@@ -604,8 +604,8 @@ def test_factory_presets_restore_hidden_dsp_and_native_text_style():
     assert "project::kPresetModuleParameters" in view
     assert "modulePresetValue" in instrument_header
     assert "preset.moduleValues.push_back" in view
-    assert "version=2" in view
-    assert "version!=1&&version!=2" in view
+    assert "version=3" in view
+    assert "version<1||version>3" in view
     assert "c.textFont" in view
     assert "c.textColorRgb" in view
     assert 'L"Outfit-wght.ttf"' in view

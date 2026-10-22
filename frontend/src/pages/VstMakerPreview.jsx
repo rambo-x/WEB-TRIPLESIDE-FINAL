@@ -818,8 +818,9 @@ const normalizeInterfaceControl = (control) => {
   const defaults = CONTROL_DEFAULT_SIZES[control.kind] || CONTROL_DEFAULT_SIZES.knob;
   const width = Number(control.width);
   const height = Number(control.height);
-  const minimumWidth = control.kind === "keyboard" ? 240 : control.kind === "spectrum" ? 240 : control.kind === "text" ? 32 : 48;
-  const minimumHeight = control.kind === "keyboard" ? 112 : control.kind === "spectrum" ? 120 : control.kind === "text" ? 24 : 48;
+  const compactIndicator = control.kind === "indicator" && (!control.component_variant || control.component_variant === "round-indicator");
+  const minimumWidth = control.kind === "keyboard" ? 240 : control.kind === "spectrum" ? 240 : compactIndicator ? 12 : control.kind === "text" ? 32 : 48;
+  const minimumHeight = control.kind === "keyboard" ? 112 : control.kind === "spectrum" ? 120 : compactIndicator ? 12 : control.kind === "text" ? 24 : 48;
   const labelPosition = normalizeLabelPosition(control.labelPosition ?? control.label_position);
   const labelGap = normalizeLabelGap(control.labelGap ?? control.label_gap);
   const isTwoStateButton = control.kind === "button";
@@ -857,6 +858,7 @@ const normalizeInterfaceControl = (control) => {
     } : {}),
     ...(isHexColor(control.controlColor ?? control.control_color) ? { controlColor: control.controlColor ?? control.control_color } : {}),
     ...(control.kind === "indicator" && (control.indicatorSourceId ?? control.indicator_source_id) ? { indicatorSourceId: String(control.indicatorSourceId ?? control.indicator_source_id).slice(0, 64) } : {}),
+    ...(["button", "pad"].includes(control.kind) && (control.midiSequenceId ?? control.midi_sequence_id) ? { midiSequenceId: String(control.midiSequenceId ?? control.midi_sequence_id).slice(0, 64) } : {}),
     ...(control.kind === "image" ? {
       imageUrl: control.imageUrl ?? control.image_url ?? "",
       imageName: control.imageName ?? control.image_name ?? "",
@@ -1413,7 +1415,7 @@ const toProjectPayload = (project, samples) => {
   modulation_enabled: project.modulationEnabled === true,
   interface_controls: project.interfaceControls.map((rawControl) => {
     const normalized = normalizeInterfaceControl(rawControl);
-    const { notePitch, moduleId, keyCount, keyColors, key_colors: legacyKeyColors, showBackground, show_background: legacyShowBackground, labelPosition, label_position: legacyLabelPosition, labelGap, label_gap: legacyLabelGap, labelX, labelY, label_x: legacyLabelX, label_y: legacyLabelY, meterMode, meter_mode: legacyMeterMode, padColor, padActiveColor, pad_color: legacyPadColor, pad_active_color: legacyPadActiveColor, visualColor, visual_color: legacyVisualColor, spectrumBand, spectrum_band: legacySpectrumBand, prismControlMode, prism_control_mode: legacyPrismControlMode, prismContext, prism_context: legacyPrismContext, prismOwnerId, prism_owner_id: legacyPrismOwnerId, textFont, text_font: legacyTextFont, textColor, text_color: legacyTextColor, controlColor, control_color: legacyControlColor, indicatorSourceId, indicator_source_id: legacyIndicatorSourceId, imageUrl, imageName, imageFit, imageOpacity, image_url: legacyImageUrl, image_name: legacyImageName, image_fit: legacyImageFit, image_opacity: legacyImageOpacity, parentPanelId, parent_panel_id: legacyParentPanelId, panelType, panel_type: legacyPanelType, panelX, panel_x: legacyPanelX, panelY, panel_y: legacyPanelY, panelWidth, panel_width: legacyPanelWidth, panelHeight, panel_height: legacyPanelHeight, ...control } = normalized;
+    const { notePitch, moduleId, keyCount, keyColors, key_colors: legacyKeyColors, showBackground, show_background: legacyShowBackground, labelPosition, label_position: legacyLabelPosition, labelGap, label_gap: legacyLabelGap, labelX, labelY, label_x: legacyLabelX, label_y: legacyLabelY, meterMode, meter_mode: legacyMeterMode, padColor, padActiveColor, pad_color: legacyPadColor, pad_active_color: legacyPadActiveColor, visualColor, visual_color: legacyVisualColor, spectrumBand, spectrum_band: legacySpectrumBand, prismControlMode, prism_control_mode: legacyPrismControlMode, prismContext, prism_context: legacyPrismContext, prismOwnerId, prism_owner_id: legacyPrismOwnerId, textFont, text_font: legacyTextFont, textColor, text_color: legacyTextColor, controlColor, control_color: legacyControlColor, indicatorSourceId, indicator_source_id: legacyIndicatorSourceId, midiSequenceId, midi_sequence_id: legacyMidiSequenceId, imageUrl, imageName, imageFit, imageOpacity, image_url: legacyImageUrl, image_name: legacyImageName, image_fit: legacyImageFit, image_opacity: legacyImageOpacity, parentPanelId, parent_panel_id: legacyParentPanelId, panelType, panel_type: legacyPanelType, panelX, panel_x: legacyPanelX, panelY, panel_y: legacyPanelY, panelWidth, panel_width: legacyPanelWidth, panelHeight, panel_height: legacyPanelHeight, ...control } = normalized;
     return {
       ...control,
       module_id: moduleId || null,
@@ -1438,6 +1440,7 @@ const toProjectPayload = (project, samples) => {
       ...(control.kind === "text" ? { text_font: textFont || legacyTextFont || "space-grotesk", text_color: textColor || legacyTextColor || "#F4F4F5" } : {}),
       ...(isHexColor(controlColor ?? legacyControlColor) ? { control_color: controlColor ?? legacyControlColor } : {}),
       ...(control.kind === "indicator" ? { indicator_source_id: indicatorSourceId || legacyIndicatorSourceId || null } : {}),
+      ...(["button", "pad"].includes(control.kind) ? { midi_sequence_id: midiSequenceId || legacyMidiSequenceId || null } : {}),
       ...(control.kind === "image" ? {
         image_url: imageUrl || legacyImageUrl || null,
         image_name: imageName || legacyImageName || null,
@@ -1558,7 +1561,7 @@ const fromSavedProject = (saved) => {
   accentColor: migrateLumaOpto ? "#d6b56d" : saved.accent_color,
   effects: {},
   controls: saved.controls || [],
-  interfaceControls: migratedObsidianState?.interfaceControls || (migrateLumaOpto ? createTemplateControls("vintageeq", 49) : (migrateAmpStack ? migrateAmpStackControls : (controls) => controls)((saved.interface_controls || []).map(({ note_pitch, module_id, key_count, key_colors, show_background, label_position, pad_color, pad_active_color, visual_color, spectrum_band, prism_control_mode, prism_context, prism_owner_id, text_font, text_color, control_color, indicator_source_id, image_url, image_name, image_fit, image_opacity, parent_panel_id, panel_type, panel_x, panel_y, panel_width, panel_height, ...control }) => normalizeInterfaceControl({ ...control, moduleId: module_id || null, notePitch: note_pitch ?? 60, keyCount: key_count || undefined, keyColors: key_colors, showBackground: show_background !== false, labelPosition: label_position, padColor: pad_color, padActiveColor: pad_active_color, visualColor: visual_color, spectrumBand: spectrum_band === true, prismControlMode: prism_control_mode, prismContext: prism_context, prismOwnerId: prism_owner_id, textFont: text_font, textColor: text_color, controlColor: control_color, indicatorSourceId: indicator_source_id, imageUrl: image_url, imageName: image_name, imageFit: image_fit, imageOpacity: image_opacity, parentPanelId: parent_panel_id, panelType: panel_type, panelX: panel_x, panelY: panel_y, panelWidth: panel_width, panelHeight: panel_height })))),
+  interfaceControls: migratedObsidianState?.interfaceControls || (migrateLumaOpto ? createTemplateControls("vintageeq", 49) : (migrateAmpStack ? migrateAmpStackControls : (controls) => controls)((saved.interface_controls || []).map(({ note_pitch, module_id, key_count, key_colors, show_background, label_position, pad_color, pad_active_color, visual_color, spectrum_band, prism_control_mode, prism_context, prism_owner_id, text_font, text_color, control_color, indicator_source_id, midi_sequence_id, image_url, image_name, image_fit, image_opacity, parent_panel_id, panel_type, panel_x, panel_y, panel_width, panel_height, ...control }) => normalizeInterfaceControl({ ...control, moduleId: module_id || null, notePitch: note_pitch ?? 60, keyCount: key_count || undefined, keyColors: key_colors, showBackground: show_background !== false, labelPosition: label_position, padColor: pad_color, padActiveColor: pad_active_color, visualColor: visual_color, spectrumBand: spectrum_band === true, prismControlMode: prism_control_mode, prismContext: prism_context, prismOwnerId: prism_owner_id, textFont: text_font, textColor: text_color, controlColor: control_color, indicatorSourceId: indicator_source_id, midiSequenceId: midi_sequence_id, imageUrl: image_url, imageName: image_name, imageFit: image_fit, imageOpacity: image_opacity, parentPanelId: parent_panel_id, panelType: panel_type, panelX: panel_x, panelY: panel_y, panelWidth: panel_width, panelHeight: panel_height })))),
   presets: Array.isArray(saved.presets) ? saved.presets : [],
   midiMappings: [],
   midiSequences: (saved.midi_sequences || []).map(({ duration_ticks, loop_enabled, generator_config, ...sequence }) => ({ ...sequence, durationTicks: duration_ticks, loopEnabled: loop_enabled === true, ...(generator_config ? { generatorConfig: normalizeWaveGeneratorConfig(generator_config) } : {}) })),
@@ -3236,6 +3239,29 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     projectRef.current = next;
     setProject(next);
     setDesignerHistoryVersion((version) => version + 1);
+  };
+
+  const updateDesignerFeatures = (updates, mergeKey = null) => {
+    const nextSequences = updates?.midiSequences;
+    if (Array.isArray(nextSequences)) {
+      const sequenceIds = new Set(nextSequences.map((sequence) => sequence.id));
+      setLiveWavePatternConfig((current) => current?.sourceSequenceId && !sequenceIds.has(current.sourceSequenceId) ? null : current);
+      updateDesignerProject((current) => ({
+        ...current,
+        ...updates,
+        interfaceControls: current.interfaceControls.map((control) => {
+          const sequenceId = control.midiSequenceId ?? control.midi_sequence_id;
+          return sequenceId && !sequenceIds.has(sequenceId) ? { ...control, midiSequenceId: null, midi_sequence_id: null } : control;
+        }),
+        presets: (updates.presets || current.presets).map((preset) => (
+          preset.midi_sequence_id && !sequenceIds.has(preset.midi_sequence_id)
+            ? { ...preset, midi_sequence_id: null }
+            : preset
+        )),
+      }), mergeKey);
+      return;
+    }
+    updateDesignerProject((current) => ({ ...current, ...updates }), mergeKey);
   };
 
   const restoreDesignerSnapshot = (snapshot) => {
@@ -6470,7 +6496,9 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
                 presets={project.presets}
                 midiSequences={project.midiSequences}
                 samplerGroups={project.samplerGroups}
-                onFeatureChange={(updates) => updateDesignerProject((current) => ({ ...current, ...updates }))}
+                livePatternConfig={liveWavePatternConfig}
+                onLivePatternConfigChange={setLiveWavePatternConfig}
+                onFeatureChange={updateDesignerFeatures}
                 selectedControlId={selectedInterfaceControlId}
                 selectedControlIds={selectedInterfaceControlIds}
                 onNoteOn={playSamplerNote}
@@ -6737,7 +6765,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
                         onLiveConfigChange={updateLiveWavePatternConfig}
                         projectTempo={project.tempoBpm}
                         transport={wavePatternTransport}
-                        onSequencesChange={(midiSequences) => updateDesignerProject((current) => ({ ...current, midiSequences }), "wave-generator-patterns")}
+                        onSequencesChange={(midiSequences) => updateDesignerFeatures({ midiSequences }, "wave-generator-patterns")}
                       />
                     </div> : null;
                   })()}
@@ -7653,7 +7681,7 @@ function useMidiGrooveTransport(midiSequences, onNoteOn, onNoteOff) {
   return { selectedSequenceId, setSelectedSequenceId, playingSequenceId, play, stop };
 }
 
-function PanelFeatureContent({ panel, controls, engineModules = [], presets, midiSequences, midiTransport, samplerGroups, onUpdateMany, onFeatureChange }) {
+function PanelFeatureContent({ panel, controls, engineModules = [], presets, midiSequences, midiTransport, samplerGroups, livePatternConfig, onLivePatternConfigChange, onUpdateMany, onFeatureChange }) {
   const [presetName, setPresetName] = useState("");
   const { selectedSequenceId, setSelectedSequenceId, playingSequenceId, play: playMidi, stop: stopMidi } = midiTransport;
   const featureControls = controls.filter((control) => !["panel_button", "visual", "text", "image", "gain_meter", "vu_meter"].includes(control.kind));
@@ -7686,6 +7714,7 @@ function PanelFeatureContent({ panel, controls, engineModules = [], presets, mid
             control_values: Object.fromEntries(featureControls.map((control) => [control.id, Number(control.value) || 0])),
             group_values: Object.fromEntries(samplerGroups.map((group) => [group.id, { volume: group.volume, pan: group.pan, mute: group.mute, solo: group.solo }])),
             module_values: Object.fromEntries(engineModules.map((module) => [module.id, { bypassed: module.bypassed === true, mix: Math.max(0, Math.min(1, Number(module.mix ?? 1))), parameters: { ...(module.parameters || {}) } }])),
+            midi_sequence_id: livePatternConfig?.sourceSequenceId || selectedSequenceId || null,
           };
           onFeatureChange({ presets: [...presets, preset].slice(-128) });
           setPresetName("");
@@ -7702,8 +7731,18 @@ function PanelFeatureContent({ panel, controls, engineModules = [], presets, mid
               return snapshot ? { ...module, bypassed: snapshot.bypassed === true, mix: snapshot.mix ?? module.mix, parameters: { ...module.parameters, ...(snapshot.parameters || {}) } } : module;
             }));
             onFeatureChange({ samplerGroups: nextGroups, engineModules: nextModules });
+            const sequence = midiSequences.find((item) => item.id === preset.midi_sequence_id);
+            if (playingSequenceId) stopMidi();
+            if (sequence) {
+              setSelectedSequenceId(sequence.id);
+              onLivePatternConfigChange?.(sequence.generatorConfig
+                ? { ...normalizeWaveGeneratorConfig(sequence.generatorConfig), enabled: true, sourceSequenceId: sequence.id }
+                : null);
+            } else {
+              onLivePatternConfigChange?.(null);
+            }
             toast.success(`Preset “${preset.name}” dimuat`);
-          }}><strong>{preset.name}</strong><span>{preset.category === "factory" ? "FACTORY" : "USER"}</span></button>
+          }}><strong>{preset.name}</strong><span>{preset.midi_sequence_id ? "PATTERN · " : ""}{preset.category === "factory" ? "FACTORY" : "USER"}</span></button>
           {preset.category !== "factory" && <button type="button" aria-label={`Hapus preset ${preset.name}`} onClick={() => onFeatureChange({ presets: presets.filter((item) => item.id !== preset.id) })}><Trash2 size={14} /></button>}
         </div>)}
         {!presets.length && <div className="maker-functional-panel__empty">Belum ada preset. Atur suara lalu simpan kondisi saat ini.</div>}
@@ -7751,7 +7790,7 @@ function PanelFeatureContent({ panel, controls, engineModules = [], presets, mid
   );
 }
 
-function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentColor, uiColor = "#09090b", pluginName, manufacturerName, pluginVersion, pluginKind = "instrument", instrumentType, brandTagline, brandFont, brandSize = 24, brandX = 18, brandY = 13, brandAlign = "left", uiTemplate, projectTemplate, keyboardKeys, onKeyboardKeysChange, canvasWidth, canvasHeight, backgroundImageUrl, backgroundImageName, backgroundFit, backgroundOpacity, backgroundImageX = 50, backgroundImageY = 50, backgroundImageWidth = 100, backgroundImageHeight = 100, componentStyle = "css", pricing = DEFAULT_VST_PRICING, gridSnapEnabled = true, gridSize = 8, resizeAspectLocked = true, backgroundUploadEndpoint, customBackgroundEnabled = true, imageUploadEndpoint = "", imageUploadEnabled = false, onCanvasChange, canUndo = false, canRedo = false, onUndo, onRedo, midiPressedPitches, activeHitPitches = new Set(), velocity, sustainEnabled, pitchBendEnabled = true, modulationEnabled = true, pitchBendValue, modulationValue, onPitchBendChange, onModulationChange, meterAnalyserRef, controls, engineModules, presets = [], midiSequences = [], samplerGroups = [], onFeatureChange, selectedControlId, selectedControlIds = [], onNoteOn, onNoteOff, onAdd, onSelect, onUpdate, onUpdateMany, onMoveLayer, onRemove, onRemoveSelected, onDrop }) {
+function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentColor, uiColor = "#09090b", pluginName, manufacturerName, pluginVersion, pluginKind = "instrument", instrumentType, brandTagline, brandFont, brandSize = 24, brandX = 18, brandY = 13, brandAlign = "left", uiTemplate, projectTemplate, keyboardKeys, onKeyboardKeysChange, canvasWidth, canvasHeight, backgroundImageUrl, backgroundImageName, backgroundFit, backgroundOpacity, backgroundImageX = 50, backgroundImageY = 50, backgroundImageWidth = 100, backgroundImageHeight = 100, componentStyle = "css", pricing = DEFAULT_VST_PRICING, gridSnapEnabled = true, gridSize = 8, resizeAspectLocked = true, backgroundUploadEndpoint, customBackgroundEnabled = true, imageUploadEndpoint = "", imageUploadEnabled = false, onCanvasChange, canUndo = false, canRedo = false, onUndo, onRedo, midiPressedPitches, activeHitPitches = new Set(), velocity, sustainEnabled, pitchBendEnabled = true, modulationEnabled = true, pitchBendValue, modulationValue, onPitchBendChange, onModulationChange, meterAnalyserRef, controls, engineModules, presets = [], midiSequences = [], samplerGroups = [], livePatternConfig = null, onLivePatternConfigChange, onFeatureChange, selectedControlId, selectedControlIds = [], onNoteOn, onNoteOff, onAdd, onSelect, onUpdate, onUpdateMany, onMoveLayer, onRemove, onRemoveSelected, onDrop }) {
   const selectedControl = controls.find((control) => control.id === selectedControlId);
   const selectedKeyboardPitches = selectedControl?.kind === "keyboard"
     ? Array.from({ length: selectedControl.keyCount ?? keyboardKeys }, (_, index) => 36 + index)
@@ -7806,6 +7845,7 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
     const source = sourceId ? controls.find((candidate) => candidate.id === sourceId) : null;
     if (!source) return Number(control.value) >= 50;
     if (source.kind === "panel_button") return openPanelId === source.id;
+    if (source.midiSequenceId ?? source.midi_sequence_id) return midiTransport.playingSequenceId === (source.midiSequenceId ?? source.midi_sequence_id);
     if (source.kind === "pad") return activeHitPitches.has(source.notePitch ?? 60) || midiPressedPitches.has(source.notePitch ?? 60);
     const sourceValue = Number(source.value) || 0;
     if (source.kind === "button" && source.parameter === "bypass") return sourceValue < 50;
@@ -8135,6 +8175,7 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
       id: member.id,
       updates: resizeCanvasControlWithinBounds({
         kind: member.kind,
+        componentVariant: controls.find((control) => control.id === member.id)?.component_variant,
         preserveAspectRatio: resizeAspectLocked,
         width: member.width,
         height: member.height,
@@ -8482,6 +8523,8 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                   midiSequences={midiSequences}
                   midiTransport={midiTransport}
                   samplerGroups={samplerGroups}
+                  livePatternConfig={livePatternConfig}
+                  onLivePatternConfigChange={onLivePatternConfigChange}
                   onUpdateMany={onUpdateMany}
                   onFeatureChange={onFeatureChange}
                 />
@@ -8498,6 +8541,17 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
             )}
             {visibleControls.map((control) => {
               const canvasPosition = canvasPositionFor(control);
+              const boundMidiSequenceId = control.midiSequenceId ?? control.midi_sequence_id ?? "";
+              const boundMidiSequence = midiSequences.find((sequence) => sequence.id === boundMidiSequenceId) || null;
+              const boundMidiSequencePlaying = boundMidiSequenceId !== "" && midiTransport.playingSequenceId === boundMidiSequenceId;
+              const toggleBoundMidiSequence = () => {
+                if (!boundMidiSequence) return;
+                if (boundMidiSequencePlaying) midiTransport.stop();
+                else {
+                  midiTransport.setSelectedSequenceId(boundMidiSequence.id);
+                  midiTransport.play(boundMidiSequence);
+                }
+              };
               return (
               <article
                 key={control.id}
@@ -8564,7 +8618,7 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                   </button>
                 ) : control.kind === "button" || control.kind === "solo" || control.kind === "mute" ? (
                   <FilmstripButton
-                    value={control.value}
+                    value={boundMidiSequence ? (boundMidiSequencePlaying ? 100 : 0) : control.value}
                     label={control.label}
                     offLabel={control.off_label}
                     onLabel={control.on_label}
@@ -8572,7 +8626,7 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                     kind={control.kind}
                     variant={control.component_variant || "classic"}
                     asset={filmstripAssetFor(control, componentStyle, "button")}
-                    onChange={(value) => onUpdate(control.id, { value })}
+                    onChange={(value) => boundMidiSequence ? toggleBoundMidiSequence() : onUpdate(control.id, { value })}
                   />
                 ) : control.kind === "knob" ? (
                   <RotaryKnob
@@ -8620,9 +8674,9 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                     padColor={control.padColor ?? control.pad_color}
                     padActiveColor={control.padActiveColor ?? control.pad_active_color}
                     variant={control.component_variant || "rubber"}
-                    externalPressed={activeHitPitches.has(control.notePitch ?? 60) || midiPressedPitches.has(control.notePitch ?? 60)}
-                    onNoteOn={onNoteOn}
-                    onNoteOff={onNoteOff}
+                    externalPressed={boundMidiSequence ? boundMidiSequencePlaying : activeHitPitches.has(control.notePitch ?? 60) || midiPressedPitches.has(control.notePitch ?? 60)}
+                    onNoteOn={boundMidiSequence ? toggleBoundMidiSequence : onNoteOn}
+                    onNoteOff={boundMidiSequence ? () => {} : onNoteOff}
                   />
                 ) : control.kind === "keyboard" ? (
                   <SamplerKeyboard
@@ -9248,6 +9302,16 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                 </label>
               )}
             </>
+          )}
+          {["button", "pad"].includes(selectedControl.kind) && (
+            <label className="md:col-span-2">
+              <FieldLabel>Pola MIDI saat komponen ditekan</FieldLabel>
+              <select className="maker-input mt-2" value={selectedControl.midiSequenceId ?? selectedControl.midi_sequence_id ?? ""} onChange={(event) => onUpdate(selectedControl.id, { midiSequenceId: event.target.value || null, midi_sequence_id: null })}>
+                <option value="">Tidak terhubung</option>
+                {midiSequences.map((sequence) => <option key={sequence.id} value={sequence.id}>{sequence.name}</option>)}
+              </select>
+              <span className="mt-1 block text-[9px] text-zinc-500">Komponen memainkan atau menghentikan pola ini di preview dan VST3 hasil build.</span>
+            </label>
           )}
           <label className="flex min-h-11 items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/20 px-3">
             <span>
@@ -10219,16 +10283,6 @@ function RealtimeWaveformDisplay({ analyserRef, accentColor }) {
       context.setTransform(ratio, 0, 0, ratio, 0, 0);
       context.clearRect(0, 0, width, height);
       const color = isHexColor(accentColor) ? accentColor : "#A78BFA";
-      context.strokeStyle = hexColorWithAlpha(color, 0.13);
-      context.lineWidth = 1;
-      for (let index = 1; index < 8; index += 1) {
-        const x = width * index / 8;
-        context.beginPath(); context.moveTo(x, 0); context.lineTo(x, height); context.stroke();
-      }
-      for (let index = 1; index < 4; index += 1) {
-        const y = height * index / 4;
-        context.beginPath(); context.moveTo(0, y); context.lineTo(width, y); context.stroke();
-      }
       const analyser = analyserRef?.current;
       const channels = analyser?._vstMeterChannels || (analyser ? [analyser] : []);
       const size = Math.min(2048, Math.max(256, channels[0]?.fftSize || 1024));

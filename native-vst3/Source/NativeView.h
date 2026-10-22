@@ -60,9 +60,9 @@ private:
     Microsoft::WRL::ComPtr<IDWriteInMemoryFontFileLoader> brandFontLoader; std::vector<Microsoft::WRL::ComPtr<IDWriteFontFile>> embeddedFontFiles; Microsoft::WRL::ComPtr<IDWriteFontCollection1> brandFontCollection;
     Microsoft::WRL::ComPtr<IWICImagingFactory> wicFactory; Microsoft::WRL::ComPtr<ID2D1Bitmap> background,knobFilmstrip,pultecKnobFilmstrip,modernSpectrumKnob,studioScallopKnob,blackPrecisionKnob,crimsonWingKnob,blackCrimsonWingKnob,regentWhiteWingKnob,graphiteRidgeKnob,buttonFilmstrip,faderFilmstrip,meterFilmstrip,mechanicalToggleOff,mechanicalToggleOn;
     int activeControl=-1,activeNote=-1,wheelControl=-1,wheelRemainder=0,selectedPrismBand=0,dragPrismBand=-1; float dragStartY=0,dragStartValue=0; D2D1_RECT_F currentLabelControlRect{};
-    int openPanelIndex=-1, panelDragMode=0, mixerDragGroup=-1, mixerDragSlot=-1, selectedMidiSequence=0, playingMidiSequence=-1, midiDragCandidate=-1, grooveScrollOffset=0, presetScrollOffset=0, selectedPresetRow=-1, hoveredPresetRow=-1; float panelRuntimeX=50,panelRuntimeY=52,panelRuntimeWidth=88,panelRuntimeHeight=78,panelDragX=0,panelDragY=0,midiDragX=0,midiDragY=0;
+    int openPanelIndex=-1, panelDragMode=0, mixerDragGroup=-1, mixerDragSlot=-1, selectedMidiSequence=-1, playingMidiSequence=-1, midiDragCandidate=-1, grooveScrollOffset=0, presetScrollOffset=0, selectedPresetRow=-1, hoveredPresetRow=-1; float panelRuntimeX=50,panelRuntimeY=52,panelRuntimeWidth=88,panelRuntimeHeight=78,panelDragX=0,panelDragY=0,midiDragX=0,midiDragY=0;
     std::map<int,std::array<float,4>> panelRuntimeBounds;
-    struct UserPreset { std::wstring name; std::vector<float> values,groups,moduleValues; }; std::vector<UserPreset> userPresets; bool userPresetsLoaded=false;
+    struct UserPreset { std::wstring name; std::vector<float> values,groups,moduleValues; int midiSequenceIndex=-1; }; std::vector<UserPreset> userPresets; bool userPresetsLoaded=false;
     struct RuntimeMidiEvent { int tick=0,note=60,velocity=0,channel=0; bool on=false; };
     struct RuntimeMidiTempo { int tick=0; float bpm=120; };
     struct RuntimeMidiSequence { std::wstring name; int ppq=480,durationTicks=0; bool loopEnabled=false; std::vector<RuntimeMidiEvent> events; std::vector<RuntimeMidiTempo> tempos; }; std::vector<RuntimeMidiSequence> importedMidi;

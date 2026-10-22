@@ -71,6 +71,7 @@ struct RuntimeMidiSequence {
 struct RuntimeUserPreset {
     std::string name;
     std::vector<float> values, groups, moduleValues;
+    int midiSequenceIndex = -1;
 };
 
 NSColor* rgbColor(unsigned rgb, CGFloat alpha = 1) {
@@ -144,13 +145,14 @@ float displayedValue(NativeInstrument& instrument, std::size_t index, NSInteger 
                                    : static_cast<float>(instrument.getParamNormalized(parameter));
 }
 
-float indicatorValue(NativeInstrument& instrument, std::size_t index, NSInteger selectedPrismBand, NSInteger openPanel, NSInteger activeNote) {
+float indicatorValue(NativeInstrument& instrument, std::size_t index, NSInteger selectedPrismBand, NSInteger openPanel, NSInteger activeNote, NSInteger playingMidiSequence) {
     if (index >= project::kControls.size()) return 0.f;
     const auto& indicator = project::kControls[index];
     const int sourceIndex = indicator.indicatorSourceIndex;
     if (sourceIndex < 0 || sourceIndex >= static_cast<int>(project::kControls.size())) return std::clamp(indicator.value, 0.f, 1.f);
     const auto& source = project::kControls[static_cast<std::size_t>(sourceIndex)];
     if (equals(source.kind, "panel_button")) return openPanel == sourceIndex ? 1.f : 0.f;
+    if (source.midiSequenceIndex >= 0) return playingMidiSequence == source.midiSequenceIndex ? 1.f : 0.f;
     if (equals(source.kind, "pad")) return instrument.isNoteActive(source.notePitch) || activeNote == source.notePitch ? 1.f : 0.f;
     const float value = displayedValue(instrument, static_cast<std::size_t>(sourceIndex), selectedPrismBand);
     if (equals(source.kind, "button") && equals(source.parameter, "bypass")) return value < .5f ? 1.f : 0.f;
@@ -645,6 +647,7 @@ namespace project = tripleside::project;
 
 - (RuntimeUserPreset)captureUserPreset:(const std::string&)name {
     RuntimeUserPreset preset; preset.name = name;
+    preset.midiSequenceIndex = _selectedMidiSequence >= 0 && _selectedMidiSequence < static_cast<NSInteger>(project::kMidiSequences.size()) ? static_cast<int>(_selectedMidiSequence) : -1;
     preset.values.reserve(project::kControls.size());
     for (std::size_t index = 0; index < project::kControls.size(); ++index) {
         const auto parameter = _instrument->parameterForControl(index);
@@ -686,6 +689,7 @@ namespace project = tripleside::project;
             _instrument->applyModulePresetValue(static_cast<std::size_t>(parameter.moduleIndex), parameter.key, parameter.value);
         }
     }
+    [self stopMidiSequence]; _selectedMidiSequence = preset.midiSequenceIndex;
 }
 
 - (void)applyUserPreset:(NSInteger)index {
@@ -704,6 +708,7 @@ namespace project = tripleside::project;
         if (cursor >= preset.moduleValues.size()) break;
         _instrument->applyModulePresetValue(static_cast<std::size_t>(parameter.moduleIndex), parameter.key, preset.moduleValues[cursor++]);
     }
+    [self stopMidiSequence]; _selectedMidiSequence = preset.midiSequenceIndex;
 }
 
 - (void)saveUserPreset {
@@ -732,12 +737,13 @@ namespace project = tripleside::project;
     _userPresets.clear(); const auto path = [self userPresetPath]; if (path.empty()) return;
     std::ifstream input(path, std::ios::binary); std::uint32_t magic = 0, version = 0, count = 0;
     input.read(reinterpret_cast<char*>(&magic), 4); input.read(reinterpret_cast<char*>(&version), 4); input.read(reinterpret_cast<char*>(&count), 4);
-    if (!input || magic != 0x54534d50u || version != 1 || count > 128) return;
+    if (!input || magic != 0x54534d50u || (version != 1 && version != 2) || count > 128) return;
     for (std::uint32_t index = 0; index < count; ++index) {
         std::uint32_t nameSize = 0, valueCount = 0, groupCount = 0, moduleCount = 0;
-        input.read(reinterpret_cast<char*>(&nameSize), 4); input.read(reinterpret_cast<char*>(&valueCount), 4); input.read(reinterpret_cast<char*>(&groupCount), 4); input.read(reinterpret_cast<char*>(&moduleCount), 4);
-        if (!input || !nameSize || nameSize > 192 || valueCount > project::kControls.size() || groupCount > project::kGroups.size() * 4 || moduleCount > project::kDspModules.size() * 2 + project::kDspParameters.size()) { _userPresets.clear(); return; }
-        RuntimeUserPreset preset; preset.name.resize(nameSize); preset.values.resize(valueCount); preset.groups.resize(groupCount); preset.moduleValues.resize(moduleCount);
+        std::int32_t midiSequenceIndex = -1;
+        input.read(reinterpret_cast<char*>(&nameSize), 4); input.read(reinterpret_cast<char*>(&valueCount), 4); input.read(reinterpret_cast<char*>(&groupCount), 4); input.read(reinterpret_cast<char*>(&moduleCount), 4); if (version >= 2) input.read(reinterpret_cast<char*>(&midiSequenceIndex), 4);
+        if (!input || !nameSize || nameSize > 192 || valueCount > project::kControls.size() || groupCount > project::kGroups.size() * 4 || moduleCount > project::kDspModules.size() * 2 + project::kDspParameters.size() || midiSequenceIndex >= static_cast<std::int32_t>(project::kMidiSequences.size())) { _userPresets.clear(); return; }
+        RuntimeUserPreset preset; preset.name.resize(nameSize); preset.values.resize(valueCount); preset.groups.resize(groupCount); preset.moduleValues.resize(moduleCount); preset.midiSequenceIndex = midiSequenceIndex;
         input.read(preset.name.data(), static_cast<std::streamsize>(nameSize));
         input.read(reinterpret_cast<char*>(preset.values.data()), static_cast<std::streamsize>(valueCount * sizeof(float)));
         input.read(reinterpret_cast<char*>(preset.groups.data()), static_cast<std::streamsize>(groupCount * sizeof(float)));
@@ -749,11 +755,11 @@ namespace project = tripleside::project;
 
 - (void)persistUserPresets {
     const auto path = [self userPresetPath]; if (path.empty()) return; const auto temporary = path.string() + ".tmp";
-    std::ofstream output(temporary, std::ios::binary | std::ios::trunc); const std::uint32_t magic = 0x54534d50u, version = 1, count = static_cast<std::uint32_t>(std::min<std::size_t>(128, _userPresets.size()));
+    std::ofstream output(temporary, std::ios::binary | std::ios::trunc); const std::uint32_t magic = 0x54534d50u, version = 2, count = static_cast<std::uint32_t>(std::min<std::size_t>(128, _userPresets.size()));
     output.write(reinterpret_cast<const char*>(&magic), 4); output.write(reinterpret_cast<const char*>(&version), 4); output.write(reinterpret_cast<const char*>(&count), 4);
     for (std::size_t index = 0; index < count; ++index) {
-        const auto& preset = _userPresets[index]; const std::uint32_t nameSize = static_cast<std::uint32_t>(std::min<std::size_t>(192, preset.name.size())), valueCount = static_cast<std::uint32_t>(preset.values.size()), groupCount = static_cast<std::uint32_t>(preset.groups.size()), moduleCount = static_cast<std::uint32_t>(preset.moduleValues.size());
-        output.write(reinterpret_cast<const char*>(&nameSize), 4); output.write(reinterpret_cast<const char*>(&valueCount), 4); output.write(reinterpret_cast<const char*>(&groupCount), 4); output.write(reinterpret_cast<const char*>(&moduleCount), 4);
+        const auto& preset = _userPresets[index]; const std::uint32_t nameSize = static_cast<std::uint32_t>(std::min<std::size_t>(192, preset.name.size())), valueCount = static_cast<std::uint32_t>(preset.values.size()), groupCount = static_cast<std::uint32_t>(preset.groups.size()), moduleCount = static_cast<std::uint32_t>(preset.moduleValues.size()); const std::int32_t midiSequenceIndex = preset.midiSequenceIndex;
+        output.write(reinterpret_cast<const char*>(&nameSize), 4); output.write(reinterpret_cast<const char*>(&valueCount), 4); output.write(reinterpret_cast<const char*>(&groupCount), 4); output.write(reinterpret_cast<const char*>(&moduleCount), 4); output.write(reinterpret_cast<const char*>(&midiSequenceIndex), 4);
         output.write(preset.name.data(), static_cast<std::streamsize>(nameSize)); output.write(reinterpret_cast<const char*>(preset.values.data()), static_cast<std::streamsize>(valueCount * sizeof(float))); output.write(reinterpret_cast<const char*>(preset.groups.data()), static_cast<std::streamsize>(groupCount * sizeof(float))); output.write(reinterpret_cast<const char*>(preset.moduleValues.data()), static_cast<std::streamsize>(moduleCount * sizeof(float)));
     }
     output.close(); std::error_code error; if (output) std::filesystem::rename(temporary, path, error); if (error) { std::filesystem::remove(path, error); error.clear(); std::filesystem::rename(temporary, path, error); } if (!output || error) std::filesystem::remove(temporary, error);
@@ -930,18 +936,6 @@ namespace project = tripleside::project;
 
 - (void)drawWaveformInRect:(NSRect)rect color:(unsigned)color {
     color = color ? color : project::kAccentRgb;
-    NSColor* grid = rgbColor(color, .13);
-    [grid setStroke];
-    for (int index = 1; index < 8; ++index) {
-        NSBezierPath* line = [NSBezierPath bezierPath];
-        const CGFloat x = NSMinX(rect) + NSWidth(rect) * index / 8.;
-        [line moveToPoint:NSMakePoint(x, NSMinY(rect))]; [line lineToPoint:NSMakePoint(x, NSMaxY(rect))]; [line stroke];
-    }
-    for (int index = 1; index < 4; ++index) {
-        NSBezierPath* line = [NSBezierPath bezierPath];
-        const CGFloat y = NSMinY(rect) + NSHeight(rect) * index / 4.;
-        [line moveToPoint:NSMakePoint(NSMinX(rect), y)]; [line lineToPoint:NSMakePoint(NSMaxX(rect), y)]; [line stroke];
-    }
     constexpr std::size_t sampleCount = 2048;
     std::array<float, sampleCount> samples{};
     _instrument->copyAnalysisSamples(samples.data(), samples.size());
@@ -970,9 +964,10 @@ namespace project = tripleside::project;
     NSImage* image = [self imageNamed:visual.file];
     if (!image || visual.w <= 0 || visual.h <= 0 || visual.hw <= 0 || visual.hh <= 0 || visual.frames <= 0) return;
     float value = equals(control.kind, "indicator")
-        ? indicatorValue(*_instrument, static_cast<std::size_t>(index), _selectedPrismBand, _openPanel, _activeNote)
+        ? indicatorValue(*_instrument, static_cast<std::size_t>(index), _selectedPrismBand, _openPanel, _activeNote, _playingMidiSequence)
         : displayedValue(*_instrument, static_cast<std::size_t>(index), _selectedPrismBand);
-    if (equals(control.kind, "pad")) value = hitPadVariant(control.variant)
+    if (control.midiSequenceIndex >= 0) value = _playingMidiSequence == control.midiSequenceIndex ? 1.f : 0.f;
+    else if (equals(control.kind, "pad")) value = hitPadVariant(control.variant)
         ? ([self hitPadFlashActive:control.notePitch] ? 1.f : 0.f)
         : ((_instrument->isNoteActive(control.notePitch) || _activeNote == control.notePitch) ? 1.f : 0.f);
     const NSInteger frame = std::clamp<NSInteger>(static_cast<NSInteger>(std::lround(value * std::max(0, visual.frames - 1))), 0, visual.frames - 1);
@@ -1027,11 +1022,12 @@ namespace project = tripleside::project;
             continue;
         }
         auto value = equals(control.kind, "indicator")
-            ? indicatorValue(*_instrument, index, _selectedPrismBand, _openPanel, _activeNote)
+            ? indicatorValue(*_instrument, index, _selectedPrismBand, _openPanel, _activeNote, _playingMidiSequence)
             : displayedValue(*_instrument, index, _selectedPrismBand);
+        if (control.midiSequenceIndex >= 0) value = _playingMidiSequence == control.midiSequenceIndex ? 1.f : 0.f;
         if (equals(control.kind, "panel_button")) value = _openPanel == static_cast<NSInteger>(index) ? 1.f : 0.f;
         const bool hitPad = equals(control.kind, "pad") && hitPadVariant(control.variant);
-        if (equals(control.kind, "pad")) value = hitPad ? ([self hitPadFlashActive:control.notePitch] ? 1.f : 0.f) : ((_instrument->isNoteActive(control.notePitch) || _activeNote == control.notePitch) ? 1.f : 0.f);
+        if (equals(control.kind, "pad") && control.midiSequenceIndex < 0) value = hitPad ? ([self hitPadFlashActive:control.notePitch] ? 1.f : 0.f) : ((_instrument->isNoteActive(control.notePitch) || _activeNote == control.notePitch) ? 1.f : 0.f);
         const auto frame = static_cast<NSInteger>(std::lround(value * std::max(0, visual.frames - 1)));
         if (hitPad && value > .5f) {
             NSImage* image = [self imageNamed:visual.file];
@@ -1286,6 +1282,10 @@ namespace project = tripleside::project;
         if (event.clickCount >= 2 && (equals(control.kind, "knob") || equals(control.kind, "fader"))) {
             [self setControl:_dragControl value:neutralControlValue(control)];
             _dragControl = -1;
+        } else if (control.midiSequenceIndex >= 0 && (equals(control.kind, "button") || equals(control.kind, "pad"))) {
+            if (_playingMidiSequence == control.midiSequenceIndex) [self stopMidiSequence];
+            else [self startMidiSequence:control.midiSequenceIndex];
+            _dragControl = -1;
         } else if (equals(control.kind, "pad")) {
             _activeNote = control.notePitch;
             _instrument->queueEditorNote(static_cast<int>(_activeNote), 112, true);
@@ -1343,6 +1343,10 @@ namespace project = tripleside::project;
         _dragControl = -1;
     } else if (equals(control.kind, "panel_button")) {
         if (_openPanel == _dragControl) [self closePanel]; else [self openPanel:_dragControl];
+        _dragControl = -1;
+    } else if (control.midiSequenceIndex >= 0 && (equals(control.kind, "button") || equals(control.kind, "pad"))) {
+        if (_playingMidiSequence == control.midiSequenceIndex) [self stopMidiSequence];
+        else [self startMidiSequence:control.midiSequenceIndex];
         _dragControl = -1;
     } else if (equals(control.kind, "keyboard")) {
         _activeNote = [self keyboardPitchAt:point control:_dragControl];

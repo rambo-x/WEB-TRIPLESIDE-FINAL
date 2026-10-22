@@ -82,6 +82,14 @@ def test_compiles_linked_led_and_realtime_waveform_contract(tmp_path):
 
 def test_compiles_midi_sequence_loop_setting(tmp_path):
     spec = project_spec()
+    spec["interface"]["controls"].append({
+        "id": "pattern-button", "kind": "button", "label": "Pattern",
+        "parameter": "space", "value": 0, "midi_sequence_id": "groove-1",
+    })
+    spec["presets"] = [{
+        "id": "pattern-preset", "name": "Pattern Preset", "category": "user",
+        "midi_sequence_id": "groove-1",
+    }]
     spec["midi_sequences"] = [{
         "id": "groove-1", "name": "Main Groove", "ppq": 480,
         "duration_ticks": 1920, "loop_enabled": True,
@@ -103,6 +111,8 @@ def test_compiles_midi_sequence_loop_setting(tmp_path):
     assert "bool loopEnabled" in result
     assert 'MidiSequenceInfo{"groove-1", "Main Groove", 480, 1920, true, 0, 2' in result
     assert result.count("MidiEventInfo{") == 2
+    assert 'ControlInfo{"pattern-button", "button", "Pattern", "Pattern", "ON", "space", -1, -1, 0,' in result
+    assert 'PresetInfo{"pattern-preset", "Pattern Preset", false, 0, 0, 0, 0, 0, 0, 0}' in result
 
 
 def test_compiles_customer_build_license_contract(tmp_path):
@@ -409,7 +419,7 @@ def test_compiles_panel_button_children_and_function_data(tmp_path):
     result = output.read_text(encoding="utf-8")
     assert 'PanelControlInfo{-1, "preset_browser", 48.0f, 50.0f, 76.0f, 64.0f}' in result
     assert 'PanelControlInfo{0, "", 50.0f, 52.0f, 88.0f, 78.0f}' in result
-    assert 'PresetInfo{"bright", "Bright", true, 0, 1, 0, 0, 0, 1}' in result
+    assert 'PresetInfo{"bright", "Bright", true, 0, 1, 0, 0, 0, 1, -1}' in result
     assert 'PresetModuleInfo{0, true, 0.75f, 0, 1}' in result
     assert 'PresetModuleParameterInfo{0, "tone", 0.91f}' in result
     assert 'MidiMappingInfo{false, 0, 74, 1, 0.0f, 1.0f, false}' not in result
