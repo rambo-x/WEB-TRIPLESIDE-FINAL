@@ -145,7 +145,9 @@ describe("VST Maker Wave Generator note routing", () => {
     expect(source).toContain("const now = voiceStartAt;");
     expect(source).toContain("const scheduledAtAudioTime = (context?.currentTime || 0) + WAVE_CHORD_START_LOOKAHEAD_SECONDS;");
     expect(source).toContain("const releaseBeforeStart = Number(voice.ampEnvelope?.startAt) > now;");
-    expect(source).toContain("gain.linearRampToValueAtTime(0, silentAt);");
+    expect(source).toContain("gain.linearRampToValueAtTime(0, releaseEndAt);");
+    expect(source).toContain("gain.setValueAtTime(0, silentAt);");
+    expect(source).not.toContain("gain.exponentialRampToValueAtTime(WAVE_MIN_GAIN, releaseEndAt);");
     expect(source).toContain("releaseGate.linearRampToValueAtTime(0, silentAt);");
     expect(source).toContain("source.stop(sourceStopAt)");
   });

@@ -2772,8 +2772,13 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
         gain.setValueAtTime(Math.max(WAVE_MIN_GAIN, gain.value), now);
       }
       if (!releaseBeforeStart) {
-        gain.exponentialRampToValueAtTime(WAVE_MIN_GAIN, releaseEndAt);
-        gain.linearRampToValueAtTime(0, silentAt);
+        // Match the native Windows/macOS oscillator envelope. A linear release
+        // keeps the dry Arctic voice audible for the selected duration instead
+        // of collapsing most of its level at the start of an exponential ramp.
+        // The final output gate below multiplies the last 12 ms to a zero-slope
+        // ending before any source or graph node is stopped.
+        gain.linearRampToValueAtTime(0, releaseEndAt);
+        gain.setValueAtTime(0, silentAt);
       }
       if (releaseGate) {
         releaseGate.cancelScheduledValues(now);
