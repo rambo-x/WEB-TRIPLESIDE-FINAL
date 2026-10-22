@@ -2492,7 +2492,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
   };
 
   useEffect(() => {
-    if (!(project.engineModules || []).some((module) => module.type !== "wave_generator")) return;
+    if (!(project.engineModules || []).some((module) => module.type === "wave_generator" || isPostSourceDspModule(module))) return;
     const context = ensureAudioContext();
     if (!context) return;
     installNativeDspWorklet(context)
@@ -2618,7 +2618,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
   };
 
   const ensureWaveDspGraph = (context, plan) => {
-    if (!context || !plan.length || dspWorkletReadyContextRef.current !== context) return null;
+    if (!context || dspWorkletReadyContextRef.current !== context) return null;
     const topology = plan.map(({ id, type }) => `${id}:${type}`).join("|");
     const planSignature = JSON.stringify(plan);
     let graph = waveDspGraphRef.current;
@@ -2679,8 +2679,9 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
   const activatePendingWaveDspGraph = (context) => {
     if (!context || context !== audioContextRef.current) return;
     const modules = (projectRef.current.engineModules || []).filter(isPostSourceDspModule);
-    if (!modules.length) return;
-    const plan = createDspPreviewPlan(modules, projectRef.current.interfaceControls, customImpulseTaps);
+    const plan = modules.length
+      ? createDspPreviewPlan(modules, projectRef.current.interfaceControls, customImpulseTaps)
+      : [];
     const graph = ensureWaveDspGraph(context, plan);
     if (!graph) return;
     activeWaveVoicesRef.current.forEach((voice) => {
@@ -2909,7 +2910,10 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       ? createDspPreviewPlan(postRackModules, project.interfaceControls, customImpulseTaps)
       : [];
     const rackGraph = ensureWaveDspGraph(context, rackPlan);
-    const rackPending = rackPlan.length > 0 && !rackGraph;
+    // Every Wave Generator uses the same shared worklet graph. An empty plan is
+    // an identity processor, so a dry Arctic project follows the exact same
+    // routing/lifecycle as Synth test instead of a separate per-voice path.
+    const rackPending = !rackGraph;
     let toneFilter = null;
     let effectNodes = null;
     let chorusLfo = null;
@@ -3083,7 +3087,8 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     const now = audioContextRef.current?.currentTime || 0;
     const postRackModules = (project.engineModules || []).filter(isPostSourceDspModule);
     const rackPlan = postRackModules.length ? createDspPreviewPlan(postRackModules, project.interfaceControls, customImpulseTaps) : [];
-    if (rackPlan.length && audioContextRef.current) ensureWaveDspGraph(audioContextRef.current, rackPlan);
+    const hasWaveGenerator = (project.engineModules || []).some((item) => item.type === "wave_generator" && !item.bypassed);
+    if (hasWaveGenerator && audioContextRef.current) ensureWaveDspGraph(audioContextRef.current, rackPlan);
     else if (waveDspGraphRef.current) {
       activeWaveVoicesRef.current.forEach((voice, token) => stopWaveVoice(token, voice, true));
       releaseWaveDspGraph();
@@ -3269,8 +3274,12 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     const context = audioContextRef.current;
     if (!context) return;
     const postRackModules = (project.engineModules || []).filter(isPostSourceDspModule);
-    if (postRackModules.length) {
-      ensureWaveDspGraph(context, createDspPreviewPlan(postRackModules, project.interfaceControls, customImpulseTaps));
+    const hasWaveGenerator = (project.engineModules || []).some((module) => module.type === "wave_generator" && !module.bypassed);
+    if (hasWaveGenerator || postRackModules.length) {
+      const plan = postRackModules.length
+        ? createDspPreviewPlan(postRackModules, project.interfaceControls, customImpulseTaps)
+        : [];
+      ensureWaveDspGraph(context, plan);
       return;
     }
     if (!waveDspGraphRef.current) return;
@@ -4200,10 +4209,12 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     if (!context) return;
     if (context.state === "suspended") await context.resume();
     const postRackModules = (projectRef.current.engineModules || []).filter(isPostSourceDspModule);
-    if (!postRackModules.length) return;
     await installNativeDspWorklet(context);
     dspWorkletReadyContextRef.current = context;
-    ensureWaveDspGraph(context, createDspPreviewPlan(postRackModules, projectRef.current.interfaceControls, customImpulseTaps));
+    const plan = postRackModules.length
+      ? createDspPreviewPlan(postRackModules, projectRef.current.interfaceControls, customImpulseTaps)
+      : [];
+    ensureWaveDspGraph(context, plan);
   };
 
   const stopWavePatternNote = (token, playbackOptions = null) => {

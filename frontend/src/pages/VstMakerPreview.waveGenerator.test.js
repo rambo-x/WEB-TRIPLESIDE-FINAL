@@ -189,7 +189,9 @@ describe("VST Maker Wave Generator note routing", () => {
     expect(source).toContain("graph.planSignature !== planSignature");
     expect(source).not.toContain("const nextProcessor = createNativeDspWorkletNode(context, plan);");
     expect(source).not.toContain("graph.pendingPlan = plan;");
-    expect(source).toContain("const rackPending = rackPlan.length > 0 && !rackGraph;");
+    expect(source).toContain("const rackPending = !rackGraph;");
+    expect(source).toContain("if (!context || dspWorkletReadyContextRef.current !== context) return null;");
+    expect(source).not.toContain("if (!context || !plan.length || dspWorkletReadyContextRef.current !== context) return null;");
     expect(source).toContain("activatePendingWaveDspGraph(context);");
     expect(source).toContain("pendingSharedRack: rackPending");
     expect(source).toContain("pendingDirectGain?.gain.linearRampToValueAtTime(0, now + 0.04);");
