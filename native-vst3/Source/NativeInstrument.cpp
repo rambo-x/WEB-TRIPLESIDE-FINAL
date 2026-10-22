@@ -228,6 +228,7 @@ tresult PLUGIN_API NativeInstrument::initialize(FUnknown* context) {
     parameters.addParameter(STR16("Pan"), nullptr, 0, project::kDefaultPan, ParameterInfo::kCanAutomate, kPanId);
     if constexpr(project::kPitchBendEnabled)parameters.addParameter(STR16("Pitch Bend"), nullptr, 0, .5, ParameterInfo::kCanAutomate, kPitchBendId);
     if constexpr(project::kModulationEnabled)parameters.addParameter(STR16("Modulation"), nullptr, 0, 0, ParameterInfo::kCanAutomate, kModulationId);
+    if(hasControlParameter("bypass"))parameters.addParameter(STR16("Bypass"),nullptr,1,project::kDefaultBypass,ParameterInfo::kCanAutomate|ParameterInfo::kIsBypass,kBypassId);
     parameters.addParameter(STR16("Mute"), nullptr, 1, 0, ParameterInfo::kCanAutomate, kMuteId);
     parameters.addParameter(STR16("Solo"), nullptr, 1, 0, ParameterInfo::kCanAutomate, kSoloId);
     auto* sustainParameter=new StringListParameter(STR16("Sustain Pedal"),kSustainId,nullptr,ParameterInfo::kCanAutomate);
@@ -726,7 +727,7 @@ tresult PLUGIN_API NativeInstrument::process(ProcessData&data){
         applyAutomationAt(i);
         float sl=0,sr=0;
         if constexpr(project::kIsEffect){const float dryL=inL?inL[i]:0,dryR=inR?inR[i]:dryL;processEffectFrame(dryL,dryR,sl,sr);}
-        else{applyEventsAt(data.inputEvents,event,i);processGrooveSample();renderFrame(sl,sr,gp);if(instrumentUsesDspRack)effectRack.processFrame(sl,sr);else applyToneAndSpace(sl,sr);if(mute&&!solo)sl=sr=0;instrumentMasterGain.processFrame(sl,sr);}
+        else{applyEventsAt(data.inputEvents,event,i);processGrooveSample();renderFrame(sl,sr,gp);const float dryL=sl,dryR=sr;if(instrumentUsesDspRack)effectRack.processFrame(sl,sr);else applyToneAndSpace(sl,sr);const float bypassMix=effectBypassMix.next();sl+=(dryL-sl)*bypassMix;sr+=(dryR-sr)*bypassMix;if(mute&&!solo)sl=sr=0;instrumentMasterGain.processFrame(sl,sr);}
         applyMasterPan(sl,sr);l[i]=sl;r[i]=sr;const auto analysisIndex=analysisWrite.fetch_add(1,std::memory_order_relaxed);const auto analysisSlot=static_cast<size_t>(analysisIndex%kAnalysisSampleCount);analysisSamplesLeft[analysisSlot].store(sl,std::memory_order_relaxed);analysisSamplesRight[analysisSlot].store(sr,std::memory_order_relaxed);peakL=std::max(peakL,std::abs(sl));peakR=std::max(peakR,std::abs(sr));energyL+=sl*sl;energyR+=sr*sr;
     }
     peaks[0]=peakL;peaks[1]=peakR;rms[0]=std::sqrt(energyL/data.numSamples);rms[1]=std::sqrt(energyR/data.numSamples);for(size_t g=0;g<gp.size();++g)groupPeaks[g]=gp[g];const float rackActive=1.f-effectBypassMix.current();for(size_t module=0;module<compressorGainReductions.size();++module)compressorGainReductions[module].store(rackActive*effectRack.gainReduction(module),std::memory_order_relaxed);data.outputs[0].silenceFlags=(peakL<1e-8f&&peakR<1e-8f)?std::numeric_limits<uint64>::max():0;return kResultOk;
@@ -738,7 +739,7 @@ void NativeInstrument::copyAnalysisSamples(float*destination,std::size_t count,i
 }
 
 tresult PLUGIN_API NativeInstrument::setState(IBStream*s){
-    if(!s)return kResultFalse;IBStreamer b(s,kLittleEndian);uint32 magic=0,version=0;if(!b.readInt32u(magic)||!b.readInt32u(version)||magic!=0x54535633||version<1||version>5)return kResultFalse;
+    if(!s)return kResultFalse;IBStreamer b(s,kLittleEndian);uint32 magic=0,version=0;if(!b.readInt32u(magic)||!b.readInt32u(version)||magic!=0x54535633||version<1||version>6)return kResultFalse;
     std::array<float,9>v{};for(auto&x:v)if(!b.readFloat(x))return kResultFalse;
     if constexpr(project::kIsEffect){input=clamp01(v[0]);drive=clamp01(v[1]);compress=clamp01(v[2]);tone=clamp01(v[3]);width=clamp01(v[4]);space=clamp01(v[5]);mix=clamp01(v[6]);output=clamp01(v[7]);bypass=v[8]>=.5f;}else{volume=clamp01(v[0]);tone=clamp01(v[1]);attack=clamp01(v[2]);releaseAmount=clamp01(v[3]);space=clamp01(v[4]);mute=hasControlParameter("mute")&&v[5]>=.5f;solo=hasControlParameter("solo")&&v[6]>=.5f;v[5]=mute?1.f:0.f;v[6]=solo?1.f:0.f;
     articulation=project::kArticulations.size()>1?std::lround(clamp01(v[7])*(project::kArticulations.size()-1)):0;mic=project::kMicPositions.size()>1?std::lround(clamp01(v[8])*(project::kMicPositions.size()-1)):0;
@@ -756,15 +757,17 @@ tresult PLUGIN_API NativeInstrument::setState(IBStream*s){
         }
         if constexpr(project::kIsPrismEq)updatePrismEq();
     }
+    if constexpr(!project::kIsEffect){float bypassValue=project::kDefaultBypass;if(version>=6&&!b.readFloat(bypassValue))return kResultFalse;bypass=clamp01(bypassValue)>=.5f;setParamNormalized(kBypassId,bypass?1.f:0.f);effectBypassMix.reset(bypass?1.f:0.f);}
     return kResultOk;
 }
 tresult PLUGIN_API NativeInstrument::getState(IBStream*s){
-    if(!s)return kResultFalse;IBStreamer b(s,kLittleEndian);if(!b.writeInt32u(0x54535633)||!b.writeInt32u(5))return kResultFalse;
+    if(!s)return kResultFalse;IBStreamer b(s,kLittleEndian);if(!b.writeInt32u(0x54535633)||!b.writeInt32u(6))return kResultFalse;
     float articulationValue=project::kArticulations.size()>1?(float)articulation/(project::kArticulations.size()-1):0,micValue=project::kMicPositions.size()>1?(float)mic/(project::kMicPositions.size()-1):0;
     float instrumentValues[]={volume,tone,attack,releaseAmount,space,mute?1.f:0.f,solo?1.f:0.f,articulationValue,micValue};float effectValues[]={input,drive,compress,tone,width,space,mix,output,bypass?1.f:0.f};auto*values=project::kIsEffect?effectValues:instrumentValues;for(int i=0;i<9;++i)if(!b.writeFloat(values[i]))return kResultFalse;
     for(size_t g=0;g<project::kGroups.size();++g){float values[]={groupVolumes[g],(groupPans[g]+1)*.5f,groupMutes[g]?1.f:0.f,groupSolos[g]?1.f:0.f};for(float x:values)if(!b.writeFloat(x))return kResultFalse;}
     if(!b.writeInt32u(static_cast<uint32>(moduleControlValues.size())))return kResultFalse;for(float value:moduleControlValues)if(!b.writeFloat(value))return kResultFalse;if(!b.writeFloat(pan))return kResultFalse;
     if constexpr(project::kIsPrismEq||project::kHasPrismModule){for(float value:prismFrequencies)if(!b.writeFloat(value))return kResultFalse;for(int band=0;band<5;++band)if(!b.writeFloat(prismBandValue(band,1)))return kResultFalse;for(float value:prismQs)if(!b.writeFloat(value))return kResultFalse;for(int band=0;band<5;++band)if(!b.writeFloat(prismBandEnabled(band)?1.f:0.f))return kResultFalse;}
+    if constexpr(!project::kIsEffect)if(!b.writeFloat(bypass?1.f:0.f))return kResultFalse;
     return kResultOk;
 }
 tresult PLUGIN_API NativeInstrument::setEditorState(IBStream*s){return setState(s);} tresult PLUGIN_API NativeInstrument::getEditorState(IBStream*s){return getState(s);}

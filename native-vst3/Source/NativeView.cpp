@@ -120,10 +120,11 @@ LRESULT NativeView::handleMessage(UINT m,WPARAM w,LPARAM l){
     }
     if(presetNameFocused){if(m==WM_GETDLGCODE)return DLGC_WANTALLKEYS|DLGC_WANTCHARS;if(m==WM_CHAR){if(presetForwardedKey==static_cast<wchar_t>(w)&&GetTickCount64()-presetForwardedAt<100){presetForwardedKey=0;return 0;}presetForwardedKey=0;if(w==VK_BACK){if(!presetNameInput.empty())presetNameInput.pop_back();}else if(w==VK_RETURN)saveUserPreset();else if(w>=32&&w<127&&presetNameInput.size()<48)presetNameInput.push_back(static_cast<wchar_t>(w));InvalidateRect(hwnd,nullptr,FALSE);return 0;}}
     switch(m){case WM_PAINT:paint();ValidateRect(hwnd,nullptr);return 0;case WM_ERASEBKGND:return 1;case WM_TIMER:updateMidiPlayback();InvalidateRect(hwnd,nullptr,FALSE);return 0;case WM_SETCURSOR:if(LOWORD(l)==HTCLIENT){POINT point{};GetCursorPos(&point);ScreenToClient(hwnd,&point);const auto design=designPoint(static_cast<float>(point.x),static_cast<float>(point.y));if(grooveRowHit(design.x,design.y)){SetCursor(LoadCursor(nullptr,IDC_HAND));return TRUE;}}break;case WM_LBUTTONDOWN:SetCapture(hwnd);SetFocus(hwnd);mouseDown((float)GET_X_LPARAM(l),(float)GET_Y_LPARAM(l));return 0;case WM_LBUTTONDBLCLK:ReleaseCapture();mouseUp();mouseDoubleClick((float)GET_X_LPARAM(l),(float)GET_Y_LPARAM(l));return 0;case WM_MOUSEWHEEL:{POINT point{GET_X_LPARAM(l),GET_Y_LPARAM(l)};ScreenToClient(hwnd,&point);mouseWheel((float)point.x,(float)point.y,GET_WHEEL_DELTA_WPARAM(w));return 0;}case WM_KEYDOWN:if(w==VK_DELETE&&(project::kIsPrismEq||project::kHasPrismModule)&&instrument.prismBandEnabled(selectedPrismBand)){setParameter(kPrismEnabledBaseId+static_cast<ParamID>(selectedPrismBand),0);for(int distance=1;distance<5;++distance){const int lower=selectedPrismBand-distance,upper=selectedPrismBand+distance;if(lower>=0&&instrument.prismBandEnabled(lower)){selectedPrismBand=lower;break;}if(upper<5&&instrument.prismBandEnabled(upper)){selectedPrismBand=upper;break;}}InvalidateRect(hwnd,nullptr,FALSE);return 0;}break;case WM_MOUSEMOVE:{TRACKMOUSEEVENT tracking{sizeof(tracking),TME_LEAVE,hwnd,0};TrackMouseEvent(&tracking);mouseMove((float)GET_X_LPARAM(l),(float)GET_Y_LPARAM(l));return 0;}case WM_MOUSELEAVE:hoveredPresetRow=-1;InvalidateRect(hwnd,nullptr,FALSE);return 0;case WM_LBUTTONUP:ReleaseCapture();mouseUp();return 0;case WM_DESTROY:discardResources();return 0;}return DefWindowProcW(hwnd,m,w,l);}
-void NativeView::drawVisualSprite(const char*file,int frame,int columns,float cellWidth,float cellHeight,float x,float y,float width,float height,float opacity){
+void NativeView::drawVisualSprite(const char*file,int frame,int columns,float cellWidth,float cellHeight,float x,float y,float width,float height,float opacity,float sourceWidth,float sourceHeight){
     auto name=wide(file);auto&bitmap=visualBitmaps[name];if(!loadBitmap(name.c_str(),bitmap))return;
     const float sx=(frame%columns)*cellWidth,sy=(frame/columns)*cellHeight;
-    target->DrawBitmap(bitmap.Get(),D2D1::RectF(x,y,x+width,y+height),std::clamp(opacity,0.f,1.f),D2D1_BITMAP_INTERPOLATION_MODE_LINEAR,D2D1::RectF(sx,sy,sx+cellWidth,sy+cellHeight));
+    const float sw=sourceWidth>0?sourceWidth:cellWidth,sh=sourceHeight>0?sourceHeight:cellHeight;
+    target->DrawBitmap(bitmap.Get(),D2D1::RectF(x,y,x+width,y+height),std::clamp(opacity,0.f,1.f),D2D1_BITMAP_INTERPOLATION_MODE_LINEAR,D2D1::RectF(sx,sy,sx+sw,sy+sh));
 }
 bool NativeView::hitPadFlashActive(int pitch){
     if(pitch<0||pitch>=128)return false;
@@ -171,7 +172,7 @@ void NativeView::drawVisualControl(size_t index){
     }
     if(!panelChild)for(const auto&key:project::kVisualKeys)if(key.control==static_cast<int>(index)){
         const bool active=key.pitch==activeNote||instrument.isNoteActive(key.pitch);
-        drawVisualSprite(key.file,key.frame+(active?1:0),key.columns,static_cast<float>(key.cellWidth),static_cast<float>(key.cellHeight),key.x,key.y,key.w,key.h);
+        drawVisualSprite(key.file,key.frame+(active?1:0),key.columns,static_cast<float>(key.cellWidth),static_cast<float>(key.cellHeight),key.x,key.y,key.w,key.h,1.f,static_cast<float>(key.sourceWidth),static_cast<float>(key.sourceHeight));
     }
 }
 void NativeView::drawVisualCanvas(){

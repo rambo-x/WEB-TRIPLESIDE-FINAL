@@ -293,7 +293,11 @@ def render(spec_path, url, browser=None):
                         for active in (False, True):
                             page.evaluate('(f) => window.__vstVisual.setFrame(f)', dict(pitch=pitch) if active else {})
                             key_images.append(capture(key_rect))
-                        key_entries.append(dict(control=index, pitch=pitch, rect=key_rect, hit=key_hit, frame=key_index*2))
+                        key_entries.append(dict(
+                            control=index, pitch=pitch, rect=key_rect, hit=key_hit,
+                            frame=key_index*2, source_width=key_images[-1].width,
+                            source_height=key_images[-1].height,
+                        ))
                         key.evaluate("e => { e.style.visibility='hidden'; }")
                     cell_w, cell_h = max(i.width for i in key_images), max(i.height for i in key_images)
                     cols = min(16, max(1, 4096//cell_w))

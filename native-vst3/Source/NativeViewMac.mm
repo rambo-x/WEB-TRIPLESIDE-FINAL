@@ -1092,16 +1092,16 @@ namespace project = tripleside::project;
     }
 
     for (const auto& key : project::kVisualKeys) {
-        if (!_instrument->isNoteActive(key.pitch) && _activeNote != key.pitch) continue;
         NSImage* image = [self imageNamed:key.file];
-        if (!image || key.cellWidth <= 0 || key.cellHeight <= 0) continue;
+        if (!image || key.cellWidth <= 0 || key.cellHeight <= 0 || key.sourceWidth <= 0 || key.sourceHeight <= 0) continue;
         const NSInteger columns = std::max(1, key.columns);
-        const NSInteger frame = key.frame + 1;
+        const bool active = _instrument->isNoteActive(key.pitch) || _activeNote == key.pitch;
+        const NSInteger frame = key.frame + (active ? 1 : 0);
         const NSInteger row = frame / columns;
         const NSInteger column = frame % columns;
         const CGFloat sourceY = image.size.height - (row + 1) * key.cellHeight;
         [image drawInRect:NSMakeRect(key.x, key.y, key.w, key.h)
-                 fromRect:NSMakeRect(column * key.cellWidth, sourceY, key.cellWidth, key.cellHeight)
+                 fromRect:NSMakeRect(column * key.cellWidth, sourceY + key.cellHeight - key.sourceHeight, key.sourceWidth, key.sourceHeight)
                 operation:NSCompositingOperationSourceOver fraction:1 respectFlipped:YES
                     hints:@{NSImageHintInterpolation: @(NSImageInterpolationHigh)}];
     }
@@ -1203,10 +1203,10 @@ namespace project = tripleside::project;
 }
 
 - (NSInteger)keyboardPitchAt:(NSPoint)point control:(NSInteger)controlIndex {
-    for (const auto& key : project::kVisualKeys) {
-        if (key.control != controlIndex) continue;
-        if (point.x >= key.hx && point.x <= key.hx + key.hw
-            && point.y >= key.hy && point.y <= key.hy + key.hh) return key.pitch;
+    for (auto key = project::kVisualKeys.rbegin(); key != project::kVisualKeys.rend(); ++key) {
+        if (key->control != controlIndex) continue;
+        if (point.x >= key->hx && point.x <= key->hx + key->hw
+            && point.y >= key->hy && point.y <= key->hy + key->hh) return key->pitch;
     }
     return -1;
 }

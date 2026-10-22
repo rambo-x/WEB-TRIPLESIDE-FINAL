@@ -36,7 +36,7 @@ private:
     int hitControl(float,float) const; int hitPanelChild(float,float) const; int keyboardNote(const D2D1_RECT_F&,float,float,int) const; D2D1_RECT_F designRect() const; D2D1_RECT_F controlRect(size_t) const; D2D1_POINT_2F controlPoint(size_t,float,float) const; D2D1_RECT_F labelRect(const D2D1_RECT_F&) const;
     D2D1_MATRIX_3X2_F designTransform() const; D2D1_POINT_2F designPoint(float,float) const;
     void drawVisualControl(size_t); int visualKeyboardNote(int,float,float) const;
-    void drawVisualSprite(const char*,int,int,float,float,float,float,float,float,float opacity=1.f);
+    void drawVisualSprite(const char*,int,int,float,float,float,float,float,float,float opacity=1.f,float sourceWidth=0.f,float sourceHeight=0.f);
     void drawVisualSpriteRegion(const char*,int,int,float,float,const D2D1_RECT_F&,const D2D1_RECT_F&);
     std::map<std::wstring,Microsoft::WRL::ComPtr<ID2D1Bitmap>> visualBitmaps;
     void mouseDown(float,float); void mouseMove(float,float); void mouseUp();

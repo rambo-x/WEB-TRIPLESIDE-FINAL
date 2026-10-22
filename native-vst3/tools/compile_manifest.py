@@ -496,7 +496,13 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
             str(item['frames']), str(item['columns']),
         )) + '}')
     for item in visual.get('keys', []):
-        visual_keys.append('VisualKey{' + ', '.join((cpp_string(item['file']), str(item['control']), str(item['pitch']), rect_values(item['rect']), rect_values(item['hit']), str(item['frame']), str(item['columns']), str(item['cell_width']), str(item['cell_height']))) + '}')
+        visual_keys.append('VisualKey{' + ', '.join((
+            cpp_string(item['file']), str(item['control']), str(item['pitch']),
+            rect_values(item['rect']), rect_values(item['hit']), str(item['frame']),
+            str(item['columns']), str(item['cell_width']), str(item['cell_height']),
+            str(item.get('source_width', item['cell_width'])),
+            str(item.get('source_height', item['cell_height'])),
+        )) + '}')
     embedded_resources = write_resource_script(spec_path, output_path)
     content = f'''#pragma once
 #include <array>
@@ -527,7 +533,7 @@ struct DspModuleInfo {{ const char* id; const char* type; const char* name; int 
 struct DspParameterInfo {{ int moduleIndex; const char* key; float value; }};
 struct ImpulseResponseInfo {{ int moduleIndex; const char* resourceFile; bool normalize, autoTrim; float trimStart, trimEnd; bool polarityInverted; float phaseMs; }};
 struct VisualControl {{ const char* file; float x,y,w,h,hx,hy,hw,hh,mlx,mly,mlw,mlh,mrx,mry,mrw,mrh; int frames,columns; }};
-struct VisualKey {{ const char* file; int control,pitch; float x,y,w,h,hx,hy,hw,hh; int frame,columns,cellWidth,cellHeight; }};
+struct VisualKey {{ const char* file; int control,pitch; float x,y,w,h,hx,hy,hw,hh; int frame,columns,cellWidth,cellHeight,sourceWidth,sourceHeight; }};
 inline constexpr const char* kVisualBackdrop = {cpp_string('visual_backdrop.png' if visual else '')};
 inline constexpr std::array<VisualControl, {len(visual_controls)}> kVisualControls {{{{ {', '.join(visual_controls)} }}}};
 inline constexpr std::array<VisualKey, {len(visual_keys)}> kVisualKeys {{{{ {', '.join(visual_keys)} }}}};

@@ -113,10 +113,25 @@ def test_native_keyboard_atlas_uses_idle_and_next_pressed_frame_on_both_platform
 
     assert "for active in (False, True):" in capture_source
     assert "frame=key_index*2" in capture_source
+    assert "source_width=key_images[-1].width" in capture_source
+    assert "key.sourceWidth" in windows_source
     assert "key.frame+(active?1:0)" in windows_source
-    assert "const NSInteger frame = key.frame + 1;" in mac_source
+    assert "const NSInteger frame = key.frame + (active ? 1 : 0);" in mac_source
+    assert "key.sourceWidth" in mac_source
     assert "const NSInteger row = frame / columns;" in mac_source
     assert "const NSInteger column = frame % columns;" in mac_source
+
+
+def test_instrument_bypass_buttons_register_toggle_and_bypass_only_the_dsp_chain():
+    instrument_source = (SOURCE_DIR / "NativeInstrument.cpp").read_text(encoding="utf-8")
+    mac_source = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
+
+    assert 'if(hasControlParameter("bypass"))parameters.addParameter' in instrument_source
+    assert "const float dryL=sl,dryR=sr" in instrument_source
+    assert "sl+=(dryL-sl)*bypassMix" in instrument_source
+    assert "version>6" in instrument_source
+    assert "b.writeInt32u(6)" in instrument_source
+    assert "project::kVisualKeys.rbegin()" in mac_source
 
 
 def test_native_runtime_maps_pitch_bend_and_modulation_with_expression_dsp():
@@ -152,8 +167,8 @@ def test_native_runtime_applies_and_persists_master_pan():
     assert "applyMasterPan(float&, float&)" in instrument_header
     assert "masterPan.next()*2.f-1.f" in instrument_source
     assert "applyMasterPan(sl,sr)" in instrument_source
-    assert "version>5" in instrument_source
-    assert "writeInt32u(5)" in instrument_source
+    assert "version>6" in instrument_source
+    assert "writeInt32u(6)" in instrument_source
     assert "b.writeFloat(pan)" in instrument_source
 
 
@@ -644,8 +659,8 @@ def test_prism_contextual_bands_route_runtime_parameters_and_migrate_state_v4():
     assert "kPrismEnabledBaseId=230" in header
     assert "id>=kPrismFrequencyBaseId&&id<kPrismFrequencyBaseId+5" in instrument
     assert "id>=kPrismQBaseId&&id<kPrismQBaseId+5" in instrument
-    assert "version>5" in instrument
-    assert "b.writeInt32u(5)" in instrument
+    assert "version>6" in instrument
+    assert "b.writeInt32u(6)" in instrument
     assert "else prismFrequencies[0]=tone" in instrument
     assert "applyPrismRackParameter" in instrument
     assert "isPrismContextParameter(control.parameter)" in instrument
