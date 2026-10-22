@@ -40,6 +40,16 @@ describe("VST Maker Wave Generator note routing", () => {
     expect(source).not.toContain("if (activeWaveVoicesRef.current.get(token) === voice) activeWaveVoicesRef.current.delete(token);");
   });
 
+  test("forces stuck voices off and avoids unused per-voice effects with a shared rack", () => {
+    expect(source).toContain('window.addEventListener("blur", stopAllWaveNotes);');
+    expect(source).toContain('window.addEventListener("pagehide", stopAllWaveNotes);');
+    expect(source).toContain('document.addEventListener("visibilitychange", stopWhenHidden);');
+    expect(source).toContain("voice.cleanupTimer = window.setTimeout");
+    expect(source).toContain("cleanupWaveVoice(voice);");
+    expect(source).toContain("let effectNodes = null;");
+    expect(source.indexOf("effectNodes = { saturation")).toBeGreaterThan(source.indexOf("} else {\n      toneFilter = context.createBiquadFilter();"));
+  });
+
   test("separates both oscillators and defaults OSC2 to an explicit switch", () => {
     expect(source).toContain(">Oscillator 1</div>");
     expect(source).toContain(">Oscillator 2</div>");
@@ -133,7 +143,7 @@ describe("VST Maker Wave Generator note routing", () => {
     expect(source).toContain("masterGain.connect(rackGraph.input);");
     expect(source).toContain('graph.processor.port.postMessage({ type: "plan", plan });');
     expect(source).toContain("usesSharedRack: Boolean(rackGraph)");
-    expect(source).toContain("if (!rackGraph && !rackPending) chorusLfo.start(now);");
+    expect(source).toContain("if (!rackGraph && !rackPending) chorusLfo?.start(now);");
   });
 
   test("shares one post-mix rack instead of creating a processor for every voice", () => {

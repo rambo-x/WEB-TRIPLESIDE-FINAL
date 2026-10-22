@@ -2705,6 +2705,23 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     });
   };
 
+  const cleanupWaveVoice = (voice) => {
+    if (!voice || voice.cleaned) return;
+    voice.cleaned = true;
+    if (voice.cleanupTimer) window.clearTimeout(voice.cleanupTimer);
+    voice.sources?.forEach(({ source, sourceGain, panner }) => {
+      [source, sourceGain, panner].forEach((node) => {
+        try { node?.disconnect(); } catch { /* node already disconnected */ }
+      });
+    });
+    [voice.mixBus, voice.filter, voice.ampGain, voice.toneFilter, voice.masterGain, voice.masterPanner,
+      voice.vibratoLfo, voice.vibratoGain, voice.pendingDirectGain, voice.rackSendGain].forEach((node) => {
+      try { node?.disconnect(); } catch { /* node already disconnected */ }
+    });
+    cleanupAudioNodes(voice.effectNodes);
+    removeWaveVoiceFromRegistry(voice);
+  };
+
   const stopWaveVoice = (token, voice, immediate = false, scheduledAtPerformance = null) => {
     if (!voice) return;
     const context = audioContextRef.current;
@@ -2714,6 +2731,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     const now = (context?.currentTime || 0) + delaySeconds;
     if (!shouldScheduleWaveRelease(voice.releaseScheduledAt, now, immediate)) return;
     const releaseSeconds = immediate ? 0.005 : voice.releaseSeconds;
+    voice.held = false;
     try {
       const gain = voice.ampGain.gain;
       const releaseBeforeStart = immediate && Number(voice.ampEnvelope?.startAt) > now;
@@ -2738,6 +2756,11 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       voice.effectNodes?.chorusLfo?.stop(now + releaseSeconds + 0.02);
     } catch { /* voice already stopped */ }
     voice.releaseScheduledAt = now;
+    if (voice.cleanupTimer) window.clearTimeout(voice.cleanupTimer);
+    voice.cleanupTimer = window.setTimeout(() => {
+      voice.sources?.forEach(({ source }) => { try { source.stop(); } catch { /* source already stopped */ } });
+      cleanupWaveVoice(voice);
+    }, Math.max(100, Math.ceil((delaySeconds + releaseSeconds + 0.1) * 1000)));
   };
 
   const selectedHeldWaveNote = () => {
@@ -2836,38 +2859,15 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     masterPanner.pan.value = Math.max(-1, Math.min(1, (macroValue("pan", 50) - 50) / 50));
     const muted = macroValue("mute", 0) >= 50 && macroValue("solo", 0) < 50;
     masterGain.gain.value = moduleMix * (macroValue("volume", 100) / 100) * (muted ? 0 : 1);
-    const toneFilter = context.createBiquadFilter();
-    toneFilter.type = "highshelf";
-    toneFilter.frequency.value = 500 + macroValue("tone", 50) * 65;
-    toneFilter.gain.value = (macroValue("tone", 50) - 50) * 0.24;
-    const saturation = context.createWaveShaper();
-    saturation.oversample = "2x";
-    const saturationAmount = macroValue("tone", 50) / 100;
-    const saturationKey = saturationAmount.toFixed(3);
-    if (project.effects.saturation && !saturationCurvesRef.current.has(saturationKey)) saturationCurvesRef.current.set(saturationKey, saturationCurve(saturationAmount));
-    saturation.curve = project.effects.saturation ? saturationCurvesRef.current.get(saturationKey) : null;
-    const dryGain = context.createGain(); dryGain.gain.value = 1;
-    const reverb = context.createConvolver();
-    if (project.effects.reverb && !reverbImpulseRef.current) reverbImpulseRef.current = createReverbImpulse(context);
-    reverb.buffer = project.effects.reverb ? reverbImpulseRef.current : null;
-    const reverbGain = context.createGain();
-    const delay = context.createDelay(1.5); delay.delayTime.value = 30 / Math.max(20, Math.min(300, Number(project.tempoBpm) || 120));
-    const delayFeedback = context.createGain(); delayFeedback.gain.value = 0.2;
-    const delayGain = context.createGain();
-    const chorus = context.createDelay(0.2); chorus.delayTime.value = 0.028;
-    const chorusGain = context.createGain();
-    const chorusLfo = context.createOscillator(); chorusLfo.frequency.value = 0.8;
-    const chorusDepth = context.createGain(); chorusDepth.gain.value = 0.008;
-    const space = macroValue("space", 50) / 100;
-    reverbGain.gain.value = project.effects.reverb ? 0.08 + space * 0.25 : 0;
-    delayGain.gain.value = project.effects.delay ? 0.06 + space * 0.18 : 0;
-    chorusGain.gain.value = project.effects.chorus ? 0.04 + space * 0.12 : 0;
     const postRackModules = (project.engineModules || []).filter(isPostSourceDspModule);
     const rackPlan = postRackModules.length
       ? createDspPreviewPlan(postRackModules, project.interfaceControls, customImpulseTaps)
       : [];
     const rackGraph = ensureWaveDspGraph(context, rackPlan);
     const rackPending = rackPlan.length > 0 && !rackGraph;
+    let toneFilter = null;
+    let effectNodes = null;
+    let chorusLfo = null;
     let pendingDirectGain = null;
     mixBus.connect(filter);
     filter.connect(ampGain);
@@ -2884,6 +2884,32 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       pendingDirectGain.gain.value = (macroValue("volume", 100) / 100) * (muted ? 0 : 1);
       masterGain.connect(pendingDirectGain).connect(masterPanner).connect(meterAnalyserRef.current || context.destination);
     } else {
+      toneFilter = context.createBiquadFilter();
+      toneFilter.type = "highshelf";
+      toneFilter.frequency.value = 500 + macroValue("tone", 50) * 65;
+      toneFilter.gain.value = (macroValue("tone", 50) - 50) * 0.24;
+      const saturation = context.createWaveShaper();
+      saturation.oversample = "2x";
+      const saturationAmount = macroValue("tone", 50) / 100;
+      const saturationKey = saturationAmount.toFixed(3);
+      if (project.effects.saturation && !saturationCurvesRef.current.has(saturationKey)) saturationCurvesRef.current.set(saturationKey, saturationCurve(saturationAmount));
+      saturation.curve = project.effects.saturation ? saturationCurvesRef.current.get(saturationKey) : null;
+      const dryGain = context.createGain(); dryGain.gain.value = 1;
+      const reverb = context.createConvolver();
+      if (project.effects.reverb && !reverbImpulseRef.current) reverbImpulseRef.current = createReverbImpulse(context);
+      reverb.buffer = project.effects.reverb ? reverbImpulseRef.current : null;
+      const reverbGain = context.createGain();
+      const delay = context.createDelay(1.5); delay.delayTime.value = 30 / Math.max(20, Math.min(300, Number(project.tempoBpm) || 120));
+      const delayFeedback = context.createGain(); delayFeedback.gain.value = 0.2;
+      const delayGain = context.createGain();
+      const chorus = context.createDelay(0.2); chorus.delayTime.value = 0.028;
+      const chorusGain = context.createGain();
+      chorusLfo = context.createOscillator(); chorusLfo.frequency.value = 0.8;
+      const chorusDepth = context.createGain(); chorusDepth.gain.value = 0.008;
+      const space = macroValue("space", 50) / 100;
+      reverbGain.gain.value = project.effects.reverb ? 0.08 + space * 0.25 : 0;
+      delayGain.gain.value = project.effects.delay ? 0.06 + space * 0.18 : 0;
+      chorusGain.gain.value = project.effects.chorus ? 0.04 + space * 0.12 : 0;
       ampGain.connect(toneFilter);
       toneFilter.connect(saturation);
       saturation.connect(dryGain); dryGain.connect(masterGain);
@@ -2891,6 +2917,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       saturation.connect(delay); delay.connect(delayFeedback); delayFeedback.connect(delay); delay.connect(delayGain); delayGain.connect(masterGain);
       saturation.connect(chorus); chorus.connect(chorusGain); chorusGain.connect(masterGain); chorusLfo.connect(chorusDepth); chorusDepth.connect(chorus.delayTime);
       masterGain.connect(masterPanner).connect(meterAnalyserRef.current || context.destination);
+      effectNodes = { saturation, dryGain, reverb, reverbGain, delay, delayFeedback, delayGain, chorus, chorusGain, chorusLfo, chorusDepth };
     }
 
     const sources = [];
@@ -2995,15 +3022,13 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     if (vibratoDelay > 0) vibratoGain.gain.linearRampToValueAtTime(vibratoDepth, now + vibratoDelay);
     vibratoLfo.connect(vibratoGain);
     sources.forEach((item) => { if (!item.noise && item.source.detune) vibratoGain.connect(item.source.detune); });
-    const effectNodes = { saturation, dryGain, reverb, reverbGain, delay, delayFeedback, delayGain, chorus, chorusGain, chorusLfo, chorusDepth };
     const ampEnvelope = { startAt: now, attackSeconds, decaySeconds, targetGain, sustainGain };
-    const voice = { sources, ampGain, ampEnvelope, filter, masterGain, masterPanner, toneFilter, vibratoLfo, vibratoGain, effectNodes, usesSharedRack: Boolean(rackGraph), pendingSharedRack: rackPending, pendingDirectGain: rackPending ? pendingDirectGain : null, rackSendGain: null, rackInputGain: moduleMix, pitch, held: true, targetGain, releaseSeconds, startedOrder: waveNoteSequenceRef.current };
+    const voice = { sources, mixBus, ampGain, ampEnvelope, filter, masterGain, masterPanner, toneFilter, vibratoLfo, vibratoGain, effectNodes, usesSharedRack: Boolean(rackGraph), pendingSharedRack: rackPending, pendingDirectGain: rackPending ? pendingDirectGain : null, rackSendGain: null, rackInputGain: moduleMix, pitch, held: true, targetGain, releaseSeconds, startedOrder: waveNoteSequenceRef.current, cleanupTimer: null, cleaned: false };
     let endedSources = 0;
     sources.forEach(({ source }) => { source.onended = () => {
       endedSources += 1;
       if (endedSources < sources.length) return;
-      try { mixBus.disconnect(); filter.disconnect(); ampGain.disconnect(); toneFilter.disconnect(); masterGain.disconnect(); masterPanner.disconnect(); vibratoLfo.disconnect(); vibratoGain.disconnect(); cleanupAudioNodes(effectNodes); } catch { /* already disconnected */ }
-      removeWaveVoiceFromRegistry(voice);
+      cleanupWaveVoice(voice);
     }; });
     activeWaveVoicesRef.current.set(token, voice);
     sources.forEach(({ source, noise }) => {
@@ -3011,7 +3036,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       else source.start(now);
     });
     vibratoLfo.start(now);
-    if (!rackGraph && !rackPending) chorusLfo.start(now);
+    if (!rackGraph && !rackPending) chorusLfo?.start(now);
     return true;
   };
 
@@ -4231,6 +4256,36 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     }
     setLiveWavePatternConfig(nextConfig);
   };
+
+  useEffect(() => {
+    const stopAllWaveNotes = () => {
+      wavePatternTransport.stop();
+      activeWaveVoicesRef.current.forEach((voice, token) => {
+        stopWaveVoice(token, voice, true);
+        cleanupWaveVoice(voice);
+      });
+      activeWaveVoicesRef.current.clear();
+      heldWaveNotesRef.current.clear();
+      midiHeldTokensRef.current.clear();
+      livePatternTriggerRef.current = null;
+      hitPitchTokensRef.current.clear();
+      setMidiPressedPitches(new Set());
+      setPreviewPressedPitches(new Set());
+    };
+    const stopWhenHidden = () => {
+      if (document.visibilityState === "hidden") stopAllWaveNotes();
+    };
+    window.addEventListener("blur", stopAllWaveNotes);
+    window.addEventListener("pagehide", stopAllWaveNotes);
+    document.addEventListener("visibilitychange", stopWhenHidden);
+    return () => {
+      window.removeEventListener("blur", stopAllWaveNotes);
+      window.removeEventListener("pagehide", stopAllWaveNotes);
+      document.removeEventListener("visibilitychange", stopWhenHidden);
+    };
+  // A lost pointer/key-up or disconnected MIDI device must never leave an oscillator alive.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wavePatternTransport.stop]);
 
   const connectMidi = async () => {
     if (typeof navigator === "undefined" || typeof navigator.requestMIDIAccess !== "function") {
