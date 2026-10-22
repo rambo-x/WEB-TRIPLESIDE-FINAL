@@ -10782,6 +10782,7 @@ function SamplerPad({ controlId, label, notePitch, velocity, accentColor, padCol
   const flashActiveRef = useRef(false);
   const flashTimerRef = useRef(null);
   const flashFrameRef = useRef(null);
+  const observedExternalTriggerRef = useRef(externalTrigger);
   const hitPad = ["hit-effect", "diffuse-hit", "smooth-diffuse-hit"].includes(variant);
   const triggerFlash = useCallback(() => {
     if (!hitPad) return;
@@ -10807,7 +10808,12 @@ function SamplerPad({ controlId, label, notePitch, velocity, accentColor, padCol
     window.clearTimeout(flashTimerRef.current);
     window.cancelAnimationFrame(flashFrameRef.current);
   }, []);
-  useEffect(() => { if (externalPressed || externalTrigger > 0) triggerFlash(); }, [externalPressed, externalTrigger, triggerFlash]);
+  useEffect(() => { if (externalPressed) triggerFlash(); }, [externalPressed, triggerFlash]);
+  useEffect(() => {
+    if (externalTrigger === observedExternalTriggerRef.current) return;
+    observedExternalTriggerRef.current = externalTrigger;
+    triggerFlash();
+  }, [externalTrigger, triggerFlash]);
   const begin = (event) => {
     if (activeRef.current || (event.type === "keydown" && event.repeat)) return;
     event.preventDefault();

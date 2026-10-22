@@ -149,6 +149,8 @@ describe("VST Maker Wave Generator note routing", () => {
   test("re-triggers hit-pad flashes and keeps overlapping equal MIDI notes distinct", () => {
     expect(source).toContain("setPreviewHitTriggers((current) => {");
     expect(source).toContain("externalTrigger={activeHitTriggers.get(control.notePitch ?? 60) || 0}");
+    expect(source).toContain("if (externalTrigger === observedExternalTriggerRef.current) return;");
+    expect(source).not.toContain("externalPressed || externalTrigger > 0");
     expect(source).toContain("flashFrameRef.current = window.requestAnimationFrame(showFlash);");
     expect(source).toContain("enqueueMidiNoteToken(playingTokensRef.current, key, token);");
     expect(source).toContain("dequeueMidiNoteToken(playingTokensRef.current, key);");
