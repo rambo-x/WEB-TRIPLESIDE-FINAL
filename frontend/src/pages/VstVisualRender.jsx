@@ -33,8 +33,9 @@ export default function VstVisualRender() {
     panelType: c.panel_type,
     panelX: c.panel_x, panelY: c.panel_y,
     panelWidth: c.panel_width, panelHeight: c.panel_height,
+    indicatorSourceId: c.indicator_source_id,
     value: frame.id === c.id ? frame.value : c.value,
-    captureLevel: frame.id === c.id ? frame.value / 100 : 0,
+    captureLevel: frame.id === c.id ? frame.value / 100 : undefined,
   }));
   const pressed = new Set(frame.pitch === undefined ? [] : [frame.pitch]);
   const midiSequences = (spec.midi_sequences || []).map((sequence) => ({

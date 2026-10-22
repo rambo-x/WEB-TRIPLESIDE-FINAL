@@ -144,6 +144,19 @@ float displayedValue(NativeInstrument& instrument, std::size_t index, NSInteger 
                                    : static_cast<float>(instrument.getParamNormalized(parameter));
 }
 
+float indicatorValue(NativeInstrument& instrument, std::size_t index, NSInteger selectedPrismBand, NSInteger openPanel, NSInteger activeNote) {
+    if (index >= project::kControls.size()) return 0.f;
+    const auto& indicator = project::kControls[index];
+    const int sourceIndex = indicator.indicatorSourceIndex;
+    if (sourceIndex < 0 || sourceIndex >= static_cast<int>(project::kControls.size())) return std::clamp(indicator.value, 0.f, 1.f);
+    const auto& source = project::kControls[static_cast<std::size_t>(sourceIndex)];
+    if (equals(source.kind, "panel_button")) return openPanel == sourceIndex ? 1.f : 0.f;
+    if (equals(source.kind, "pad")) return instrument.isNoteActive(source.notePitch) || activeNote == source.notePitch ? 1.f : 0.f;
+    const float value = displayedValue(instrument, static_cast<std::size_t>(sourceIndex), selectedPrismBand);
+    if (equals(source.kind, "button") && equals(source.parameter, "bypass")) return value < .5f ? 1.f : 0.f;
+    return value >= .5f ? 1.f : 0.f;
+}
+
 NSImage* loadResourceImage(NSString* filename) {
     if (!filename.length) return nil;
     const auto root = NativeInstrument::resourceDirectory();
@@ -173,6 +186,7 @@ NSRect controlLayoutRect(const project::ControlInfo& control, const project::Vis
 using tripleside::native::NativeInstrument;
 using tripleside::native::LicenseRuntime;
 using tripleside::native::displayedValue;
+using tripleside::native::indicatorValue;
 using tripleside::native::displayedParameter;
 using tripleside::native::controlVisible;
 using tripleside::native::equals;
@@ -239,6 +253,7 @@ namespace project = tripleside::project;
 - (NSRect)panelChildRect:(NSInteger)index;
 - (NSInteger)panelControlAt:(NSPoint)point;
 - (void)drawPanelControl:(NSInteger)index;
+- (void)drawWaveformInRect:(NSRect)rect color:(unsigned)color;
 - (BOOL)panelMouseDown:(NSPoint)point;
 - (BOOL)importMidiPath:(NSString*)path;
 - (std::filesystem::path)exportMidiSequence:(NSInteger)index;
@@ -913,14 +928,50 @@ namespace project = tripleside::project;
              fraction:1 respectFlipped:YES hints:@{NSImageHintInterpolation: @(NSImageInterpolationHigh)}];
 }
 
+- (void)drawWaveformInRect:(NSRect)rect color:(unsigned)color {
+    color = color ? color : project::kAccentRgb;
+    NSColor* grid = rgbColor(color, .13);
+    [grid setStroke];
+    for (int index = 1; index < 8; ++index) {
+        NSBezierPath* line = [NSBezierPath bezierPath];
+        const CGFloat x = NSMinX(rect) + NSWidth(rect) * index / 8.;
+        [line moveToPoint:NSMakePoint(x, NSMinY(rect))]; [line lineToPoint:NSMakePoint(x, NSMaxY(rect))]; [line stroke];
+    }
+    for (int index = 1; index < 4; ++index) {
+        NSBezierPath* line = [NSBezierPath bezierPath];
+        const CGFloat y = NSMinY(rect) + NSHeight(rect) * index / 4.;
+        [line moveToPoint:NSMakePoint(NSMinX(rect), y)]; [line lineToPoint:NSMakePoint(NSMaxX(rect), y)]; [line stroke];
+    }
+    constexpr std::size_t sampleCount = 2048;
+    std::array<float, sampleCount> samples{};
+    _instrument->copyAnalysisSamples(samples.data(), samples.size());
+    std::size_t start = 0;
+    for (std::size_t index = 1; index < sampleCount / 2; ++index) if (samples[index - 1] <= 0.f && samples[index] > 0.f) { start = index; break; }
+    const NSInteger points = std::clamp<NSInteger>(static_cast<NSInteger>(std::lround(NSWidth(rect))), 64, static_cast<NSInteger>(sampleCount));
+    NSBezierPath* trace = [NSBezierPath bezierPath];
+    for (NSInteger point = 0; point < points; ++point) {
+        const std::size_t sample = std::min(sampleCount - 1, start + static_cast<std::size_t>(point) * (sampleCount - start - 1) / static_cast<std::size_t>(std::max<NSInteger>(1, points - 1)));
+        const NSPoint location = NSMakePoint(NSMinX(rect) + NSWidth(rect) * point / std::max<NSInteger>(1, points - 1), NSMidY(rect) - std::clamp(samples[sample], -1.f, 1.f) * NSHeight(rect) * .43);
+        if (!point) [trace moveToPoint:location]; else [trace lineToPoint:location];
+    }
+    [rgbColor(color, .95) setStroke]; trace.lineWidth = 1.8; trace.lineJoinStyle = NSLineJoinStyleRound; [trace stroke];
+    strokeRounded(rect, 11.2, rgbColor(color, .22));
+}
+
 - (void)drawPanelControl:(NSInteger)index {
     if (index < 0 || static_cast<std::size_t>(index) >= project::kControls.size()
         || static_cast<std::size_t>(index) >= project::kVisualControls.size()) return;
     const auto& control = project::kControls[static_cast<std::size_t>(index)];
     const auto& visual = project::kVisualControls[static_cast<std::size_t>(index)];
+    if (equals(control.kind, "spectrum") && equals(control.variant, "realtime-waveform")) {
+        [self drawWaveformInRect:[self panelChildRect:index] color:control.colorRgb];
+        return;
+    }
     NSImage* image = [self imageNamed:visual.file];
     if (!image || visual.w <= 0 || visual.h <= 0 || visual.hw <= 0 || visual.hh <= 0 || visual.frames <= 0) return;
-    float value = displayedValue(*_instrument, static_cast<std::size_t>(index), _selectedPrismBand);
+    float value = equals(control.kind, "indicator")
+        ? indicatorValue(*_instrument, static_cast<std::size_t>(index), _selectedPrismBand, _openPanel, _activeNote)
+        : displayedValue(*_instrument, static_cast<std::size_t>(index), _selectedPrismBand);
     if (equals(control.kind, "pad")) value = hitPadVariant(control.variant)
         ? ([self hitPadFlashActive:control.notePitch] ? 1.f : 0.f)
         : ((_instrument->isNoteActive(control.notePitch) || _activeNote == control.notePitch) ? 1.f : 0.f);
@@ -960,10 +1011,24 @@ namespace project = tripleside::project;
     const auto controlCount = std::min(project::kControls.size(), project::kVisualControls.size());
     for (std::size_t index = 0; index < controlCount; ++index) {
         const auto& visual = project::kVisualControls[index];
+        const auto& control = project::kControls[index];
         if (project::kPanelControls[index].parentPanelIndex >= 0) continue;
         if (!controlVisible(index) || !visual.file || !*visual.file || visual.frames <= 0) continue;
-        auto value = displayedValue(*_instrument, index, _selectedPrismBand);
-        const auto& control = project::kControls[index];
+        if (equals(control.kind, "spectrum") && equals(control.variant, "realtime-waveform")) {
+            const NSRect waveform = controlLayoutRect(control, visual);
+            [NSGraphicsContext saveGraphicsState];
+            if (std::abs(control.rotation) >= .001f) {
+                const NSPoint center = NSMakePoint(NSMidX(waveform), NSMidY(waveform));
+                NSAffineTransform* rotation = [NSAffineTransform transform];
+                [rotation translateXBy:center.x yBy:center.y]; [rotation rotateByDegrees:control.rotation]; [rotation translateXBy:-center.x yBy:-center.y]; [rotation concat];
+            }
+            [self drawWaveformInRect:waveform color:control.colorRgb];
+            [NSGraphicsContext restoreGraphicsState];
+            continue;
+        }
+        auto value = equals(control.kind, "indicator")
+            ? indicatorValue(*_instrument, index, _selectedPrismBand, _openPanel, _activeNote)
+            : displayedValue(*_instrument, index, _selectedPrismBand);
         if (equals(control.kind, "panel_button")) value = _openPanel == static_cast<NSInteger>(index) ? 1.f : 0.f;
         const bool hitPad = equals(control.kind, "pad") && hitPadVariant(control.variant);
         if (equals(control.kind, "pad")) value = hitPad ? ([self hitPadFlashActive:control.notePitch] ? 1.f : 0.f) : ((_instrument->isNoteActive(control.notePitch) || _activeNote == control.notePitch) ? 1.f : 0.f);
@@ -981,7 +1046,7 @@ namespace project = tripleside::project;
 
     if constexpr (project::kIsPrismEq || project::kHasPrismModule) {
         for (std::size_t index = 0; index < project::kControls.size(); ++index) {
-            if (!equals(project::kControls[index].kind, "spectrum") || equals(project::kControls[index].variant, "pure-spectrum")) continue;
+            if (!equals(project::kControls[index].kind, "spectrum") || !equals(project::kControls[index].variant, "realtime-spectrum")) continue;
             const auto& control = project::kControls[index];
             const auto& visual = project::kVisualControls[index];
             const NSRect spectrum = controlLayoutRect(control, visual);

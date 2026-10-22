@@ -125,6 +125,17 @@ def test_live_analyzers_keep_the_shared_preview_contract():
     assert "spectrum" in RENDERER.SUPPORTED_CONTROL_KINDS
 
 
+def test_linked_indicator_verification_uses_source_state_and_capture_override():
+    controls = [
+        {"id": "power", "kind": "button", "parameter": "bypass", "value": 0},
+        {"id": "led", "kind": "indicator", "value": 0, "indicator_source_id": "power"},
+    ]
+
+    assert VERIFIER.control_frame_value(controls[1], controls, {}) == 100
+    assert VERIFIER.control_frame_value(controls[1], controls, {"id": "led", "value": 0}) == 0
+    assert VERIFIER.control_frame_value(controls[1], controls, {"id": "led", "value": 100}) == 100
+
+
 def test_windows_build_retries_visual_capture_once_only():
     script = (Path(__file__).parents[1] / "build-windows.ps1").read_text(encoding="utf-8")
     assert '$ErrorActionPreference = "Continue"' in script

@@ -30,7 +30,7 @@ private:
 #if defined(_WIN32)
     static LRESULT CALLBACK windowProc(HWND,UINT,WPARAM,LPARAM); LRESULT handleMessage(UINT,WPARAM,LPARAM);
     bool createResources(); bool loadBitmap(const wchar_t*,Microsoft::WRL::ComPtr<ID2D1Bitmap>&); void discardResources(); void paint(); void paintFallback(HDC,const RECT&); void drawBranding(); void drawControl(size_t); void drawLicenseOverlay(); bool licenseButtonHit(float,float) const; bool licenseInputHit(float,float) const;
-    void drawKnob(const D2D1_RECT_F&,float,const wchar_t*,bool); void drawMeter(const D2D1_RECT_F&,float,float,bool,bool,const wchar_t*,bool=false); void drawSpectrum(const D2D1_RECT_F&); void drawVectorscope(const D2D1_RECT_F&);
+    void drawKnob(const D2D1_RECT_F&,float,const wchar_t*,bool); void drawMeter(const D2D1_RECT_F&,float,float,bool,bool,const wchar_t*,bool=false); void drawSpectrum(const D2D1_RECT_F&); void drawWaveform(const D2D1_RECT_F&); void drawVectorscope(const D2D1_RECT_F&);
     void drawButton(const D2D1_RECT_F&,bool,const wchar_t*); void drawFilmstrip(ID2D1Bitmap*,const D2D1_RECT_F&,int,int,int,int);
     void drawKeyboard(const D2D1_RECT_F&,int,size_t); void drawPad(const D2D1_RECT_F&,bool,const wchar_t*);
     int hitControl(float,float) const; int hitPanelChild(float,float) const; int keyboardNote(const D2D1_RECT_F&,float,float,int) const; D2D1_RECT_F designRect() const; D2D1_RECT_F controlRect(size_t) const; D2D1_POINT_2F controlPoint(size_t,float,float) const; D2D1_RECT_F labelRect(const D2D1_RECT_F&) const;
@@ -42,7 +42,7 @@ private:
     void mouseDown(float,float); void mouseMove(float,float); void mouseUp();
     void mouseDoubleClick(float,float); void mouseWheel(float,float,int); float neutralControlValue(int) const;
     void setParameter(Steinberg::uint32,float);
-    Steinberg::uint32 displayedParameter(size_t) const; int prismContextSlot(size_t) const; int hitPrismBand(float,float) const; void updatePrismBandFromPoint(int,float,float);
+    Steinberg::uint32 displayedParameter(size_t) const; float indicatorValue(size_t) const; int prismContextSlot(size_t) const; int hitPrismBand(float,float) const; void updatePrismBandFromPoint(int,float,float);
     struct UserPreset;
     HWND hwnd=nullptr; Microsoft::WRL::ComPtr<ID2D1Factory> factory; Microsoft::WRL::ComPtr<ID2D1RenderTarget> target;
     void drawVisualCanvas();

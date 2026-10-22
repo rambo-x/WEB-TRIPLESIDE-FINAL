@@ -96,7 +96,7 @@ def control_default(spec: dict, parameter: str, fallback: float) -> float:
     # Legacy drum pads carry a `tone` trigger binding and value 0. Prefer a
     # real macro control (the Neon template's Drive knob) for DSP defaults.
     for control in controls:
-        if control.get("kind") not in {"pad", "keyboard", "gain_meter", "vu_meter", "visual", "spectrum", "text", "image"}:
+        if control.get("kind") not in {"pad", "keyboard", "gain_meter", "vu_meter", "visual", "spectrum", "indicator", "text", "image"}:
             return clamp(control.get("value"), 0, 100, fallback) / 100
     for control in controls:
         return clamp(control.get("value"), 0, 100, fallback) / 100
@@ -112,7 +112,7 @@ def control_setting(spec: dict, parameter: str, field: str, low: float, high: fl
 
 def has_parameter_control(spec: dict, parameter: str) -> bool:
     return any(isinstance(control, dict) and control.get("parameter") == parameter
-               and control.get("kind") not in {"spectrum", "visual", "text", "image"}
+               and control.get("kind") not in {"spectrum", "visual", "indicator", "text", "image"}
                for control in ((spec.get("interface") or {}).get("controls") or []))
 
 MAX_DSP_PARAMETERS_PER_MODULE = 48
@@ -312,6 +312,14 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
             fail("panel buttons cannot be nested")
         if parent_panel_id and parent_panel_id not in panel_indices:
             fail("control references an unknown panel button")
+        indicator_source_id = str(control.get("indicator_source_id") or "")
+        if kind != "indicator" and indicator_source_id:
+            fail("indicator source is only valid for indicator controls")
+        if indicator_source_id:
+            if indicator_source_id == control_ids[index] or indicator_source_id not in control_indices:
+                fail("indicator references an invalid source control")
+            if str(controls[control_indices[indicator_source_id]].get("kind") or "") == "indicator":
+                fail("indicator controls cannot use another indicator as their source")
     control_lines, panel_lines, key_color_lines = [], [], []
     for index, control in enumerate(controls):
         label = "Control" if control.get("label") is None else control.get("label")
@@ -344,6 +352,7 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
             cpp_string(control.get("parameter") or "tone"), str(
                 dsp_module_ids.get(str(control.get("module_id") or ""), macro_module_indices.get(str(control.get("parameter") or ""), -1))
             ),
+            str(control_indices.get(str(control.get("indicator_source_id") or ""), -1)),
             cpp_float(clamp(control.get("x"), 0, 100, 50)),
             cpp_float(clamp(control.get("y"), 0, 100, 50)), str(max(minimum_width, min(2048, int(control.get("width", 112))))),
             str(max(minimum_height, min(2048, int(control.get("height", 122))))), cpp_float(clamp(control.get("value"), 0, 100, 50) / 100),
@@ -502,7 +511,7 @@ namespace tripleside::project {{
 struct SampleInfo {{ const char* resourceFile; }};
 struct GroupInfo {{ const char* id; const char* name; float volume; float pan; bool mute; bool solo; }};
 struct ZoneInfo {{ int sampleIndex, groupIndex, articulationIndex, micIndex, roundRobinSet, rootPitch, lowPitch, highPitch, velocityLow, velocityHigh, roundRobin; float sampleStart, sampleEnd, loopStart, loopEnd, fadeInMs, fadeOutMs, loopCrossfadeMs; int tuneSemitones; float tuneCents, gainDb, pan; bool loopEnabled, tempoSync; float sourceBpm; std::array<int, 16> chokeTargetPitches; int chokeTargetCount; }};
-struct ControlInfo {{ const char* id; const char* kind; const char* label; const char* offLabel; const char* onLabel; const char* parameter; int moduleIndex; float x, y; int width, height; float value, opacity, rotation; unsigned int colorRgb; bool showBackground; int notePitch, keyCount; const char* labelPosition; int labelGap; const char* variant; const char* meterMode; const char* textFont; unsigned int textColorRgb; bool showCorrelationMeter; bool spectrumBand; bool useFilmstrip; }};
+struct ControlInfo {{ const char* id; const char* kind; const char* label; const char* offLabel; const char* onLabel; const char* parameter; int moduleIndex; int indicatorSourceIndex; float x, y; int width, height; float value, opacity, rotation; unsigned int colorRgb; bool showBackground; int notePitch, keyCount; const char* labelPosition; int labelGap; const char* variant; const char* meterMode; const char* textFont; unsigned int textColorRgb; bool showCorrelationMeter; bool spectrumBand; bool useFilmstrip; }};
 struct KeyColorInfo {{ int control, pitch; unsigned int colorRgb; }};
 struct PanelControlInfo {{ int parentPanelIndex; const char* panelType; float panelX, panelY, panelWidth, panelHeight; }};
 struct PresetInfo {{ const char* id; const char* name; bool factory; int valueOffset, valueCount, groupOffset, groupCount, moduleOffset, moduleCount; }};

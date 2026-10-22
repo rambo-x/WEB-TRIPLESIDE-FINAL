@@ -12,6 +12,27 @@ MIN_PERCENT_WITHIN_8 = 99.8
 MAX_MEAN_ABSOLUTE_RGBA = 0.5
 
 
+def control_frame_value(control, controls, state):
+    kind = control.get('kind')
+    if kind == 'indicator':
+        if control.get('id') == state.get('id'):
+            return state.get('value', 0)
+        source_id = str(control.get('indicator_source_id') or '')
+        source = next((item for item in controls if str(item.get('id') or '') == source_id), None)
+        if not source:
+            return control.get('value', 0)
+        if source.get('kind') == 'panel_button':
+            return 100 if str(state.get('panelId') or '') == source_id else 0
+        if source.get('kind') == 'pad':
+            return 100 if source.get('note_pitch', 60) in state.get('pitches', []) else 0
+        source_value = state.get('value') if source.get('id') == state.get('id') else source.get('value', 0)
+        if source.get('kind') == 'button' and source.get('parameter') == 'bypass':
+            return 100 if source_value < 50 else 0
+        return 100 if source_value >= 50 else 0
+    value = 0 if kind in {'gain_meter', 'vu_meter', 'pad', 'keyboard', 'visual', 'text'} else control.get('value', 50)
+    return state.get('value', value) if control.get('id') == state.get('id') else value
+
+
 def comparison(reference, result, root, recomposed_name, difference_name, comparison_name):
     diff = ImageChops.difference(reference, result)
     result.save(root/recomposed_name)
@@ -48,9 +69,7 @@ def verify(spec_path, active=False):
         control = spec['interface']['controls'][i]
         if control.get('parent_panel_id'):
             continue
-        value = 0 if control['kind'] in {'gain_meter','vu_meter','pad','keyboard','visual','text'} else control.get('value',50)
-        if control.get('id') == state.get('id'):
-            value = state['value']
+        value = control_frame_value(control, spec['interface']['controls'], state)
         paste(item, round(value/100*(item['frames']-1)))
         for key in manifest['keys']:
             if key['control'] == i:
@@ -75,7 +94,7 @@ def verify_panels(spec_path):
             file = item['file']
             if file not in cache:
                 cache[file] = Image.open(root/file).convert('RGBA')
-            value = 0 if control['kind'] in {'gain_meter','vu_meter','pad','keyboard','visual','text'} else control.get('value',50)
+            value = control_frame_value(control, spec['interface']['controls'], {'panelId': panel['id']})
             frame = round(value/100*(item['frames']-1))
             rect = item['rect']
             x = (frame % item['columns']) * rect['width']

@@ -59,6 +59,27 @@ def test_compiles_master_pan_default_from_designer_control(tmp_path):
     assert "kDefaultPan = 0.25f" in output.read_text(encoding="utf-8")
 
 
+def test_compiles_linked_led_and_realtime_waveform_contract(tmp_path):
+    spec = project_spec()
+    spec["interface"]["controls"] = [
+        {"id": "power", "kind": "button", "label": "Power", "parameter": "bypass", "value": 0},
+        {"id": "power-led", "kind": "indicator", "label": "Power LED", "parameter": "visual", "value": 0, "indicator_source_id": "power", "control_color": "#39FF88", "component_variant": "round-indicator"},
+        {"id": "waveform", "kind": "spectrum", "label": "Waveform", "parameter": "visual", "value": 0, "visual_color": "#A78BFA", "component_variant": "realtime-waveform", "width": 480, "height": 180},
+    ]
+    source = tmp_path / "project.json"
+    output = tmp_path / "NativeProject.h"
+    source.write_text(json.dumps(spec), encoding="utf-8")
+
+    MODULE.compile_manifest(source, output)
+
+    result = output.read_text(encoding="utf-8")
+    assert "int indicatorSourceIndex;" in result
+    assert 'ControlInfo{"power-led", "indicator", "Power LED", "Power LED", "ON", "visual", -1, 0,' in result
+    assert "0x39FF88" in result
+    assert '"realtime-waveform"' in result
+    assert "0xA78BFA" in result
+
+
 def test_compiles_midi_sequence_loop_setting(tmp_path):
     spec = project_spec()
     spec["midi_sequences"] = [{

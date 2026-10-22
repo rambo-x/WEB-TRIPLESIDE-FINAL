@@ -614,6 +614,24 @@ def test_shared_preview_live_overlays_support_pure_fft_and_stereo_vectorscope():
     assert "constexpr float gridFrequencies[]" in view
 
 
+def test_shared_preview_live_waveform_and_linked_led_match_on_both_platforms():
+    header = (SOURCE_DIR / "NativeView.h").read_text(encoding="utf-8")
+    windows = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+    macos = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
+    compiler = (SOURCE_DIR.parent / "tools" / "compile_manifest.py").read_text(encoding="utf-8")
+    capture = (SOURCE_DIR.parent / "tools" / "render_visual_assets.py").read_text(encoding="utf-8")
+
+    assert "drawWaveform(const D2D1_RECT_F&)" in header
+    assert 'equals(currentControlVariant,"realtime-waveform")' in windows
+    assert "copyAnalysisSamples(samples.data(),samples.size())" in windows
+    assert "drawWaveformInRect" in macos
+    assert 'equals(control.variant, "realtime-waveform")' in macos
+    assert "indicatorSourceIndex" in compiler
+    assert "indicatorValue" in windows
+    assert "indicatorValue" in macos
+    assert "'indicator'" in capture
+
+
 def test_prism_contextual_bands_route_runtime_parameters_and_migrate_state_v4():
     header = (SOURCE_DIR / "NativeInstrument.h").read_text(encoding="utf-8")
     instrument = (SOURCE_DIR / "NativeInstrument.cpp").read_text(encoding="utf-8")

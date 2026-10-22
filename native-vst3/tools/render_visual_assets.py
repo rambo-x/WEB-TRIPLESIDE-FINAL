@@ -22,7 +22,7 @@ from playwright.sync_api import sync_playwright
 TRANSIENT_EXIT_CODE = 75
 SUPPORTED_CONTROL_KINDS = {
     'knob', 'fader', 'vu_meter', 'gain_meter', 'keyboard', 'pad', 'button',
-    'mute', 'solo', 'visual', 'text', 'image', 'panel_button', 'spectrum',
+    'mute', 'solo', 'visual', 'text', 'image', 'panel_button', 'spectrum', 'indicator',
 }
 TRANSIENT_PLAYWRIGHT_MARKERS = (
     'browser has been closed',
@@ -257,7 +257,7 @@ def render(spec_path, url, browser=None):
                 # Spectrum/vectorscope pixels stay live in NativeView. Capture
                 # one browser frame here to preserve exact measured geometry
                 # and to keep the static composition verifier authoritative.
-                frames = 1 if kind in {'keyboard', 'visual', 'text', 'image', 'spectrum'} else 2 if kind in {'button','mute','solo','pad','panel_button'} else 101
+                frames = 1 if kind in {'keyboard', 'visual', 'text', 'image', 'spectrum'} else 2 if kind in {'button','mute','solo','pad','panel_button','indicator'} else 101
                 columns = min(frames, max(1, 4096 // rect['width']))
                 atlas = Image.new('RGBA', (rect['width']*columns, rect['height']*math.ceil(frames/columns)))
                 if max(atlas.size) > 8192:

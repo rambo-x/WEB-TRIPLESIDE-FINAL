@@ -20,7 +20,10 @@
     "canvas_height": 560,
     "controls": [
       { "id": "volume", "kind": "knob", "label": "Volume", "parameter": "volume", "x": 15, "y": 20, "value": 80, "width": 100, "height": 110 },
-      { "id": "keys", "kind": "keyboard", "label": "Keys", "parameter": "keyboard", "x": 50, "y": 75, "value": 0, "width": 760, "height": 150, "key_count": 49, "key_colors": { "48": "#ff2d55", "61": "#00d4ff" } }
+      { "id": "keys", "kind": "keyboard", "label": "Keys", "parameter": "keyboard", "x": 50, "y": 75, "value": 0, "width": 760, "height": 150, "key_count": 49, "key_colors": { "48": "#ff2d55", "61": "#00d4ff" } },
+      { "id": "power", "kind": "button", "label": "Power", "off_label": "OFF", "on_label": "ON", "parameter": "bypass", "x": 80, "y": 20, "value": 0, "width": 96, "height": 84, "component_style": "css", "component_variant": "square-led" },
+      { "id": "power-led", "kind": "indicator", "label": "Power LED", "parameter": "visual", "x": 91, "y": 20, "value": 0, "width": 72, "height": 72, "component_style": "css", "component_variant": "round-indicator", "control_color": "#39FF88", "indicator_source_id": "power", "show_background": false },
+      { "id": "waveform", "kind": "spectrum", "label": "Waveform", "parameter": "visual", "x": 50, "y": 32, "value": 0, "width": 480, "height": 150, "component_style": "css", "component_variant": "realtime-waveform", "visual_color": "#A78BFA", "show_background": false }
     ]
   },
   "effects": { "reverb": true, "delay": true, "chorus": true, "saturation": true },
