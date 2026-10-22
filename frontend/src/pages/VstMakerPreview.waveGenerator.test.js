@@ -143,6 +143,7 @@ describe("VST Maker Wave Generator note routing", () => {
     expect(source).toContain("const scheduledAtAudioTime = (context?.currentTime || 0) + WAVE_CHORD_START_LOOKAHEAD_SECONDS;");
     expect(source).toContain("const releaseBeforeStart = Number(voice.ampEnvelope?.startAt) > now;");
     expect(source).toContain("gain.linearRampToValueAtTime(0, silentAt);");
+    expect(source).toContain("releaseGate.linearRampToValueAtTime(0, silentAt);");
     expect(source).toContain("source.stop(sourceStopAt)");
   });
 
@@ -165,7 +166,7 @@ describe("VST Maker Wave Generator note routing", () => {
     expect(source).toContain('.filter(isPostSourceDspModule)');
     expect(source).toContain("createDspPreviewPlan(postRackModules, project.interfaceControls, customImpulseTaps)");
     expect(source).toContain("const rackGraph = ensureWaveDspGraph(context, rackPlan);");
-    expect(source).toContain("masterGain.connect(rackGraph.input);");
+    expect(source).toContain("releaseGate.connect(rackGraph.input);");
     expect(source).toContain('graph.processor.port.postMessage({ type: "plan", plan });');
     expect(source).toContain("usesSharedRack: Boolean(rackGraph)");
     expect(source).toContain("if (!rackGraph && !rackPending) chorusLfo?.start(now);");

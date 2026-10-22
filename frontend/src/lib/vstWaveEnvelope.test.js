@@ -3,6 +3,7 @@ import {
   WAVE_CHORD_START_LOOKAHEAD_SECONDS,
   WAVE_DIRECT_START_LOOKAHEAD_SECONDS,
   WAVE_MIN_GAIN,
+  WAVE_RELEASE_OUTPUT_FADE_SECONDS,
   WAVE_RELEASE_ZERO_SECONDS,
   WAVE_SOURCE_STOP_PADDING_SECONDS,
   drainWaveVoiceRegistry,
@@ -56,6 +57,7 @@ describe("Wave Generator amplitude envelope", () => {
   test("reserves a real zero-gain tail before an oscillator is stopped", () => {
     expect(WAVE_RELEASE_ZERO_SECONDS).toBeGreaterThan(0);
     expect(WAVE_SOURCE_STOP_PADDING_SECONDS).toBeGreaterThan(0);
+    expect(WAVE_RELEASE_OUTPUT_FADE_SECONDS).toBeGreaterThan(WAVE_RELEASE_ZERO_SECONDS);
   });
 
   test("detaches every unique mono voice before a retrigger creates its replacement", () => {

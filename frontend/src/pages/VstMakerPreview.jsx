@@ -58,7 +58,7 @@ import { decodeAndPreprocessImpulse, normalizeImpulseSettings } from "../lib/vst
 import { parseMidiFile } from "../lib/vstMidiFile";
 import { MIDI_LOOKAHEAD_MS, MIDI_SCHEDULER_INTERVAL_MS, MIDI_START_DELAY_MS, buildMidiPlaybackTimeline } from "../lib/vstMidiScheduler";
 import { DEFAULT_STEP_NOTES, WAVE_GENERATOR_MODES, WAVE_NOTE_NAMES, WAVE_SCALE_OPTIONS, WAVE_SINGLE_CHORD_OPTIONS, createWaveGeneratorSequence, normalizeWaveGeneratorConfig } from "../lib/vstWaveGenerators";
-import { WAVE_CHORD_START_LOOKAHEAD_SECONDS, WAVE_DECLICK_ATTACK_SECONDS, WAVE_DIRECT_START_LOOKAHEAD_SECONDS, WAVE_MIN_GAIN, WAVE_RELEASE_ZERO_SECONDS, WAVE_SOURCE_STOP_PADDING_SECONDS, drainWaveVoiceRegistry, moveWaveVoiceRegistryToken, shouldScheduleWaveRelease, waveAmpEnvelopeValueAt, waveVoiceStartTime } from "../lib/vstWaveEnvelope";
+import { WAVE_CHORD_START_LOOKAHEAD_SECONDS, WAVE_DECLICK_ATTACK_SECONDS, WAVE_DIRECT_START_LOOKAHEAD_SECONDS, WAVE_MIN_GAIN, WAVE_RELEASE_OUTPUT_FADE_SECONDS, WAVE_RELEASE_ZERO_SECONDS, WAVE_SOURCE_STOP_PADDING_SECONDS, drainWaveVoiceRegistry, moveWaveVoiceRegistryToken, shouldScheduleWaveRelease, waveAmpEnvelopeValueAt, waveVoiceStartTime } from "../lib/vstWaveEnvelope";
 import { DEFAULT_VST_PRICING, componentCreditPrice, createVstTemplatePricingBaseline, formatCredits, isCustomVstBackground, normalizeVstPricing, quoteVstProjectCredits } from "../lib/vstMakerPricing";
 import { NEON_POP_DRUM_HITS, PREMIUM_PIANO_BACKGROUND_URL, REGENT_DEFAULT_CONTROLS, REGENT_WHITE_DEFAULT_CONTROLS, VST_PROJECT_TEMPLATES } from "../data/vstTemplates";
 import { DEFAULT_VST_FILMSTRIP_SKIN, VST_KNOB_ASSETS, filmstripFrameStyle } from "../data/vstFilmstripSkins";
@@ -2688,13 +2688,13 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       const now = context.currentTime;
       const rackSendGain = context.createGain();
       rackSendGain.gain.setValueAtTime(0, now);
-      voice.masterGain?.connect(rackSendGain).connect(graph.input);
+      voice.releaseGate?.connect(rackSendGain).connect(graph.input);
       rackSendGain.gain.linearRampToValueAtTime(1, now + 0.04);
       voice.pendingDirectGain?.gain.cancelScheduledValues(now);
       voice.pendingDirectGain?.gain.setValueAtTime(voice.pendingDirectGain.gain.value, now);
       voice.pendingDirectGain?.gain.linearRampToValueAtTime(0, now + 0.04);
       window.setTimeout(() => {
-        try { voice.masterGain?.disconnect(voice.pendingDirectGain); voice.pendingDirectGain?.disconnect(); } catch { /* voice already released */ }
+        try { voice.releaseGate?.disconnect(voice.pendingDirectGain); voice.pendingDirectGain?.disconnect(); } catch { /* voice already released */ }
       }, 70);
       voice.rackSendGain = rackSendGain;
       voice.pendingSharedRack = false;
@@ -2734,7 +2734,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
         try { node?.disconnect(); } catch { /* node already disconnected */ }
       });
     });
-    [voice.mixBus, voice.filter, voice.ampGain, voice.toneFilter, voice.masterGain, voice.masterPanner,
+    [voice.mixBus, voice.filter, voice.ampGain, voice.toneFilter, voice.masterGain, voice.releaseGate, voice.masterPanner,
       voice.vibratoLfo, voice.vibratoGain, voice.pendingDirectGain, voice.rackSendGain].forEach((node) => {
       try { node?.disconnect(); } catch { /* node already disconnected */ }
     });
@@ -2757,6 +2757,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       const releaseBeforeStart = Number(voice.ampEnvelope?.startAt) > now;
       const releaseEndAt = now + releaseSeconds;
       const silentAt = releaseEndAt + WAVE_RELEASE_ZERO_SECONDS;
+      const releaseGate = voice.releaseGate?.gain;
       if (releaseBeforeStart) {
         gain.cancelScheduledValues(now);
         gain.setValueAtTime(0, now);
@@ -2773,6 +2774,18 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       if (!releaseBeforeStart) {
         gain.exponentialRampToValueAtTime(WAVE_MIN_GAIN, releaseEndAt);
         gain.linearRampToValueAtTime(0, silentAt);
+      }
+      if (releaseGate) {
+        releaseGate.cancelScheduledValues(now);
+        if (releaseBeforeStart) {
+          releaseGate.setValueAtTime(0, now);
+        } else {
+          const gateLevel = Math.max(0, releaseGate.value);
+          const outputFadeAt = Math.max(now, silentAt - WAVE_RELEASE_OUTPUT_FADE_SECONDS);
+          releaseGate.setValueAtTime(gateLevel, now);
+          releaseGate.setValueAtTime(gateLevel, outputFadeAt);
+          releaseGate.linearRampToValueAtTime(0, silentAt);
+        }
       }
       const sourceStopAt = (releaseBeforeStart ? now : silentAt) + WAVE_SOURCE_STOP_PADDING_SECONDS;
       voice.sources.forEach(({ source }) => source.stop(sourceStopAt));
@@ -2880,6 +2893,8 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     const filterEnvelopeSemitones = (unit("filter_env_amount", 0.5) - 0.5) * 96;
     const ampGain = context.createGain();
     const masterGain = context.createGain();
+    const releaseGate = context.createGain();
+    releaseGate.gain.value = 1;
     const masterPanner = context.createStereoPanner();
     masterPanner.pan.value = Math.max(-1, Math.min(1, (macroValue("pan", 50) - 50) / 50));
     const muted = macroValue("mute", 0) >= 50 && macroValue("solo", 0) < 50;
@@ -2899,7 +2914,8 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     if (rackGraph) {
       masterGain.gain.value = moduleMix;
       ampGain.connect(masterGain);
-      masterGain.connect(rackGraph.input);
+      masterGain.connect(releaseGate);
+      releaseGate.connect(rackGraph.input);
     } else if (rackPending) {
       // Keep the note path immediate while the shared worklet is loading. The
       // voice is moved into the rack as soon as installation completes.
@@ -2907,7 +2923,8 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       masterGain.gain.value = moduleMix;
       pendingDirectGain = context.createGain();
       pendingDirectGain.gain.value = (macroValue("volume", 100) / 100) * (muted ? 0 : 1);
-      masterGain.connect(pendingDirectGain).connect(masterPanner).connect(meterAnalyserRef.current || context.destination);
+      masterGain.connect(releaseGate);
+      releaseGate.connect(pendingDirectGain).connect(masterPanner).connect(meterAnalyserRef.current || context.destination);
     } else {
       toneFilter = context.createBiquadFilter();
       toneFilter.type = "highshelf";
@@ -2941,7 +2958,8 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       saturation.connect(reverb); reverb.connect(reverbGain); reverbGain.connect(masterGain);
       saturation.connect(delay); delay.connect(delayFeedback); delayFeedback.connect(delay); delay.connect(delayGain); delayGain.connect(masterGain);
       saturation.connect(chorus); chorus.connect(chorusGain); chorusGain.connect(masterGain); chorusLfo.connect(chorusDepth); chorusDepth.connect(chorus.delayTime);
-      masterGain.connect(masterPanner).connect(meterAnalyserRef.current || context.destination);
+      masterGain.connect(releaseGate);
+      releaseGate.connect(masterPanner).connect(meterAnalyserRef.current || context.destination);
       effectNodes = { saturation, dryGain, reverb, reverbGain, delay, delayFeedback, delayGain, chorus, chorusGain, chorusLfo, chorusDepth };
     }
 
@@ -3050,7 +3068,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     vibratoLfo.connect(vibratoGain);
     sources.forEach((item) => { if (!item.noise && item.source.detune) vibratoGain.connect(item.source.detune); });
     const ampEnvelope = { startAt: now, attackSeconds, decaySeconds, targetGain, sustainGain };
-    const voice = { sources, mixBus, ampGain, ampEnvelope, filter, masterGain, masterPanner, toneFilter, vibratoLfo, vibratoGain, effectNodes, usesSharedRack: Boolean(rackGraph), pendingSharedRack: rackPending, pendingDirectGain: rackPending ? pendingDirectGain : null, rackSendGain: null, rackInputGain: moduleMix, pitch, held: true, targetGain, releaseSeconds, startedOrder: waveNoteSequenceRef.current, cleanupTimer: null, cleaned: false };
+    const voice = { sources, mixBus, ampGain, ampEnvelope, filter, masterGain, releaseGate, masterPanner, toneFilter, vibratoLfo, vibratoGain, effectNodes, usesSharedRack: Boolean(rackGraph), pendingSharedRack: rackPending, pendingDirectGain: rackPending ? pendingDirectGain : null, rackSendGain: null, rackInputGain: moduleMix, pitch, held: true, targetGain, releaseSeconds, startedOrder: waveNoteSequenceRef.current, cleanupTimer: null, cleaned: false };
     let endedSources = 0;
     sources.forEach(({ source }) => { source.onended = () => {
       endedSources += 1;

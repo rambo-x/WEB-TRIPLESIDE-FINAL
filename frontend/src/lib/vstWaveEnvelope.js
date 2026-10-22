@@ -4,6 +4,10 @@ export const WAVE_DECLICK_ATTACK_SECONDS = 0.003;
 // final linear tail so stopping an oscillator never cuts a non-zero waveform.
 export const WAVE_RELEASE_ZERO_SECONDS = 0.005;
 export const WAVE_SOURCE_STOP_PADDING_SECONDS = 0.005;
+// The amplitude envelope sits before the per-voice tone/effect chain. Keep a
+// second gate at the very end of that chain and close it only during the final
+// release tail, so filter state cannot be cut while it still contains a sample.
+export const WAVE_RELEASE_OUTPUT_FADE_SECONDS = 0.012;
 // Direct keyboard gestures still need a few render quanta of headroom. Starting
 // an oscillator at currentTime can skip the silent edge of its attack ramp when
 // the audio thread has already entered the current render quantum.
