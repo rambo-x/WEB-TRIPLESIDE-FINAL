@@ -45,6 +45,8 @@ describe("VST Maker Wave Generator note routing", () => {
     expect(source).toContain("playWavePatternNote");
     expect(source).toContain("patternScheduled: true");
     expect(source).toContain("onSequencesChange([...midiSequences, sequence].slice(-16))");
+    expect(source).toContain("playWavePatternNote.prepareGroove = async () => {");
+    expect(source).toContain('const immediate = playbackOptions?.forceRelease === true && playbackOptions?.scheduledAtPerformance == null;');
   });
 
   test("removes the hidden legacy instrument-effects compatibility UI and payload", () => {
@@ -54,7 +56,8 @@ describe("VST Maker Wave Generator note routing", () => {
   });
 
   test("turns keyboard and MIDI gestures into held live generator patterns", () => {
-    expect(source).toContain('Live Trigger {liveEnabled ? "ON" : "OFF"}');
+    expect(source).toContain('Live Trigger {live ? "ON" : "OFF"}');
+    expect(source).toContain('sourceSequenceId: sequence.id');
     expect(source).toContain("livePatternStartRef.current = (pitch, velocity, token) => {");
     expect(source).toContain("triggerPitch: pitch");
     expect(source).toContain("if (!playbackOptions && livePatternStartRef.current?.(pitch, velocity, token)) return;");
@@ -63,11 +66,27 @@ describe("VST Maker Wave Generator note routing", () => {
   });
 
   test("plays one sustained chord per held key instead of the generated progression", () => {
-    expect(source).toContain('if (liveWavePatternConfig.mode === "chord")');
+    expect(source).toContain('if (liveWavePatternConfig.mode === "chord" && liveWavePatternConfig.chordMode === "single")');
     expect(source).toContain('.filter((event) => event.type === "note_on" && event.tick === 0)');
     expect(source).toContain("playWavePatternNote(event.note, chordVelocity, noteToken);");
     expect(source).toContain("stopLivePatternTrigger(trigger);");
-    expect(source).toContain("Chord ditahan sampai tuts dilepas; progression hanya digunakan oleh tombol Generate.");
+    expect(source).toContain("Preset Live Trigger 1 Chord aktif.");
+  });
+
+  test("places a mutually exclusive Live Trigger beside each generated pattern preview", () => {
+    const previewIndex = source.indexOf('{playing ? "Stop" : "Preview"}</button>');
+    const liveIndex = source.indexOf('Live Trigger {live ? "ON" : "OFF"}</button>', previewIndex);
+    expect(previewIndex).toBeGreaterThan(-1);
+    expect(liveIndex).toBeGreaterThan(previewIndex);
+    expect(source).toContain("Hanya satu pola dapat aktif.");
+    expect(source).not.toContain("if (liveEnabled) onLiveConfigChange({ ...next, enabled: true });");
+  });
+
+  test("offers single and free-progression chord modes", () => {
+    expect(source).toContain('<option value="single">1 Chord</option>');
+    expect(source).toContain('<option value="progression">Chord Berjalan</option>');
+    expect(source).toContain('value={config.customProgression}');
+    expect(source).toContain("WAVE_SINGLE_CHORD_OPTIONS.map");
   });
 
   test("starts each keyboard gesture once and keeps mono held-note fallback", () => {
@@ -109,6 +128,7 @@ describe("VST Maker Wave Generator note routing", () => {
 
   test("updates preview rack topology in place without duplicating the active processor", () => {
     expect(source).toContain('graph.processor.port.postMessage({ type: "plan", plan });');
+    expect(source).toContain("graph.planSignature !== planSignature");
     expect(source).not.toContain("const nextProcessor = createNativeDspWorkletNode(context, plan);");
     expect(source).not.toContain("graph.pendingPlan = plan;");
     expect(source).toContain("const rackPending = rackPlan.length > 0 && !rackGraph;");

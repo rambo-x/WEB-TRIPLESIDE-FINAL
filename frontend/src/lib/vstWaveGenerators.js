@@ -22,6 +22,16 @@ export const WAVE_PROGRESSION_OPTIONS = [
   { id: "dark", label: "Dark · i–VI–III–VII", degrees: [0, 5, 2, 6] },
 ];
 
+export const WAVE_SINGLE_CHORD_OPTIONS = [
+  { id: "major", label: "Major", intervals: [0, 4, 7] },
+  { id: "minor", label: "Minor", intervals: [0, 3, 7] },
+  { id: "major7", label: "Major 7", intervals: [0, 4, 7, 11] },
+  { id: "minor7", label: "Minor 7", intervals: [0, 3, 7, 10] },
+  { id: "sus2", label: "Sus 2", intervals: [0, 2, 7] },
+  { id: "sus4", label: "Sus 4", intervals: [0, 5, 7] },
+  { id: "aug", label: "Aug", intervals: [0, 4, 8] },
+];
+
 export const DEFAULT_STEP_NOTES = [0, null, 2, null, 4, null, 2, null, 0, null, 3, null, 4, 2, 1, null];
 
 const clamp = (value, minimum, maximum, fallback) => {
@@ -69,11 +79,36 @@ const arpeggiatorNotes = (config, rootPitch, intervals) => {
   }).map(({ step, degree, velocity }) => ({ step, length: config.gate, pitch: degreePitch(rootPitch, intervals, degree), velocity }));
 };
 
+const progressionDegrees = (value) => {
+  const romanDegrees = { I: 0, II: 1, III: 2, IV: 3, V: 4, VI: 5, VII: 6 };
+  const tokens = String(value || "")
+    .replace(/[–—]/g, "-")
+    .split(/[\s,;|>\-/]+/)
+    .map((token) => token.trim())
+    .filter(Boolean)
+    .slice(0, 16);
+  return tokens.map((token) => {
+    const cleaned = token.replace(/[°º+]/g, "").replace(/(?:maj|min|dim|aug|sus)?7?$/i, "");
+    if (/^[1-7]$/.test(cleaned)) return Number(cleaned) - 1;
+    return romanDegrees[cleaned.toUpperCase()];
+  }).filter(Number.isInteger);
+};
+
 const chordNotes = (config, rootPitch, intervals) => {
-  const progression = WAVE_PROGRESSION_OPTIONS.find((item) => item.id === config.progression) || WAVE_PROGRESSION_OPTIONS[0];
-  const chordLength = Math.max(1, Math.floor(config.steps / progression.degrees.length));
+  if (config.chordMode === "single") {
+    const chord = WAVE_SINGLE_CHORD_OPTIONS.find((item) => item.id === config.singleChordType) || WAVE_SINGLE_CHORD_OPTIONS[0];
+    const notes = [];
+    chord.intervals.forEach((interval, noteIndex) => {
+      addNote(notes, 0, Math.min(config.steps, config.steps * config.gate), Math.min(127, rootPitch + interval), noteIndex === 0 ? 108 : 92);
+    });
+    return notes;
+  }
+  const legacyProgression = WAVE_PROGRESSION_OPTIONS.find((item) => item.id === config.progression) || WAVE_PROGRESSION_OPTIONS[0];
+  const degrees = progressionDegrees(config.customProgression);
+  const progression = degrees.length ? degrees : legacyProgression.degrees;
+  const chordLength = Math.max(1, Math.floor(config.steps / progression.length));
   const notes = [];
-  progression.degrees.forEach((degree, index) => {
+  progression.forEach((degree, index) => {
     const step = index * chordLength;
     [degree, degree + 2, degree + 4].forEach((chordDegree, noteIndex) => {
       addNote(notes, step, chordLength * config.gate, degreePitch(rootPitch, intervals, chordDegree), noteIndex === 0 ? 108 : 92);
@@ -136,6 +171,10 @@ const displayName = (config) => {
     bassline: "Bassline Generator",
     melody: "Melody Generator",
   };
+  if (config.mode === "chord" && config.chordMode === "single") {
+    const chord = WAVE_SINGLE_CHORD_OPTIONS.find((item) => item.id === config.singleChordType) || WAVE_SINGLE_CHORD_OPTIONS[0];
+    return `Chord Generator · ${root} ${chord.label}`;
+  }
   return `${labels[config.mode] || labels.arpeggiator} · ${root} ${scale}`;
 };
 
@@ -151,7 +190,12 @@ export const normalizeWaveGeneratorConfig = (input = {}) => ({
   chordType: input.chordType === "seventh" ? "seventh" : "triad",
   direction: ["up", "down", "updown", "random"].includes(input.direction) ? input.direction : "up",
   octaves: Math.round(clamp(input.octaves, 1, 3, 2)),
+  chordMode: input.chordMode === "single" ? "single" : "progression",
+  singleChordType: WAVE_SINGLE_CHORD_OPTIONS.some((chord) => chord.id === input.singleChordType) ? input.singleChordType : "major",
   progression: WAVE_PROGRESSION_OPTIONS.some((progression) => progression.id === input.progression) ? input.progression : "pop",
+  customProgression: typeof input.customProgression === "string" && input.customProgression.trim()
+    ? input.customProgression.trim().slice(0, 96)
+    : "I - V - vi - IV",
   bassStyle: ["pulse", "octave", "acid", "syncopated"].includes(input.bassStyle) ? input.bassStyle : "pulse",
   contour: ["free", "rising", "falling"].includes(input.contour) ? input.contour : "free",
   density: clamp(input.density, 0.25, 1, 0.7),
@@ -188,8 +232,9 @@ export const createWaveGeneratorSequence = (input = {}, sequenceId = null) => {
     name: displayName(config).slice(0, 160),
     ppq,
     durationTicks: config.steps * ticksPerStep,
-    loopEnabled: true,
+    loopEnabled: !(config.mode === "chord" && config.chordMode === "single"),
     events,
     tempos: [{ tick: 0, bpm: config.bpm }],
+    generatorConfig: config,
   };
 };

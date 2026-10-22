@@ -47,8 +47,31 @@ describe("Wave Generator pattern tools", () => {
   });
 
   test("exposes one root chord at tick zero for live chord triggering", () => {
-    const sequence = createWaveGeneratorSequence({ mode: "chord", scale: "major", triggerPitch: 60 }, "live-chord-test");
+    const sequence = createWaveGeneratorSequence({ mode: "chord", chordMode: "single", singleChordType: "major", scale: "major", triggerPitch: 60 }, "live-chord-test");
     expect(sequence.events.filter(({ type, tick }) => type === "note_on" && tick === 0).map(({ note }) => note)).toEqual([60, 64, 67]);
+    expect(sequence.loopEnabled).toBe(false);
+  });
+
+  test.each([
+    ["major7", [60, 64, 67, 71]],
+    ["minor7", [60, 63, 67, 70]],
+    ["sus2", [60, 62, 67]],
+    ["sus4", [60, 65, 67]],
+    ["aug", [60, 64, 68]],
+  ])("creates the requested single chord type %s", (singleChordType, expectedNotes) => {
+    const sequence = createWaveGeneratorSequence({ mode: "chord", chordMode: "single", singleChordType, triggerPitch: 60 }, `single-${singleChordType}`);
+    expect(sequence.events.filter(({ type }) => type === "note_on").map(({ note }) => note)).toEqual(expectedNotes);
+  });
+
+  test("accepts a user-written chord progression and preserves generator metadata", () => {
+    const sequence = createWaveGeneratorSequence({
+      mode: "chord", chordMode: "progression", scale: "major", triggerPitch: 60,
+      customProgression: "I - vi - IV - V", steps: 16,
+    }, "custom-progression");
+    const roots = sequence.events.filter(({ type }) => type === "note_on").filter((_, index) => index % 3 === 0);
+    expect(roots.map(({ note }) => note)).toEqual([60, 69, 65, 67]);
+    expect(sequence.loopEnabled).toBe(true);
+    expect(sequence.generatorConfig).toEqual(expect.objectContaining({ chordMode: "progression", customProgression: "I - vi - IV - V" }));
   });
 
   test("uses deterministic variation and clamps unsafe input", () => {

@@ -57,7 +57,7 @@ import { samplerAttackMilliseconds, samplerReleaseMilliseconds } from "../lib/vs
 import { decodeAndPreprocessImpulse, normalizeImpulseSettings } from "../lib/vstCabinetImpulse";
 import { parseMidiFile } from "../lib/vstMidiFile";
 import { MIDI_LOOKAHEAD_MS, MIDI_SCHEDULER_INTERVAL_MS, MIDI_START_DELAY_MS, buildMidiPlaybackTimeline } from "../lib/vstMidiScheduler";
-import { DEFAULT_STEP_NOTES, WAVE_GENERATOR_MODES, WAVE_NOTE_NAMES, WAVE_PROGRESSION_OPTIONS, WAVE_SCALE_OPTIONS, createWaveGeneratorSequence, normalizeWaveGeneratorConfig } from "../lib/vstWaveGenerators";
+import { DEFAULT_STEP_NOTES, WAVE_GENERATOR_MODES, WAVE_NOTE_NAMES, WAVE_SCALE_OPTIONS, WAVE_SINGLE_CHORD_OPTIONS, createWaveGeneratorSequence, normalizeWaveGeneratorConfig } from "../lib/vstWaveGenerators";
 import { DEFAULT_VST_PRICING, componentCreditPrice, createVstTemplatePricingBaseline, formatCredits, isCustomVstBackground, normalizeVstPricing, quoteVstProjectCredits } from "../lib/vstMakerPricing";
 import { NEON_POP_DRUM_HITS, PREMIUM_PIANO_BACKGROUND_URL, REGENT_DEFAULT_CONTROLS, REGENT_WHITE_DEFAULT_CONTROLS, VST_PROJECT_TEMPLATES } from "../data/vstTemplates";
 import { DEFAULT_VST_FILMSTRIP_SKIN, VST_KNOB_ASSETS, filmstripFrameStyle } from "../data/vstFilmstripSkins";
@@ -1451,7 +1451,7 @@ const toProjectPayload = (project, samples) => {
   }),
   presets: project.presets || [],
   midi_mappings: [],
-  midi_sequences: (project.midiSequences || []).map(({ durationTicks, loopEnabled, ...sequence }) => ({ ...sequence, duration_ticks: durationTicks, loop_enabled: loopEnabled === true })),
+  midi_sequences: (project.midiSequences || []).map(({ durationTicks, loopEnabled, generatorConfig, ...sequence }) => ({ ...sequence, duration_ticks: durationTicks, loop_enabled: loopEnabled === true, ...(generatorConfig ? { generator_config: normalizeWaveGeneratorConfig(generatorConfig) } : {}) })),
   sampler_groups: (project.samplerGroups || [createSamplerGroup()]).map((group, index) => {
     const normalized = normalizeSamplerGroup(group, index);
     return { id: normalized.id, name: normalized.name, volume: normalized.volume, pan: normalized.pan, mute: normalized.mute, solo: normalized.solo };
@@ -1560,7 +1560,7 @@ const fromSavedProject = (saved) => {
   interfaceControls: migratedObsidianState?.interfaceControls || (migrateLumaOpto ? createTemplateControls("vintageeq", 49) : (migrateAmpStack ? migrateAmpStackControls : (controls) => controls)((saved.interface_controls || []).map(({ note_pitch, module_id, key_count, key_colors, show_background, label_position, pad_color, pad_active_color, visual_color, spectrum_band, prism_control_mode, prism_context, prism_owner_id, text_font, text_color, control_color, indicator_source_id, image_url, image_name, image_fit, image_opacity, parent_panel_id, panel_type, panel_x, panel_y, panel_width, panel_height, ...control }) => normalizeInterfaceControl({ ...control, moduleId: module_id || null, notePitch: note_pitch ?? 60, keyCount: key_count || undefined, keyColors: key_colors, showBackground: show_background !== false, labelPosition: label_position, padColor: pad_color, padActiveColor: pad_active_color, visualColor: visual_color, spectrumBand: spectrum_band === true, prismControlMode: prism_control_mode, prismContext: prism_context, prismOwnerId: prism_owner_id, textFont: text_font, textColor: text_color, controlColor: control_color, indicatorSourceId: indicator_source_id, imageUrl: image_url, imageName: image_name, imageFit: image_fit, imageOpacity: image_opacity, parentPanelId: parent_panel_id, panelType: panel_type, panelX: panel_x, panelY: panel_y, panelWidth: panel_width, panelHeight: panel_height })))),
   presets: Array.isArray(saved.presets) ? saved.presets : [],
   midiMappings: [],
-  midiSequences: (saved.midi_sequences || []).map(({ duration_ticks, loop_enabled, ...sequence }) => ({ ...sequence, durationTicks: duration_ticks, loopEnabled: loop_enabled === true })),
+  midiSequences: (saved.midi_sequences || []).map(({ duration_ticks, loop_enabled, generator_config, ...sequence }) => ({ ...sequence, durationTicks: duration_ticks, loopEnabled: loop_enabled === true, ...(generator_config ? { generatorConfig: normalizeWaveGeneratorConfig(generator_config) } : {}) })),
   samplerGroups: Array.isArray(saved.sampler_groups) && saved.sampler_groups.length ? saved.sampler_groups.slice(0, 16).map(normalizeSamplerGroup) : [createSamplerGroup()],
   engineModules: migratedObsidianState?.engineModules || normalizeDspRack(saved.engine_modules),
   impulseResponses: (saved.impulse_responses || []).map((impulse) => ({
@@ -2596,6 +2596,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
   const ensureWaveDspGraph = (context, plan) => {
     if (!context || !plan.length || dspWorkletReadyContextRef.current !== context) return null;
     const topology = plan.map(({ id, type }) => `${id}:${type}`).join("|");
+    const planSignature = JSON.stringify(plan);
     let graph = waveDspGraphRef.current;
     if (!graph || graph.context !== context) {
       releaseWaveDspGraph();
@@ -2615,7 +2616,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       input.connect(processor); processor.connect(processorGain); processorGain.connect(output);
       input.connect(dryFallback); dryFallback.connect(output);
       output.connect(masterGain); masterGain.connect(masterPanner); masterPanner.connect(meterAnalyserRef.current || context.destination);
-      graph = { context, input, output, masterGain, masterPanner, processor, processorGain, dryFallback, topology, processorFailed: false, processorReady: false };
+      graph = { context, input, output, masterGain, masterPanner, processor, processorGain, dryFallback, topology, planSignature, processorFailed: false, processorReady: false };
       whenDspProcessorReady(processor, () => {
         if (waveDspGraphRef.current !== graph || graph.processor !== processor || graph.processorFailed) return;
         const now = context.currentTime;
@@ -2643,8 +2644,10 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       // amp/cabinet rack here can overload the realtime thread while a key is held.
       graph.processor.port.postMessage({ type: "plan", plan });
       graph.topology = topology;
-    } else {
+      graph.planSignature = planSignature;
+    } else if (graph.planSignature !== planSignature) {
       graph.processor.port.postMessage({ type: "plan", plan });
+      graph.planSignature = planSignature;
     }
     return graph;
   };
@@ -4066,8 +4069,19 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     return started;
   };
 
+  playWavePatternNote.prepareGroove = async () => {
+    const context = ensureAudioContext();
+    if (!context) return;
+    if (context.state === "suspended") await context.resume();
+    const postRackModules = (projectRef.current.engineModules || []).filter(isPostSourceDspModule);
+    if (!postRackModules.length) return;
+    await installNativeDspWorklet(context);
+    dspWorkletReadyContextRef.current = context;
+    ensureWaveDspGraph(context, createDspPreviewPlan(postRackModules, projectRef.current.interfaceControls, customImpulseTaps));
+  };
+
   const stopWavePatternNote = (token, playbackOptions = null) => {
-    const immediate = playbackOptions?.forceRelease === true;
+    const immediate = playbackOptions?.forceRelease === true && playbackOptions?.scheduledAtPerformance == null;
     const voice = activeWaveVoicesRef.current.get(token);
     const pitch = voice?.pitch ?? hitPitchTokensRef.current.get(token);
     heldWaveNotesRef.current.delete(token);
@@ -4119,9 +4133,8 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     const sequence = createWaveGeneratorSequence({
       ...liveWavePatternConfig,
       triggerPitch: pitch,
-      variation: liveWavePatternConfig.variation + 1,
     }, `live-wave-pattern-${token}`);
-    if (liveWavePatternConfig.mode === "chord") {
+    if (liveWavePatternConfig.mode === "chord" && liveWavePatternConfig.chordMode === "single") {
       trigger.noteTokens = sequence.events
         .filter((event) => event.type === "note_on" && event.tick === 0)
         .map((event, index) => {
@@ -7070,24 +7083,24 @@ function WaveGeneratorPatternStudio({ liveConfig, midiSequences, onLiveConfigCha
     stepNotes: DEFAULT_STEP_NOTES,
   }));
   const liveEnabled = liveConfig?.enabled === true;
+  const liveSequenceId = liveEnabled ? liveConfig?.sourceSequenceId : null;
   const generatedSequences = midiSequences.filter((sequence) => GENERATED_SEQUENCE_PREFIXES.some((prefix) => String(sequence.name || "").startsWith(prefix)));
   const activeMode = WAVE_GENERATOR_MODES.find(({ id }) => id === config.mode) || WAVE_GENERATOR_MODES[0];
   const updateConfig = (key, value) => {
     const next = normalizeWaveGeneratorConfig({ ...config, [key]: value });
     setConfig(next);
-    if (liveEnabled) onLiveConfigChange({ ...next, enabled: true });
   };
   const generate = () => {
     const nextConfig = normalizeWaveGeneratorConfig({ ...config, variation: config.variation + 1 });
     const sequence = createWaveGeneratorSequence(nextConfig, makeId());
     setConfig(nextConfig);
-    if (liveEnabled) onLiveConfigChange({ ...nextConfig, enabled: true });
     onSequencesChange([...midiSequences, sequence].slice(-16));
     transport.setSelectedSequenceId(sequence.id);
     toast.success(`${activeMode.label} dibuat dan ditambahkan ke MIDI Grooves`);
   };
   const removeSequence = (sequence) => {
     if (transport.playingSequenceId === sequence.id) transport.stop();
+    if (liveSequenceId === sequence.id) onLiveConfigChange(null);
     onSequencesChange(midiSequences.filter((item) => item.id !== sequence.id));
     if (transport.selectedSequenceId === sequence.id) transport.setSelectedSequenceId("");
   };
@@ -7103,34 +7116,17 @@ function WaveGeneratorPatternStudio({ liveConfig, midiSequences, onLiveConfigCha
           <p className="mt-1 text-[10px] leading-4 text-zinc-500">{activeMode.detail}. Hasilnya menjadi MIDI loop proyek dan dapat dipreview langsung dengan suara Wave Generator.</p>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <button
-            type="button"
-            role="switch"
-            aria-checked={liveEnabled}
-            onClick={() => {
-              if (liveEnabled) {
-                onLiveConfigChange(null);
-                toast.success("Live Trigger dimatikan");
-              } else {
-                onLiveConfigChange({ ...config, enabled: true });
-                toast.success("Live Trigger aktif · tekan dan tahan tuts");
-              }
-            }}
-            className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[9px] font-black uppercase tracking-wide transition ${liveEnabled ? "border-emerald-300/40 bg-emerald-300/15 text-emerald-100" : "border-white/10 bg-black/20 text-zinc-500 hover:text-zinc-300"}`}
-          >
-            <span className={`h-2 w-2 rounded-full ${liveEnabled ? "bg-emerald-300 shadow-[0_0_10px_rgba(110,231,183,0.8)]" : "bg-zinc-700"}`} />
-            Live Trigger {liveEnabled ? "ON" : "OFF"}
-          </button>
+          {liveEnabled && <span className="rounded-full border border-emerald-300/30 bg-emerald-300/10 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wide text-emerald-100">1 Live Trigger aktif</span>}
           <span className="rounded-full border border-fuchsia-300/20 bg-fuchsia-300/10 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wide text-fuchsia-100">{generatedSequences.length} pola dibuat</span>
         </div>
       </div>
 
       <div className={`mt-3 rounded-lg border px-3 py-2 text-[10px] leading-4 ${liveEnabled ? "border-emerald-300/20 bg-emerald-300/[0.06] text-emerald-100/80" : "border-white/[0.06] bg-black/20 text-zinc-600"}`}>
-        {liveEnabled && config.mode === "chord"
-          ? "Tekan satu tuts untuk memainkan satu chord dari root tersebut. Chord ditahan sampai tuts dilepas; progression hanya digunakan oleh tombol Generate."
+        {liveEnabled && liveConfig.mode === "chord" && liveConfig.chordMode === "single"
+          ? "Preset Live Trigger 1 Chord aktif. Tekan satu tuts untuk memainkan satu chord dan tahan sampai tuts dilepas."
           : liveEnabled
-          ? `Tekan dan tahan tuts keyboard layar atau MIDI controller. Nada yang ditekan menjadi root ${activeMode.label}; pola berhenti saat tuts dilepas.`
-          : "Aktifkan Live Trigger agar tuts keyboard layar atau MIDI controller langsung menjalankan generator terpilih."}
+          ? `Satu preset ${WAVE_GENERATOR_MODES.find(({ id }) => id === liveConfig.mode)?.label || "generator"} dipilih. Tekan dan tahan tuts; pola berhenti saat tuts dilepas.`
+          : "Buat pola, lalu pilih tombol Live Trigger di sebelah Preview. Hanya satu pola dapat aktif."}
       </div>
 
       <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-5" role="tablist" aria-label="Pilih generator pola">
@@ -7168,8 +7164,9 @@ function WaveGeneratorPatternStudio({ liveConfig, midiSequences, onLiveConfigCha
       </div>}
 
       {config.mode === "chord" && <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <label className={fieldLabel}>Progression<select className={fieldClass} value={config.progression} onChange={(event) => updateConfig("progression", event.target.value)}>{WAVE_PROGRESSION_OPTIONS.map((progression) => <option key={progression.id} value={progression.id}>{progression.label}</option>)}</select></label>
-        <div className="rounded-lg border border-white/[0.07] bg-black/20 px-3 py-2 text-[10px] leading-4 text-zinc-500">Setiap chord memakai triad diatonik dan dibagi rata sepanjang loop.</div>
+        <label className={fieldLabel}>Mode chord<select className={fieldClass} value={config.chordMode} onChange={(event) => updateConfig("chordMode", event.target.value)}><option value="single">1 Chord</option><option value="progression">Chord Berjalan</option></select></label>
+        {config.chordMode === "single" ? <label className={fieldLabel}>Jenis chord<select className={fieldClass} value={config.singleChordType} onChange={(event) => updateConfig("singleChordType", event.target.value)}>{WAVE_SINGLE_CHORD_OPTIONS.map((chord) => <option key={chord.id} value={chord.id}>{chord.label}</option>)}</select></label> : <label className={fieldLabel}>Progression bebas<input className={fieldClass} type="text" maxLength="96" value={config.customProgression} onChange={(event) => updateConfig("customProgression", event.target.value)} placeholder="I - V - vi - IV" /><span className="mt-1.5 block normal-case tracking-normal text-zinc-600">Isi degree I–VII atau 1–7, pisahkan dengan spasi, koma, atau tanda hubung.</span></label>}
+        <div className="rounded-lg border border-white/[0.07] bg-black/20 px-3 py-2 text-[10px] leading-4 text-zinc-500 sm:col-span-2">{config.chordMode === "single" ? "Preview memainkan tepat satu chord. Live Trigger menahan chord selama tuts ditekan." : "Preview dan Live Trigger memainkan progression yang Anda tulis sebagai loop."}</div>
       </div>}
 
       {config.mode === "step" && <div className="mt-4">
@@ -7202,10 +7199,21 @@ function WaveGeneratorPatternStudio({ liveConfig, midiSequences, onLiveConfigCha
         <div className={fieldLabel}>Generated patterns</div>
         {generatedSequences.slice().reverse().map((sequence) => {
           const playing = transport.playingSequenceId === sequence.id;
+          const live = liveSequenceId === sequence.id;
           const noteCount = sequence.events.filter(({ type }) => type === "note_on").length;
           return <div key={sequence.id} className={`flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2 ${playing ? "border-emerald-300/30 bg-emerald-300/[0.07]" : "border-white/[0.07] bg-black/20"}`}>
-            <div className="min-w-0 flex-1"><div className="truncate text-[10px] font-bold text-zinc-200">{sequence.name}</div><div className="mt-0.5 text-[8px] text-zinc-600">{noteCount} notes · {Math.round(sequence.tempos?.[0]?.bpm || 120)} BPM · loop aktif</div></div>
+            <div className="min-w-0 flex-1"><div className="truncate text-[10px] font-bold text-zinc-200">{sequence.name}</div><div className="mt-0.5 text-[8px] text-zinc-600">{noteCount} notes · {Math.round(sequence.tempos?.[0]?.bpm || 120)} BPM · {sequence.loopEnabled ? "loop aktif" : "sekali jalan"}</div></div>
             <button type="button" onClick={() => playing ? transport.stop() : transport.play(sequence)} className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[9px] font-bold ${playing ? "border-emerald-300/30 bg-emerald-300/15 text-emerald-100" : "border-white/10 text-zinc-300 hover:bg-white/[0.05]"}`}>{playing ? <Square className="h-3 w-3" fill="currentColor" /> : <Play className="h-3 w-3" fill="currentColor" />}{playing ? "Stop" : "Preview"}</button>
+            <button type="button" role="switch" aria-checked={live} onClick={() => {
+              if (live) {
+                onLiveConfigChange(null);
+                toast.success("Live Trigger dimatikan");
+                return;
+              }
+              const generatorConfig = normalizeWaveGeneratorConfig(sequence.generatorConfig || config);
+              onLiveConfigChange({ ...generatorConfig, enabled: true, sourceSequenceId: sequence.id });
+              toast.success(`Live Trigger aktif · ${sequence.name}`);
+            }} className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[9px] font-bold transition ${live ? "border-emerald-300/40 bg-emerald-300/15 text-emerald-100" : "border-white/10 text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-200"}`}><span className={`h-1.5 w-1.5 rounded-full ${live ? "bg-emerald-300" : "bg-zinc-700"}`} />Live Trigger {live ? "ON" : "OFF"}</button>
             <button type="button" aria-label={`Hapus ${sequence.name}`} onClick={() => removeSequence(sequence)} className="rounded-md border border-red-300/10 p-1.5 text-zinc-600 hover:bg-red-300/10 hover:text-red-300"><Trash2 className="h-3.5 w-3.5" /></button>
           </div>;
         })}
