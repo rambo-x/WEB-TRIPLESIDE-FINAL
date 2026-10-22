@@ -1103,13 +1103,6 @@ const noteNameToMidi = (noteName) => {
   return (Number(match[3]) + 1) * 12 + semitones[match[1]] + (match[2] ? 1 : 0);
 };
 
-const EFFECT_OPTIONS = [
-  { id: "reverb", label: "Reverb", detail: "Ruang dan ambience" },
-  { id: "delay", label: "Delay", detail: "Echo bertempo" },
-  { id: "chorus", label: "Chorus", detail: "Lebar dan gerak stereo" },
-  { id: "saturation", label: "Saturation", detail: "Warna harmonik" },
-];
-
 const hasInterfaceParameter = (controls, parameter) => (
   Array.isArray(controls) && controls.some((control) => control?.parameter === parameter)
 );
@@ -1236,7 +1229,7 @@ const createDraft = (pluginKind = "instrument") => {
   uiTemplate: "studio",
   uiColor: "#09090b",
   accentColor: "#f43f5e",
-  effects: { reverb: false, delay: false, chorus: false, saturation: false },
+  effects: {},
   controls: effectProject ? [] : ["tone", "attack", "release", "space"],
   interfaceControls: createTemplateControls(effectProject ? "basicfx" : "basicvst", 49),
   presets: [],
@@ -1330,7 +1323,7 @@ const readDraft = () => {
       brandX: migrateAmpStack ? 17 : clampPercent(stored.brandX ?? fresh.brandX, 4, 96),
       brandY: migrateAmpStack ? 7 : clampPercent(stored.brandY ?? fresh.brandY, 7, 93),
       brandAlign: migrateAmpStack ? "left" : ["left", "center", "right"].includes(stored.brandAlign) ? stored.brandAlign : fresh.brandAlign,
-      effects: { ...fresh.effects, ...(stored.effects || {}) },
+      effects: {},
       controls: Array.isArray(stored.controls) ? stored.controls : fresh.controls,
       interfaceControls: migratedObsidianState?.interfaceControls || (migrateLumaOpto ? createTemplateControls("vintageeq", 49) : migrateMixforgePanel ? createTemplateControls("mixforge", 49) : migratePrismControls ? createTemplateControls("prismeq", 49, "direct") : Array.isArray(stored.interfaceControls) ? (migrateAmpStack ? migrateAmpStackControls : (controls) => controls)(stored.interfaceControls.map((control) => normalizeInterfaceControl({ ...control, moduleId: control.moduleId || null, notePitch: Number.isInteger(control.notePitch) ? control.notePitch : 60, keyCount: KEYBOARD_SIZE_OPTIONS.includes(Number(control.keyCount)) ? Number(control.keyCount) : undefined }))) : []),
       presets: Array.isArray(stored.presets) ? stored.presets.slice(0, 128) : [],
@@ -1412,7 +1405,7 @@ const toProjectPayload = (project, samples) => {
   ui_template: project.uiTemplate,
   ui_color: project.uiColor,
   accent_color: project.accentColor,
-  effects: project.effects,
+  effects: {},
   controls: project.controls,
   sustain_enabled: project.sustainEnabled === true,
   pitch_bend_enabled: project.pitchBendEnabled === true,
@@ -1562,7 +1555,7 @@ const fromSavedProject = (saved) => {
   uiTemplate: migrateLumaOpto ? "vintage" : saved.ui_template || "studio",
   uiColor: isHexColor(saved.ui_color) ? saved.ui_color : defaultUiColor(migrateLumaOpto ? "vintage" : saved.ui_template || "studio"),
   accentColor: migrateLumaOpto ? "#d6b56d" : saved.accent_color,
-  effects: saved.effects || {},
+  effects: {},
   controls: saved.controls || [],
   interfaceControls: migratedObsidianState?.interfaceControls || (migrateLumaOpto ? createTemplateControls("vintageeq", 49) : (migrateAmpStack ? migrateAmpStackControls : (controls) => controls)((saved.interface_controls || []).map(({ note_pitch, module_id, key_count, key_colors, show_background, label_position, pad_color, pad_active_color, visual_color, spectrum_band, prism_control_mode, prism_context, prism_owner_id, text_font, text_color, control_color, indicator_source_id, image_url, image_name, image_fit, image_opacity, parent_panel_id, panel_type, panel_x, panel_y, panel_width, panel_height, ...control }) => normalizeInterfaceControl({ ...control, moduleId: module_id || null, notePitch: note_pitch ?? 60, keyCount: key_count || undefined, keyColors: key_colors, showBackground: show_background !== false, labelPosition: label_position, padColor: pad_color, padActiveColor: pad_active_color, visualColor: visual_color, spectrumBand: spectrum_band === true, prismControlMode: prism_control_mode, prismContext: prism_context, prismOwnerId: prism_owner_id, textFont: text_font, textColor: text_color, controlColor: control_color, indicatorSourceId: indicator_source_id, imageUrl: image_url, imageName: image_name, imageFit: image_fit, imageOpacity: image_opacity, parentPanelId: parent_panel_id, panelType: panel_type, panelX: panel_x, panelY: panel_y, panelWidth: panel_width, panelHeight: panel_height })))),
   presets: Array.isArray(saved.presets) ? saved.presets : [],
@@ -1777,6 +1770,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
   const [modulationValue, setModulationValue] = useState(0);
   const [samplerAudioStatus, setSamplerAudioStatus] = useState("Pilih atau unggah sampel untuk mencoba keyboard.");
   const [waveformPlayback, setWaveformPlayback] = useState(null);
+  const [liveWavePatternConfig, setLiveWavePatternConfig] = useState(null);
   const [midiInputs, setMidiInputs] = useState([]);
   const [selectedMidiInputId, setSelectedMidiInputId] = useState("");
   const [midiStatus, setMidiStatus] = useState("Belum terhubung");
@@ -1793,6 +1787,9 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
   const midiStopRef = useRef(null);
   const midiSustainRef = useRef(null);
   const midiNoteSequenceRef = useRef(0);
+  const livePatternStartRef = useRef(null);
+  const livePatternStopRef = useRef(null);
+  const livePatternTriggerRef = useRef(null);
   const sampleAudioUrlsRef = useRef(new Map());
   const samplePreviewRequestsRef = useRef(new Map());
   const decodedSampleBuffersRef = useRef(new Map());
@@ -1977,7 +1974,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       { label: "Sample mapping valid", ready: samples.length > 0 ? mappingsValid : hasActiveWaveGenerator, tab: "sampler" },
     ] : [{ label: "Stereo input DSP", ready: EFFECT_PROJECT_TEMPLATE_IDS.has(project.projectTemplate), tab: "sound" }]),
     { label: "Panel & binding", ready: bindingsValid, tab: "interface" },
-    { label: "Konfigurasi sound", ready: project.controls.length > 0 || project.engineModules.length > 0 || Object.values(project.effects).some(Boolean), tab: "sound" },
+    { label: "Konfigurasi sound", ready: project.controls.length > 0 || project.engineModules.length > 0, tab: "sound" },
   ];
   const visibleEditorTabs = EDITOR_TABS.filter((tab) => (
     !(isEffectProject && ["sampler", "settings"].includes(tab.id))
@@ -3571,6 +3568,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
   };
 
   const playSamplerNote = async (pitch, velocity, token, articulation = null, micPosition = null, samplerName = null, playbackOptions = null) => {
+    if (!playbackOptions && livePatternStartRef.current?.(pitch, velocity, token)) return;
     if (playbackOptions?.grooveScheduled) {
       if (playGrooveSamplerNote(pitch, velocity, token, playbackOptions.scheduledAtPerformance)) return;
       const delay = Math.max(0, playbackOptions.scheduledAtPerformance - performance.now());
@@ -3964,6 +3962,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
   };
 
   const stopSamplerNote = (token, playbackOptions = null) => {
+    if (!playbackOptions && livePatternStopRef.current?.(token)) return;
     if (playbackOptions?.forceRelease && grooveFallbackTokensRef.current.has(token)) {
       grooveFallbackTokensRef.current.delete(token);
       const pendingTimer = grooveFallbackTimersRef.current.get(token);
@@ -4089,6 +4088,77 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
   };
 
   const wavePatternTransport = useMidiGrooveTransport(project.midiSequences, playWavePatternNote, stopWavePatternNote);
+
+  const stopLivePatternTrigger = (trigger) => {
+    (trigger?.noteTokens || []).forEach((noteToken) => stopWavePatternNote(noteToken, { forceRelease: true }));
+  };
+
+  const clearLivePatternTrigger = (trigger) => {
+    if (!trigger) return;
+    hitPitchTokensRef.current.delete(trigger.visualToken);
+    setPreviewPressedPitches((current) => {
+      if (Array.from(hitPitchTokensRef.current.values()).some((value) => value === trigger.pitch)) return current;
+      const next = new Set(current);
+      next.delete(trigger.pitch);
+      return next;
+    });
+  };
+
+  livePatternStartRef.current = (pitch, velocity, token) => {
+    if (!liveWavePatternConfig?.enabled) return false;
+    const activeGenerator = (projectRef.current.engineModules || []).some((module) => module.type === "wave_generator" && !module.bypassed);
+    if (!activeGenerator) return false;
+    wavePatternTransport.stop();
+    stopLivePatternTrigger(livePatternTriggerRef.current);
+    clearLivePatternTrigger(livePatternTriggerRef.current);
+    const visualToken = `live-pattern-trigger-${token}`;
+    const trigger = { token, visualToken, pitch };
+    livePatternTriggerRef.current = trigger;
+    hitPitchTokensRef.current.set(visualToken, pitch);
+    setPreviewPressedPitches((current) => new Set(current).add(pitch));
+    const sequence = createWaveGeneratorSequence({
+      ...liveWavePatternConfig,
+      triggerPitch: pitch,
+      variation: liveWavePatternConfig.variation + 1,
+    }, `live-wave-pattern-${token}`);
+    if (liveWavePatternConfig.mode === "chord") {
+      trigger.noteTokens = sequence.events
+        .filter((event) => event.type === "note_on" && event.tick === 0)
+        .map((event, index) => {
+          const noteToken = `live-wave-chord-${token}-${index}`;
+          const chordVelocity = Math.max(1, Math.round(event.velocity * velocity / 127));
+          playWavePatternNote(event.note, chordVelocity, noteToken);
+          return noteToken;
+        });
+    } else {
+      wavePatternTransport.play(sequence);
+    }
+    const mode = WAVE_GENERATOR_MODES.find(({ id }) => id === liveWavePatternConfig.mode)?.label || "Generator";
+    setSamplerAudioStatus(`Live ${mode} · root ${WAVE_NOTE_NAMES[pitch % 12]}${Math.floor(pitch / 12) - 1} · lepas tuts untuk stop.`);
+    return true;
+  };
+
+  livePatternStopRef.current = (token) => {
+    const trigger = livePatternTriggerRef.current;
+    if (!trigger || trigger.token !== token) return false;
+    wavePatternTransport.stop();
+    stopLivePatternTrigger(trigger);
+    clearLivePatternTrigger(trigger);
+    livePatternTriggerRef.current = null;
+    setSamplerAudioStatus("Live Trigger siap. Tekan dan tahan tuts untuk menjalankan pola.");
+    return true;
+  };
+
+  const updateLiveWavePatternConfig = (nextConfig) => {
+    if (!nextConfig?.enabled) {
+      wavePatternTransport.stop();
+      stopLivePatternTrigger(livePatternTriggerRef.current);
+      clearLivePatternTrigger(livePatternTriggerRef.current);
+      livePatternTriggerRef.current = null;
+      setSamplerAudioStatus("Live Trigger OFF. Keyboard kembali memainkan nada biasa.");
+    }
+    setLiveWavePatternConfig(nextConfig);
+  };
 
   const connectMidi = async () => {
     if (typeof navigator === "undefined" || typeof navigator.requestMIDIAccess !== "function") {
@@ -4351,15 +4421,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
         : template.id === "premiumkeys" || template.backgroundUrl
         ? ["volume", "tone", "attack", "release", "space"]
         : template.id === "synth" ? ["tone", "attack", "release", "space"] : current.controls,
-      effects: template.effects || (template.id === "premiumkeys"
-        ? { reverb: true, delay: false, chorus: false, saturation: true }
-        : ["drumpad", "performancegrid"].includes(template.id)
-        ? { reverb: true, delay: false, chorus: false, saturation: true }
-        : template.id === "synth"
-          ? { reverb: true, delay: true, chorus: true, saturation: false }
-          : template.id === "sampler"
-            ? { reverb: false, delay: false, chorus: false, saturation: false }
-            : { reverb: true, delay: false, chorus: false, saturation: false }),
+      effects: {},
       interfaceControls: ampTemplateState?.interfaceControls || createTemplateControls(template.id, template.keyboardKeys || current.keyboardKeys).map((control) => (
         prismModuleId && (control.kind === "spectrum" || PRISM_CONTEXT_PARAMETERS.has(control.parameter)) ? { ...control, moduleId: prismModuleId } : control
       )),
@@ -5305,20 +5367,13 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       : template.id === "obsidianhighgain"
         ? createHighGainAmpTemplateState(() => makeId())
         : null;
-    const fallbackEffects = ["drumpad", "performancegrid"].includes(template.id)
-      ? { reverb: true, delay: false, chorus: false, saturation: true }
-      : template.id === "synth"
-        ? { reverb: true, delay: true, chorus: true, saturation: false }
-        : template.id === "sampler"
-          ? { reverb: false, delay: false, chorus: false, saturation: false }
-          : { reverb: true, delay: false, chorus: false, saturation: false };
     const templateProject = {
       pluginKind: template.pluginKind || "instrument",
       projectTemplate: template.id,
       pricingTemplateId: template.id,
       interfaceControls: ampState?.interfaceControls || createTemplateControls(template.id, template.keyboardKeys || 49),
       engineModules: ampState?.engineModules || [],
-      effects: template.effects || fallbackEffects,
+      effects: {},
       samples: [],
     };
     return quoteVstProjectCredits({
@@ -5588,13 +5643,6 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     setNewProjectDialogOpen(false);
     setActiveEditorTab("interface");
     toast.success(`Draft ${pluginKind === "effect" ? "Plugin Basic" : "VST Basic"} untuk template baru siap. Save to template akan membuat template baru.`);
-  };
-
-  const toggleEffect = (effectId) => {
-    setProject((current) => ({
-      ...current,
-      effects: { ...current.effects, [effectId]: !current.effects[effectId] },
-    }));
   };
 
   const addEngineModule = (type) => {
@@ -6652,7 +6700,9 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
                         <div className="grid gap-3 sm:grid-cols-3">{velocityParameters.map((definition) => renderParameter(definition))}</div>
                       </section>
                       <WaveGeneratorPatternStudio
+                        liveConfig={liveWavePatternConfig}
                         midiSequences={project.midiSequences}
+                        onLiveConfigChange={updateLiveWavePatternConfig}
                         projectTempo={project.tempoBpm}
                         transport={wavePatternTransport}
                         onSequencesChange={(midiSequences) => updateDesignerProject((current) => ({ ...current, midiSequences }), "wave-generator-patterns")}
@@ -6697,17 +6747,6 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
                   </div>
                 </details>
               </div>
-              {!isEffectProject && Object.values(project.effects).some(Boolean) && (
-                <div className="mt-6 rounded-2xl border border-amber-300/15 bg-amber-300/[0.035] p-4">
-                  <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-amber-200">Efek kompatibilitas project lama</div>
-                  <p className="mt-1 text-[10px] leading-4 text-zinc-500">Efek lama tetap dapat dimatikan di sini. Untuk project baru, gunakan modul pada DSP Rack agar jalurnya terlihat jelas.</p>
-                  <div className="mt-3 grid gap-2 md:grid-cols-2">
-                    {EFFECT_OPTIONS.filter((effect) => project.effects[effect.id]).map((effect) => (
-                      <ToggleRow key={effect.id} title={effect.label} description={effect.detail} creditPrice={pricing.instrument_effect_prices?.[effect.id] || 0} checked onChange={() => toggleEffect(effect.id)} />
-                    ))}
-                  </div>
-                </div>
-              )}
             </section>
             )}
 
@@ -7025,18 +7064,24 @@ const applyCustomDspPreviewPlan = (graph, plan) => {
 
 const GENERATED_SEQUENCE_PREFIXES = WAVE_GENERATOR_MODES.map(({ label }) => `${label} ·`);
 
-function WaveGeneratorPatternStudio({ midiSequences, onSequencesChange, projectTempo, transport }) {
+function WaveGeneratorPatternStudio({ liveConfig, midiSequences, onLiveConfigChange, onSequencesChange, projectTempo, transport }) {
   const [config, setConfig] = useState(() => normalizeWaveGeneratorConfig({
     bpm: projectTempo,
     stepNotes: DEFAULT_STEP_NOTES,
   }));
+  const liveEnabled = liveConfig?.enabled === true;
   const generatedSequences = midiSequences.filter((sequence) => GENERATED_SEQUENCE_PREFIXES.some((prefix) => String(sequence.name || "").startsWith(prefix)));
   const activeMode = WAVE_GENERATOR_MODES.find(({ id }) => id === config.mode) || WAVE_GENERATOR_MODES[0];
-  const updateConfig = (key, value) => setConfig((current) => normalizeWaveGeneratorConfig({ ...current, [key]: value }));
+  const updateConfig = (key, value) => {
+    const next = normalizeWaveGeneratorConfig({ ...config, [key]: value });
+    setConfig(next);
+    if (liveEnabled) onLiveConfigChange({ ...next, enabled: true });
+  };
   const generate = () => {
     const nextConfig = normalizeWaveGeneratorConfig({ ...config, variation: config.variation + 1 });
     const sequence = createWaveGeneratorSequence(nextConfig, makeId());
     setConfig(nextConfig);
+    if (liveEnabled) onLiveConfigChange({ ...nextConfig, enabled: true });
     onSequencesChange([...midiSequences, sequence].slice(-16));
     transport.setSelectedSequenceId(sequence.id);
     toast.success(`${activeMode.label} dibuat dan ditambahkan ke MIDI Grooves`);
@@ -7057,7 +7102,35 @@ function WaveGeneratorPatternStudio({ midiSequences, onSequencesChange, projectT
           <div className="mt-1 text-sm font-black text-white">{activeMode.label}</div>
           <p className="mt-1 text-[10px] leading-4 text-zinc-500">{activeMode.detail}. Hasilnya menjadi MIDI loop proyek dan dapat dipreview langsung dengan suara Wave Generator.</p>
         </div>
-        <span className="rounded-full border border-fuchsia-300/20 bg-fuchsia-300/10 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wide text-fuchsia-100">{generatedSequences.length} pola dibuat</span>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={liveEnabled}
+            onClick={() => {
+              if (liveEnabled) {
+                onLiveConfigChange(null);
+                toast.success("Live Trigger dimatikan");
+              } else {
+                onLiveConfigChange({ ...config, enabled: true });
+                toast.success("Live Trigger aktif · tekan dan tahan tuts");
+              }
+            }}
+            className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[9px] font-black uppercase tracking-wide transition ${liveEnabled ? "border-emerald-300/40 bg-emerald-300/15 text-emerald-100" : "border-white/10 bg-black/20 text-zinc-500 hover:text-zinc-300"}`}
+          >
+            <span className={`h-2 w-2 rounded-full ${liveEnabled ? "bg-emerald-300 shadow-[0_0_10px_rgba(110,231,183,0.8)]" : "bg-zinc-700"}`} />
+            Live Trigger {liveEnabled ? "ON" : "OFF"}
+          </button>
+          <span className="rounded-full border border-fuchsia-300/20 bg-fuchsia-300/10 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wide text-fuchsia-100">{generatedSequences.length} pola dibuat</span>
+        </div>
+      </div>
+
+      <div className={`mt-3 rounded-lg border px-3 py-2 text-[10px] leading-4 ${liveEnabled ? "border-emerald-300/20 bg-emerald-300/[0.06] text-emerald-100/80" : "border-white/[0.06] bg-black/20 text-zinc-600"}`}>
+        {liveEnabled && config.mode === "chord"
+          ? "Tekan satu tuts untuk memainkan satu chord dari root tersebut. Chord ditahan sampai tuts dilepas; progression hanya digunakan oleh tombol Generate."
+          : liveEnabled
+          ? `Tekan dan tahan tuts keyboard layar atau MIDI controller. Nada yang ditekan menjadi root ${activeMode.label}; pola berhenti saat tuts dilepas.`
+          : "Aktifkan Live Trigger agar tuts keyboard layar atau MIDI controller langsung menjalankan generator terpilih."}
       </div>
 
       <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-5" role="tablist" aria-label="Pilih generator pola">
@@ -7415,6 +7488,7 @@ function useMidiGrooveTransport(midiSequences, onNoteOn, onNoteOff) {
   const sustainChannelsRef = useRef(new Set());
   const sustainedTokensRef = useRef(new Map());
   const sequencesRef = useRef(midiSequences);
+  const transientSequenceRef = useRef(null);
   const noteOnRef = useRef(onNoteOn);
   const noteOffRef = useRef(onNoteOff);
   sequencesRef.current = midiSequences;
@@ -7433,6 +7507,7 @@ function useMidiGrooveTransport(midiSequences, onNoteOn, onNoteOff) {
     if (timerRef.current !== null) clearTimeout(timerRef.current);
     timerRef.current = null;
     releasePlayingNotes({ forceRelease: true });
+    transientSequenceRef.current = null;
     setPlayingSequenceId("");
   }, [releasePlayingNotes]);
   const play = useCallback((sequenceOverride = null) => {
@@ -7441,6 +7516,7 @@ function useMidiGrooveTransport(midiSequences, onNoteOn, onNoteOff) {
       || sequencesRef.current[0];
     if (!sequence) return;
     stop();
+    if (sequenceOverride && !sequencesRef.current.some((item) => item.id === sequence.id)) transientSequenceRef.current = sequence;
     setSelectedSequenceId(sequence.id);
     setPlayingSequenceId(sequence.id);
     const generation = generationRef.current;
@@ -7453,7 +7529,8 @@ function useMidiGrooveTransport(midiSequences, onNoteOn, onNoteOff) {
       let duration = 1;
       let cycle = 0;
       const loadCycle = () => {
-        const current = sequencesRef.current.find((item) => item.id === sequence.id);
+        const current = sequencesRef.current.find((item) => item.id === sequence.id)
+          || (transientSequenceRef.current?.id === sequence.id ? transientSequenceRef.current : null);
         if (!current) return false;
         const timeline = buildMidiPlaybackTimeline(current);
         groupedEvents = timeline.groups;
@@ -7507,7 +7584,8 @@ function useMidiGrooveTransport(midiSequences, onNoteOn, onNoteOff) {
           }
           if (groupIndex < groupedEvents.length) break;
           const cycleEndsAt = cycleStartedAt + duration;
-          const latest = sequencesRef.current.find((item) => item.id === sequence.id);
+          const latest = sequencesRef.current.find((item) => item.id === sequence.id)
+            || (transientSequenceRef.current?.id === sequence.id ? transientSequenceRef.current : null);
           if (latest?.loopEnabled === true) {
             if (cycleEndsAt > horizon) break;
             releasePlayingNotes({ grooveScheduled: true, scheduledAtPerformance: cycleEndsAt, forceRelease: true });
@@ -7539,8 +7617,9 @@ function useMidiGrooveTransport(midiSequences, onNoteOn, onNoteOff) {
     releasePlayingNotes({ forceRelease: true });
   }, [releasePlayingNotes]);
   useEffect(() => {
-    if (playingSequenceId && !midiSequences.some((item) => item.id === playingSequenceId)) stop();
-    if (selectedSequenceId && !midiSequences.some((item) => item.id === selectedSequenceId)) setSelectedSequenceId(midiSequences[0]?.id || "");
+    const transientId = transientSequenceRef.current?.id;
+    if (playingSequenceId && !midiSequences.some((item) => item.id === playingSequenceId) && transientId !== playingSequenceId) stop();
+    if (selectedSequenceId && !midiSequences.some((item) => item.id === selectedSequenceId) && transientId !== selectedSequenceId) setSelectedSequenceId(midiSequences[0]?.id || "");
     if (!selectedSequenceId && midiSequences[0]) setSelectedSequenceId(midiSequences[0].id);
   }, [midiSequences, playingSequenceId, selectedSequenceId, stop]);
 
@@ -9384,7 +9463,7 @@ function CreditEstimatePopup({ quote, balance, insufficient }) {
               <CreditEstimateRow
                 key={`${line.type}:${index}`}
                 label={dspLabel(line)}
-                detail={line.legacyEffect ? "Efek instrumen kompatibilitas" : creditItemLabel(line.type)}
+                detail={creditItemLabel(line.type)}
                 credits={line.credits}
                 included={line.included}
                 nested

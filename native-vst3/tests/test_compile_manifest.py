@@ -581,10 +581,10 @@ def test_compiles_designer_and_sampler_runtime_fields(tmp_path):
     result = output.read_text(encoding="utf-8")
     assert "kAccentRgb = 0x123456" in result
     assert "kUiRgb = 0x234567" in result
-    assert "kReverbEnabled = true" in result
-    assert "kDelayEnabled = true" in result
-    assert "kChorusEnabled = true" in result
-    assert "kSaturationEnabled = true" in result
+    assert "kReverbEnabled = false" in result
+    assert "kDelayEnabled = false" in result
+    assert "kChorusEnabled = false" in result
+    assert "kSaturationEnabled = false" in result
     assert "kDefaultSustain = true" in result
     assert "kPitchBendEnabled = true" in result
     assert "kModulationEnabled = false" in result

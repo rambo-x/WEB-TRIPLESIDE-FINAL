@@ -469,7 +469,7 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
     background_file = next((p.name for p in sorted((spec_path.parent / "assets").glob("ui_background.*"))), "")
     match = re.fullmatch(r"#?([0-9a-fA-F]{6})", str(interface.get("accent_color") or "#f43f5e")); accent_rgb = int(match.group(1), 16) if match else 0xF43F5E
     ui_match = re.fullmatch(r"#?([0-9a-fA-F]{6})", str(interface.get("ui_color") or "#09090b")); ui_rgb = int(ui_match.group(1), 16) if ui_match else 0x09090B
-    instrument, effects = spec.get("instrument") or {}, spec.get("effects") or {}
+    instrument = spec.get("instrument") or {}
     license_spec = spec.get("license") or {}
     license_required = license_spec.get("required") is True
     license_product_id = str(license_spec.get("product_id") or "")
@@ -548,10 +548,10 @@ inline constexpr bool kIsPrismEq = {cpp_bool(is_prism_eq)};
 inline constexpr bool kHasPrismModule = {cpp_bool(has_prism_module)};
 inline constexpr int kPrismModuleIndex = {prism_module_index};
 inline constexpr bool kPrismContextualEnabled = {cpp_bool(prism_contextual_enabled)};
-inline constexpr bool kReverbEnabled = {cpp_bool(effects.get("reverb", False))};
-inline constexpr bool kDelayEnabled = {cpp_bool(effects.get("delay", False))};
-inline constexpr bool kChorusEnabled = {cpp_bool(effects.get("chorus", False))};
-inline constexpr bool kSaturationEnabled = {cpp_bool(effects.get("saturation", False))};
+inline constexpr bool kReverbEnabled = false;
+inline constexpr bool kDelayEnabled = false;
+inline constexpr bool kChorusEnabled = false;
+inline constexpr bool kSaturationEnabled = false;
 inline constexpr bool kDefaultSustain = {cpp_bool(instrument.get("sustainEnabled", False))};
 inline constexpr bool kPitchBendEnabled = {cpp_bool(instrument.get("pitchBendEnabled", False))};
 inline constexpr bool kModulationEnabled = {cpp_bool(instrument.get("modulationEnabled", False))};

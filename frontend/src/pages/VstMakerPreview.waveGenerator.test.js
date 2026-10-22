@@ -47,6 +47,29 @@ describe("VST Maker Wave Generator note routing", () => {
     expect(source).toContain("onSequencesChange([...midiSequences, sequence].slice(-16))");
   });
 
+  test("removes the hidden legacy instrument-effects compatibility UI and payload", () => {
+    expect(source).not.toContain("Efek kompatibilitas project lama");
+    expect(source).not.toContain("toggleEffect");
+    expect(source).toContain("effects: {},");
+  });
+
+  test("turns keyboard and MIDI gestures into held live generator patterns", () => {
+    expect(source).toContain('Live Trigger {liveEnabled ? "ON" : "OFF"}');
+    expect(source).toContain("livePatternStartRef.current = (pitch, velocity, token) => {");
+    expect(source).toContain("triggerPitch: pitch");
+    expect(source).toContain("if (!playbackOptions && livePatternStartRef.current?.(pitch, velocity, token)) return;");
+    expect(source).toContain("if (!playbackOptions && livePatternStopRef.current?.(token)) return;");
+    expect(source).toContain("const transientSequenceRef = useRef(null);");
+  });
+
+  test("plays one sustained chord per held key instead of the generated progression", () => {
+    expect(source).toContain('if (liveWavePatternConfig.mode === "chord")');
+    expect(source).toContain('.filter((event) => event.type === "note_on" && event.tick === 0)');
+    expect(source).toContain("playWavePatternNote(event.note, chordVelocity, noteToken);");
+    expect(source).toContain("stopLivePatternTrigger(trigger);");
+    expect(source).toContain("Chord ditahan sampai tuts dilepas; progression hanya digunakan oleh tombol Generate.");
+  });
+
   test("starts each keyboard gesture once and keeps mono held-note fallback", () => {
     const beginNoteBody = source.match(/const beginNote = \(pitch, event, tokenPrefix\) => \{([\s\S]*?)\n  \};\n  const endNote/)?.[1] || "";
     expect(beginNoteBody.match(/onNoteOn\(pitch, velocity, token\);/g)).toHaveLength(1);

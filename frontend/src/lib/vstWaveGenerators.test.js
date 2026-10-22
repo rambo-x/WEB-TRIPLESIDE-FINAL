@@ -38,6 +38,19 @@ describe("Wave Generator pattern tools", () => {
     expect(sequence.events.filter(({ type }) => type === "note_on").map(({ note }) => note)).toEqual([48, 50, 52, 53]);
   });
 
+  test("uses a held keyboard or MIDI note as the live pattern root", () => {
+    const sequence = createWaveGeneratorSequence({
+      mode: "step", root: 0, octave: 3, scale: "major", steps: 8, triggerPitch: 57,
+      stepNotes: [0, null, 1, null, 2, null, 3, null],
+    }, "live-trigger-test");
+    expect(sequence.events.filter(({ type }) => type === "note_on").map(({ note }) => note)).toEqual([57, 59, 61, 62]);
+  });
+
+  test("exposes one root chord at tick zero for live chord triggering", () => {
+    const sequence = createWaveGeneratorSequence({ mode: "chord", scale: "major", triggerPitch: 60 }, "live-chord-test");
+    expect(sequence.events.filter(({ type, tick }) => type === "note_on" && tick === 0).map(({ note }) => note)).toEqual([60, 64, 67]);
+  });
+
   test("uses deterministic variation and clamps unsafe input", () => {
     const first = createWaveGeneratorSequence({ mode: "melody", variation: 7 }, "first");
     const second = createWaveGeneratorSequence({ mode: "melody", variation: 7 }, "second");

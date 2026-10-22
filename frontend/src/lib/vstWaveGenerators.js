@@ -166,7 +166,9 @@ export const normalizeWaveGeneratorConfig = (input = {}) => ({
 export const createWaveGeneratorSequence = (input = {}, sequenceId = null) => {
   const config = normalizeWaveGeneratorConfig(input);
   const intervals = scaleFor(config.scale).intervals;
-  const rootPitch = 12 * (config.octave + 1) + config.root;
+  const rootPitch = Number.isInteger(input.triggerPitch)
+    ? Math.round(clamp(input.triggerPitch, 0, 127, 60))
+    : 12 * (config.octave + 1) + config.root;
   const factories = {
     arpeggiator: arpeggiatorNotes,
     chord: chordNotes,
