@@ -1,0 +1,47 @@
+import {
+  DEFAULT_STEP_NOTES,
+  WAVE_GENERATOR_MODES,
+  createWaveGeneratorSequence,
+  normalizeWaveGeneratorConfig,
+} from "./vstWaveGenerators";
+
+describe("Wave Generator pattern tools", () => {
+  test("offers the five requested generators", () => {
+    expect(WAVE_GENERATOR_MODES.map(({ id }) => id)).toEqual([
+      "arpeggiator", "chord", "step", "bassline", "melody",
+    ]);
+  });
+
+  test.each(WAVE_GENERATOR_MODES.map(({ id }) => id))("creates a valid loop for %s", (mode) => {
+    const sequence = createWaveGeneratorSequence({ mode, root: 9, scale: "minor", bpm: 132, steps: 16 }, `test-${mode}`);
+    expect(sequence).toEqual(expect.objectContaining({
+      id: `test-${mode}`,
+      ppq: 480,
+      durationTicks: 1920,
+      loopEnabled: true,
+      tempos: [{ tick: 0, bpm: 132 }],
+    }));
+    expect(sequence.events.some((event) => event.type === "note_on")).toBe(true);
+    expect(sequence.events.every((event) => event.tick >= 0 && event.note >= 0 && event.note <= 127)).toBe(true);
+    expect(sequence.events).toEqual([...sequence.events].sort((left, right) => {
+      const leftTypeOrder = left.type === "note_off" ? 0 : 1;
+      const rightTypeOrder = right.type === "note_off" ? 0 : 1;
+      return left.tick - right.tick || leftTypeOrder - rightTypeOrder || left.note - right.note;
+    }));
+  });
+
+  test("step sequencer respects rests and selected scale degrees", () => {
+    const sequence = createWaveGeneratorSequence({
+      mode: "step", root: 0, octave: 3, scale: "major", steps: 8,
+      stepNotes: [0, null, 1, null, 2, null, 3, null],
+    }, "step-test");
+    expect(sequence.events.filter(({ type }) => type === "note_on").map(({ note }) => note)).toEqual([48, 50, 52, 53]);
+  });
+
+  test("uses deterministic variation and clamps unsafe input", () => {
+    const first = createWaveGeneratorSequence({ mode: "melody", variation: 7 }, "first");
+    const second = createWaveGeneratorSequence({ mode: "melody", variation: 7 }, "second");
+    expect(first.events).toEqual(second.events);
+    expect(normalizeWaveGeneratorConfig({ bpm: 999, steps: 7, stepNotes: DEFAULT_STEP_NOTES })).toEqual(expect.objectContaining({ bpm: 240, steps: 16 }));
+  });
+});

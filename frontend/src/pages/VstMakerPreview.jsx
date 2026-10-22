@@ -8,6 +8,7 @@ import {
   ArrowUp,
   Check,
   ChevronDown,
+  ClipboardPaste,
   Coins,
   Copy,
   CreditCard,
@@ -56,6 +57,7 @@ import { samplerAttackMilliseconds, samplerReleaseMilliseconds } from "../lib/vs
 import { decodeAndPreprocessImpulse, normalizeImpulseSettings } from "../lib/vstCabinetImpulse";
 import { parseMidiFile } from "../lib/vstMidiFile";
 import { MIDI_LOOKAHEAD_MS, MIDI_SCHEDULER_INTERVAL_MS, MIDI_START_DELAY_MS, buildMidiPlaybackTimeline } from "../lib/vstMidiScheduler";
+import { DEFAULT_STEP_NOTES, WAVE_GENERATOR_MODES, WAVE_NOTE_NAMES, WAVE_PROGRESSION_OPTIONS, WAVE_SCALE_OPTIONS, createWaveGeneratorSequence, normalizeWaveGeneratorConfig } from "../lib/vstWaveGenerators";
 import { DEFAULT_VST_PRICING, componentCreditPrice, createVstTemplatePricingBaseline, formatCredits, isCustomVstBackground, normalizeVstPricing, quoteVstProjectCredits } from "../lib/vstMakerPricing";
 import { NEON_POP_DRUM_HITS, PREMIUM_PIANO_BACKGROUND_URL, REGENT_DEFAULT_CONTROLS, REGENT_WHITE_DEFAULT_CONTROLS, VST_PROJECT_TEMPLATES } from "../data/vstTemplates";
 import { DEFAULT_VST_FILMSTRIP_SKIN, VST_KNOB_ASSETS, filmstripFrameStyle } from "../data/vstFilmstripSkins";
@@ -164,6 +166,7 @@ const INTERFACE_CONTROL_OPTIONS = [
   { id: "vu_meter", label: "VU meter", description: "Meter RMS analog" },
   { id: "visual", label: "Visual", description: "Dekorasi panel statis" },
   { id: "spectrum", label: "Spectrum Analyzer", description: "FFT keluaran audio secara real-time" },
+  { id: "indicator", label: "Lampu LED", description: "Indikator status on/off yang dapat dihubungkan" },
   { id: "text", label: "Text", description: "Teks statis yang dapat ditempatkan di panel" },
   { id: "image", label: "Gambar", description: "Artwork yang dapat dipindah dan diubah ukurannya" },
   { id: "panel_button", label: "Panel Button", description: "Membuka panel fungsi yang dapat dipindah dan di-resize" },
@@ -335,7 +338,7 @@ const GRID_SIZE_OPTIONS = [4, 8, 16, 24];
 const COMPONENT_CATEGORIES = [
   { id: "knob", label: "Knob", kinds: ["knob"] },
   { id: "pan", label: "Knob Pan", kinds: ["knob"] },
-  { id: "button", label: "Button", kinds: ["button", "solo", "mute"] },
+  { id: "button", label: "Button", kinds: ["button", "solo", "mute", "indicator"] },
   { id: "fader", label: "Fader", kinds: ["fader"] },
   { id: "meter", label: "Meter", kinds: ["gain_meter", "vu_meter"] },
   { id: "visual", label: "Visual", kinds: ["visual"] },
@@ -402,6 +405,7 @@ const COMPONENT_VARIANTS = [
   { id: "regent-illuminated", category: "button", kind: "button", label: "Regent Illuminated", detail: "Light gray off · amber-orange on", style: "css" },
   { id: "solo-led", category: "button", kind: "solo", label: "Solo", detail: "Tombol solo kuning", style: "css" },
   { id: "mute-led", category: "button", kind: "mute", label: "Mute", detail: "Tombol mute merah", style: "css" },
+  { id: "round-indicator", category: "button", kind: "indicator", label: "Plain Round LED", detail: "Lampu on/off polos · dapat dihubungkan", style: "css", color: "#22D3EE", width: 72, height: 72, showBackground: false },
   { id: "classic", category: "fader", kind: "fader", label: "Classic", detail: "Fader minimal", style: "css" },
   { id: "heritage", category: "fader", kind: "fader", label: "Heritage 3D", detail: "Fader studio vintage", style: "filmstrip" },
   { id: "console", category: "fader", kind: "fader", label: "Console", detail: "Cap lebar dan skala", style: "css" },
@@ -419,6 +423,7 @@ const COMPONENT_VARIANTS = [
   { id: "scale-console", category: "visual", kind: "visual", label: "Scale Console", detail: "Major/minor tegas · 0–10", style: "css", color: "#D7B46A" },
   { id: "scale-arc", category: "visual", kind: "visual", label: "Scale Arc", detail: "Busur minimal · MIN / MAX", style: "css", color: "#C9CED3" },
   { id: "realtime-spectrum", category: "spectrum", kind: "spectrum", label: "Spectrum Analyzer", detail: "FFT output nyata · native live", style: "css", color: "#22D3EE", width: 640, height: 300 },
+  { id: "realtime-waveform", category: "spectrum", kind: "spectrum", label: "Realtime Waveform", detail: "Gelombang output nyata · native live", style: "css", color: "#A78BFA", width: 640, height: 260 },
   { id: "pure-spectrum", category: "spectrum", kind: "spectrum", label: "Pure Spectrum Analyzer", detail: "FFT bergerak murni · tanpa band EQ", style: "css", color: "#34D399", width: 640, height: 300 },
   { id: "stereo-vectorscope", category: "spectrum", kind: "spectrum", label: "Stereo Vectorscope", detail: "Stereo phase scope · correlation −1 hingga +1", style: "css", color: "#F59E0B", width: 420, height: 320 },
   { id: "rubber", category: "pad", kind: "pad", label: "Rubber Pad", detail: "Pad sampler klasik", style: "css" },
@@ -731,6 +736,7 @@ const CONTROL_DEFAULT_SIZES = {
   image: { width: 240, height: 160 },
   text: { width: 144, height: 36 },
   panel_button: { width: 148, height: 64 },
+  indicator: { width: 72, height: 72 },
 };
 const usesClassicKnobDefaultSize = (kind, variant) => (
   kind === "knob" && ["knob", "pan"].includes(variant?.category)
@@ -759,6 +765,18 @@ const PAD_SURFACE_DEFAULTS = {
   "smooth-diffuse-hit": "#111118",
 };
 const isHexColor = (value) => /^#[0-9a-f]{6}$/i.test(String(value || ""));
+const normalizeKeyboardKeyColors = (value) => Object.fromEntries(
+  Object.entries(value && typeof value === "object" && !Array.isArray(value) ? value : {})
+    .filter(([pitch, color]) => Number.isInteger(Number(pitch)) && Number(pitch) >= 0 && Number(pitch) <= 127 && isHexColor(color))
+    .slice(0, 88)
+    .map(([pitch, color]) => [String(Number(pitch)), color.toUpperCase()]),
+);
+const defaultKeyboardKeyColor = (variant, pitch) => {
+  const black = isBlackKey(Number(pitch));
+  if (variant === "ivory") return black ? "#130F0D" : "#FFFDF3";
+  if (variant === "dark") return black ? "#09090B" : "#35353D";
+  return black ? "#09090B" : "#F4F4F5";
+};
 const hexColorWithAlpha = (value, alpha) => {
   const color = isHexColor(value) ? value : "#22D3EE";
   const numeric = Number.parseInt(color.slice(1), 16);
@@ -826,6 +844,7 @@ const normalizeInterfaceControl = (control) => {
     ...(isMeter ? { meterMode: ["mono", "stereo"].includes(control.meterMode ?? control.meter_mode) ? (control.meterMode ?? control.meter_mode) : (control.kind === "gain_meter" ? "stereo" : "mono") } : {}),
     ...(control.kind === "pad" && isHexColor(control.padColor ?? control.pad_color) ? { padColor: control.padColor ?? control.pad_color } : {}),
     ...(control.kind === "pad" && isHexColor(control.padActiveColor ?? control.pad_active_color) ? { padActiveColor: control.padActiveColor ?? control.pad_active_color } : {}),
+    ...(control.kind === "keyboard" ? { keyColors: normalizeKeyboardKeyColors(control.keyColors ?? control.key_colors) } : {}),
     ...(["visual", "spectrum"].includes(control.kind) && isHexColor(control.visualColor ?? control.visual_color) ? { visualColor: control.visualColor ?? control.visual_color } : {}),
     spectrumBand: control.spectrumBand === true || control.spectrum_band === true,
     ...(PRISM_CONTROL_MODES.has(control.prismControlMode ?? control.prism_control_mode) ? { prismControlMode: control.prismControlMode ?? control.prism_control_mode } : {}),
@@ -836,6 +855,7 @@ const normalizeInterfaceControl = (control) => {
       textColor: isHexColor(control.textColor ?? control.text_color) ? (control.textColor ?? control.text_color) : "#F4F4F5",
     } : {}),
     ...(isHexColor(control.controlColor ?? control.control_color) ? { controlColor: control.controlColor ?? control.control_color } : {}),
+    ...(control.kind === "indicator" && (control.indicatorSourceId ?? control.indicator_source_id) ? { indicatorSourceId: String(control.indicatorSourceId ?? control.indicator_source_id).slice(0, 64) } : {}),
     ...(control.kind === "image" ? {
       imageUrl: control.imageUrl ?? control.image_url ?? "",
       imageName: control.imageName ?? control.image_name ?? "",
@@ -1399,7 +1419,7 @@ const toProjectPayload = (project, samples) => {
   modulation_enabled: project.modulationEnabled === true,
   interface_controls: project.interfaceControls.map((rawControl) => {
     const normalized = normalizeInterfaceControl(rawControl);
-    const { notePitch, moduleId, keyCount, showBackground, show_background: legacyShowBackground, labelPosition, label_position: legacyLabelPosition, labelGap, label_gap: legacyLabelGap, labelX, labelY, label_x: legacyLabelX, label_y: legacyLabelY, meterMode, meter_mode: legacyMeterMode, padColor, padActiveColor, pad_color: legacyPadColor, pad_active_color: legacyPadActiveColor, visualColor, visual_color: legacyVisualColor, spectrumBand, spectrum_band: legacySpectrumBand, prismControlMode, prism_control_mode: legacyPrismControlMode, prismContext, prism_context: legacyPrismContext, prismOwnerId, prism_owner_id: legacyPrismOwnerId, textFont, text_font: legacyTextFont, textColor, text_color: legacyTextColor, controlColor, control_color: legacyControlColor, imageUrl, imageName, imageFit, imageOpacity, image_url: legacyImageUrl, image_name: legacyImageName, image_fit: legacyImageFit, image_opacity: legacyImageOpacity, parentPanelId, parent_panel_id: legacyParentPanelId, panelType, panel_type: legacyPanelType, panelX, panel_x: legacyPanelX, panelY, panel_y: legacyPanelY, panelWidth, panel_width: legacyPanelWidth, panelHeight, panel_height: legacyPanelHeight, ...control } = normalized;
+    const { notePitch, moduleId, keyCount, keyColors, key_colors: legacyKeyColors, showBackground, show_background: legacyShowBackground, labelPosition, label_position: legacyLabelPosition, labelGap, label_gap: legacyLabelGap, labelX, labelY, label_x: legacyLabelX, label_y: legacyLabelY, meterMode, meter_mode: legacyMeterMode, padColor, padActiveColor, pad_color: legacyPadColor, pad_active_color: legacyPadActiveColor, visualColor, visual_color: legacyVisualColor, spectrumBand, spectrum_band: legacySpectrumBand, prismControlMode, prism_control_mode: legacyPrismControlMode, prismContext, prism_context: legacyPrismContext, prismOwnerId, prism_owner_id: legacyPrismOwnerId, textFont, text_font: legacyTextFont, textColor, text_color: legacyTextColor, controlColor, control_color: legacyControlColor, indicatorSourceId, indicator_source_id: legacyIndicatorSourceId, imageUrl, imageName, imageFit, imageOpacity, image_url: legacyImageUrl, image_name: legacyImageName, image_fit: legacyImageFit, image_opacity: legacyImageOpacity, parentPanelId, parent_panel_id: legacyParentPanelId, panelType, panel_type: legacyPanelType, panelX, panel_x: legacyPanelX, panelY, panel_y: legacyPanelY, panelWidth, panel_width: legacyPanelWidth, panelHeight, panel_height: legacyPanelHeight, ...control } = normalized;
     return {
       ...control,
       module_id: moduleId || null,
@@ -1423,13 +1443,17 @@ const toProjectPayload = (project, samples) => {
       ...((prismOwnerId ?? legacyPrismOwnerId) ? { prism_owner_id: prismOwnerId ?? legacyPrismOwnerId } : {}),
       ...(control.kind === "text" ? { text_font: textFont || legacyTextFont || "space-grotesk", text_color: textColor || legacyTextColor || "#F4F4F5" } : {}),
       ...(isHexColor(controlColor ?? legacyControlColor) ? { control_color: controlColor ?? legacyControlColor } : {}),
+      ...(control.kind === "indicator" ? { indicator_source_id: indicatorSourceId || legacyIndicatorSourceId || null } : {}),
       ...(control.kind === "image" ? {
         image_url: imageUrl || legacyImageUrl || null,
         image_name: imageName || legacyImageName || null,
         image_fit: imageFit || legacyImageFit || "contain",
         image_opacity: Math.max(0, Math.min(100, Number(imageOpacity ?? legacyImageOpacity ?? 100))),
       } : {}),
-      ...(control.kind === "keyboard" ? { key_count: keyCount ?? project.keyboardKeys } : {}),
+      ...(control.kind === "keyboard" ? {
+        key_count: keyCount ?? project.keyboardKeys,
+        key_colors: normalizeKeyboardKeyColors(keyColors ?? legacyKeyColors),
+      } : {}),
     };
   }),
   presets: project.presets || [],
@@ -1540,7 +1564,7 @@ const fromSavedProject = (saved) => {
   accentColor: migrateLumaOpto ? "#d6b56d" : saved.accent_color,
   effects: saved.effects || {},
   controls: saved.controls || [],
-  interfaceControls: migratedObsidianState?.interfaceControls || (migrateLumaOpto ? createTemplateControls("vintageeq", 49) : (migrateAmpStack ? migrateAmpStackControls : (controls) => controls)((saved.interface_controls || []).map(({ note_pitch, module_id, key_count, show_background, label_position, pad_color, pad_active_color, visual_color, spectrum_band, prism_control_mode, prism_context, prism_owner_id, text_font, text_color, control_color, image_url, image_name, image_fit, image_opacity, parent_panel_id, panel_type, panel_x, panel_y, panel_width, panel_height, ...control }) => normalizeInterfaceControl({ ...control, moduleId: module_id || null, notePitch: note_pitch ?? 60, keyCount: key_count || undefined, showBackground: show_background !== false, labelPosition: label_position, padColor: pad_color, padActiveColor: pad_active_color, visualColor: visual_color, spectrumBand: spectrum_band === true, prismControlMode: prism_control_mode, prismContext: prism_context, prismOwnerId: prism_owner_id, textFont: text_font, textColor: text_color, controlColor: control_color, imageUrl: image_url, imageName: image_name, imageFit: image_fit, imageOpacity: image_opacity, parentPanelId: parent_panel_id, panelType: panel_type, panelX: panel_x, panelY: panel_y, panelWidth: panel_width, panelHeight: panel_height })))),
+  interfaceControls: migratedObsidianState?.interfaceControls || (migrateLumaOpto ? createTemplateControls("vintageeq", 49) : (migrateAmpStack ? migrateAmpStackControls : (controls) => controls)((saved.interface_controls || []).map(({ note_pitch, module_id, key_count, key_colors, show_background, label_position, pad_color, pad_active_color, visual_color, spectrum_band, prism_control_mode, prism_context, prism_owner_id, text_font, text_color, control_color, indicator_source_id, image_url, image_name, image_fit, image_opacity, parent_panel_id, panel_type, panel_x, panel_y, panel_width, panel_height, ...control }) => normalizeInterfaceControl({ ...control, moduleId: module_id || null, notePitch: note_pitch ?? 60, keyCount: key_count || undefined, keyColors: key_colors, showBackground: show_background !== false, labelPosition: label_position, padColor: pad_color, padActiveColor: pad_active_color, visualColor: visual_color, spectrumBand: spectrum_band === true, prismControlMode: prism_control_mode, prismContext: prism_context, prismOwnerId: prism_owner_id, textFont: text_font, textColor: text_color, controlColor: control_color, indicatorSourceId: indicator_source_id, imageUrl: image_url, imageName: image_name, imageFit: image_fit, imageOpacity: image_opacity, parentPanelId: parent_panel_id, panelType: panel_type, panelX: panel_x, panelY: panel_y, panelWidth: panel_width, panelHeight: panel_height })))),
   presets: Array.isArray(saved.presets) ? saved.presets : [],
   midiMappings: [],
   midiSequences: (saved.midi_sequences || []).map(({ duration_ticks, loop_enabled, ...sequence }) => ({ ...sequence, durationTicks: duration_ticks, loopEnabled: loop_enabled === true })),
@@ -2671,10 +2695,13 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     pendingPreviewVoiceMetaRef.current.delete(token);
   };
 
-  const stopWaveVoice = (token, voice, immediate = false) => {
+  const stopWaveVoice = (token, voice, immediate = false, scheduledAtPerformance = null) => {
     if (!voice) return;
     const context = audioContextRef.current;
-    const now = context?.currentTime || 0;
+    const delaySeconds = immediate || scheduledAtPerformance == null
+      ? 0
+      : Math.max(0, scheduledAtPerformance - performance.now()) / 1000;
+    const now = (context?.currentTime || 0) + delaySeconds;
     const releaseSeconds = immediate ? 0.005 : voice.releaseSeconds;
     try {
       voice.ampGain.gain.cancelScheduledValues(now);
@@ -2723,7 +2750,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     lastWavePitchRef.current = pitch;
   };
 
-  const playWaveGeneratorNote = (pitch, velocity, token) => {
+  const playWaveGeneratorNote = (pitch, velocity, token, playbackOptions = null) => {
     const module = (projectRef.current.engineModules || []).find((item) => item.type === "wave_generator" && !item.bypassed);
     const context = ensureAudioContext();
     if (!module || !context) return false;
@@ -2747,7 +2774,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     const osc2Detune = unit("osc2_detune", 0.5) * 200 - 100;
     const subLevel = unit("sub_level", 0);
     const noiseLevel = unit("noise_level", 0);
-    const monoMode = unit("voice_mode", 1) >= 0.5;
+    const monoMode = unit("voice_mode", 1) >= 0.5 && !playbackOptions?.patternScheduled;
     const retrigger = unit("retrigger", 1) >= 0.5;
     heldWaveNotesRef.current.set(token, { pitch, velocity, age: ++waveNoteSequenceRef.current });
     if (monoMode && activeWaveVoicesRef.current.size > 0) {
@@ -2885,8 +2912,11 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       const legatoOnly = unit("glide_mode", 0) >= 0.5;
       const shouldGlide = glideSeconds > 0 && lastWavePitchRef.current !== null && (!legatoOnly || activeWaveVoicesRef.current.size > 0);
       const startFrequency = shouldGlide ? targetFrequency * (2 ** ((lastWavePitchRef.current - pitch) / 12)) : targetFrequency;
-      source.frequency.setValueAtTime(startFrequency, context.currentTime);
-      if (shouldGlide) source.frequency.exponentialRampToValueAtTime(targetFrequency, context.currentTime + glideSeconds);
+      const scheduledStart = context.currentTime + (playbackOptions?.patternScheduled
+        ? Math.max(0, playbackOptions.scheduledAtPerformance - performance.now()) / 1000
+        : 0);
+      source.frequency.setValueAtTime(startFrequency, scheduledStart);
+      if (shouldGlide) source.frequency.exponentialRampToValueAtTime(targetFrequency, scheduledStart + glideSeconds);
       source.detune.value = detuneCents;
       const sourceGain = context.createGain(); sourceGain.gain.value = sourceLevel;
       const panner = context.createStereoPanner(); panner.pan.value = pan;
@@ -2908,7 +2938,9 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     sources.forEach((item) => { if (!item.noise && item.source.detune) item.source.detune.value = item.baseDetune + bendSemitones * 100; });
     const velocityGain = waveGeneratorVelocityGain(velocity, parameters);
     const targetGain = Math.max(0.0001, velocityGain * 0.32);
-    const now = context.currentTime;
+    const now = context.currentTime + (playbackOptions?.patternScheduled
+      ? Math.max(0, playbackOptions.scheduledAtPerformance - performance.now()) / 1000
+      : 0);
     const attackSeconds = 5 * (unit("attack", 0) ** 2.5);
     const decaySeconds = 0.01 + 4.99 * (unit("decay", 0.2) ** 2.2);
     const sustainLevel = unit("sustain", 1);
@@ -4024,6 +4056,40 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
   midiStopRef.current = stopSamplerNote;
   midiSustainRef.current = setSamplerSustainState;
 
+  const playWavePatternNote = (pitch, velocity, token, _articulation, _micPosition, _samplerName, playbackOptions = null) => {
+    const scheduledAtPerformance = playbackOptions?.scheduledAtPerformance ?? performance.now();
+    const delayMs = Math.max(0, scheduledAtPerformance - performance.now());
+    const started = playWaveGeneratorNote(pitch, velocity, token, {
+      patternScheduled: true,
+      scheduledAtPerformance,
+    });
+    if (started) scheduleGrooveVisual(token, pitch, delayMs, true);
+    return started;
+  };
+
+  const stopWavePatternNote = (token, playbackOptions = null) => {
+    const immediate = playbackOptions?.forceRelease === true;
+    const voice = activeWaveVoicesRef.current.get(token);
+    const pitch = voice?.pitch ?? hitPitchTokensRef.current.get(token);
+    heldWaveNotesRef.current.delete(token);
+    if (voice) stopWaveVoice(token, voice, immediate, playbackOptions?.scheduledAtPerformance ?? null);
+    if (immediate) {
+      (grooveVisualTimersRef.current.get(token) || []).forEach((timer) => window.clearTimeout(timer));
+      grooveVisualTimersRef.current.delete(token);
+      hitPitchTokensRef.current.delete(token);
+      if (Number.isInteger(pitch)) setPreviewPressedPitches((current) => {
+        const next = new Set(current);
+        if (!Array.from(hitPitchTokensRef.current.values()).some((value) => value === pitch)) next.delete(pitch);
+        return next;
+      });
+      return;
+    }
+    const delayMs = Math.max(0, (playbackOptions?.scheduledAtPerformance ?? performance.now()) - performance.now());
+    scheduleGrooveVisual(token, pitch, delayMs + 90, false);
+  };
+
+  const wavePatternTransport = useMidiGrooveTransport(project.midiSequences, playWavePatternNote, stopWavePatternNote);
+
   const connectMidi = async () => {
     if (typeof navigator === "undefined" || typeof navigator.requestMIDIAccess !== "function") {
       setMidiStatus("Browser ini belum mendukung Web MIDI. Gunakan Chrome atau Edge desktop.");
@@ -4378,7 +4444,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     const lockKnobDefaultSize = usesClassicKnobDefaultSize(kind, variant);
     const isToggle = kind === "button" || kind === "solo" || kind === "mute";
     const isMeter = kind === "gain_meter" || kind === "vu_meter";
-    const isVisual = kind === "visual" || kind === "spectrum" || kind === "text" || kind === "image" || kind === "panel_button";
+    const isVisual = kind === "visual" || kind === "spectrum" || kind === "indicator" || kind === "text" || kind === "image" || kind === "panel_button";
     const control = {
       id: makeId(),
       kind,
@@ -4400,6 +4466,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       ...(kind === "keyboard" ? { width: keyboardWidthForKeys(project.keyboardKeys) } : {}),
       showBackground: variant?.showBackground ?? !isVisual,
       ...(["visual", "spectrum"].includes(kind) ? { visualColor: variant?.color || (kind === "spectrum" ? "#22D3EE" : "#E8E0CF") } : {}),
+      ...(kind === "indicator" ? { controlColor: variant?.color || project.accentColor, indicatorSourceId: null } : {}),
       ...(kind === "text" ? { textFont: "space-grotesk", textColor: "#F4F4F5" } : {}),
       ...(["pitch-bend-led", "modulation-led"].includes(variantId) ? { controlColor: project.accentColor } : {}),
       ...(kind === "pad" ? {
@@ -5748,28 +5815,6 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
 
         {!customerMode && <LiveCustomerActivityPanel activity={liveCustomerActivity} />}
 
-        <section className="mb-6 rounded-2xl border border-white/10 bg-[#0a0a0c] px-4 py-3.5">
-          <div className="flex flex-wrap items-center gap-4">
-            <div className="min-w-44 flex-1">
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-zinc-500">Kesiapan build</span>
-                <span className={`font-mono text-xs font-bold ${readinessPercent === 100 ? "text-[#22c55e] drop-shadow-[0_0_8px_rgba(34,197,94,0.75)]" : "text-rose-400"}`}>{readinessPercent}%</span>
-              </div>
-              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/[0.06]" aria-label={`Kesiapan project ${readinessPercent}%`}>
-                <div className={`h-full rounded-full transition-all ${readinessPercent === 100 ? "bg-[#22c55e] shadow-[0_0_12px_rgba(34,197,94,0.9)]" : "bg-rose-400"}`} style={{ width: `${readinessPercent}%` }} />
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {readinessItems.map((item) => (
-                <button key={item.label} type="button" onClick={() => selectEditorTab(item.tab)} className={`inline-flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-[9px] transition-colors ${item.ready ? "border-emerald-300/15 bg-emerald-300/[0.05] text-emerald-200/70" : "border-amber-300/15 bg-amber-300/[0.05] text-amber-100/70 hover:bg-amber-300/10"}`}>
-                  <span className={`h-1.5 w-1.5 rounded-full ${item.ready ? "bg-emerald-300" : "bg-amber-300"}`} />
-                  {item.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        </section>
-
         {showExpandedBuildPanel && <BuildProgressPanel
           build={presentedBuild}
           onCancel={buildInProgress ? () => updateBuildJob(latestBuild, "cancel") : null}
@@ -5788,11 +5833,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
             </div>
             <span className="font-mono text-xs font-bold text-zinc-500">{Number(latestBuild.progress) || 0}%</span>
             <button type="button" onClick={() => setBuildPanelExpanded(true)} className="rounded-xl border border-white/10 px-4 py-2.5 text-xs font-bold text-zinc-300 hover:bg-white/5">Lihat detail</button>
-            {latestReadyBuildDownloads.map((item) => (
-              <button key={item.platform} type="button" onClick={() => downloadBuildArtifact(item.build)} className="inline-flex items-center gap-2 rounded-xl border border-emerald-300/20 bg-emerald-300/[0.07] px-4 py-2.5 text-xs font-bold text-emerald-200 hover:bg-emerald-300/10">
-                <Download className="h-3.5 w-3.5" />Unduh {item.label} terakhir
-              </button>
-            ))}
+            <LatestBuildDownloadMenu builds={latestReadyBuildDownloads} onDownload={downloadBuildArtifact} />
           </section>
         )}
 
@@ -5833,39 +5874,59 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
             </div>
             <div className="maker-editor-tabs" role="tablist" aria-label="Bagian workspace instrumen" aria-orientation="vertical">
             {visibleEditorTabs.map((tab) => (
-              <button
-                key={tab.id}
-                id={`maker-tab-${tab.id}`}
-                type="button"
-                role="tab"
-                aria-selected={activeEditorTab === tab.id}
-                aria-controls="maker-editor-panel"
-                tabIndex={activeEditorTab === tab.id ? 0 : -1}
-                onClick={() => selectEditorTab(tab.id)}
-                onKeyDown={(event) => {
-                  const currentIndex = visibleEditorTabs.findIndex((item) => item.id === activeEditorTab);
-                  const nextIndex = event.key === "ArrowRight" || event.key === "ArrowDown"
-                    ? (currentIndex + 1) % visibleEditorTabs.length
-                    : event.key === "ArrowLeft" || event.key === "ArrowUp"
-                      ? (currentIndex - 1 + visibleEditorTabs.length) % visibleEditorTabs.length
-                      : event.key === "Home"
-                        ? 0
-                        : event.key === "End"
-                          ? visibleEditorTabs.length - 1
-                          : currentIndex;
-                  if (nextIndex === currentIndex) return;
-                  event.preventDefault();
-                  const nextTab = visibleEditorTabs[nextIndex].id;
-                  selectEditorTab(nextTab);
-                  window.requestAnimationFrame(() => document.getElementById(`maker-tab-${nextTab}`)?.focus());
-                }}
-                className={`maker-editor-tab ${activeEditorTab === tab.id ? "is-active" : ""}`}
-              >
-                <span className="min-w-0 text-left">
-                  <span className="block text-xs font-semibold">{tab.label}</span>
-                  <span className="maker-editor-tab__detail">{tab.detail}</span>
-                </span>
-              </button>
+              <div key={tab.id} className="maker-editor-tab-stack" role="presentation">
+                <button
+                  id={`maker-tab-${tab.id}`}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeEditorTab === tab.id}
+                  aria-controls="maker-editor-panel"
+                  tabIndex={activeEditorTab === tab.id ? 0 : -1}
+                  onClick={() => selectEditorTab(tab.id)}
+                  onKeyDown={(event) => {
+                    const currentIndex = visibleEditorTabs.findIndex((item) => item.id === activeEditorTab);
+                    const nextIndex = event.key === "ArrowRight" || event.key === "ArrowDown"
+                      ? (currentIndex + 1) % visibleEditorTabs.length
+                      : event.key === "ArrowLeft" || event.key === "ArrowUp"
+                        ? (currentIndex - 1 + visibleEditorTabs.length) % visibleEditorTabs.length
+                        : event.key === "Home"
+                          ? 0
+                          : event.key === "End"
+                            ? visibleEditorTabs.length - 1
+                            : currentIndex;
+                    if (nextIndex === currentIndex) return;
+                    event.preventDefault();
+                    const nextTab = visibleEditorTabs[nextIndex].id;
+                    selectEditorTab(nextTab);
+                    window.requestAnimationFrame(() => document.getElementById(`maker-tab-${nextTab}`)?.focus());
+                  }}
+                  className={`maker-editor-tab ${activeEditorTab === tab.id ? "is-active" : ""}`}
+                >
+                  <span className="min-w-0 text-left">
+                    <span className="block text-xs font-semibold">{tab.label}</span>
+                    <span className="maker-editor-tab__detail">{tab.detail}</span>
+                  </span>
+                </button>
+                {tab.id === "sound" && (
+                  <aside className={`maker-readiness-card ${readinessPercent === 100 ? "is-ready" : ""}`} aria-label={`Kesiapan build ${readinessPercent}%`}>
+                    <span className="maker-readiness-card__title">Kesiapan build</span>
+                    <div className="maker-readiness-ring" style={{ "--maker-readiness": `${readinessPercent * 3.6}deg` }}>
+                      <div className="maker-readiness-ring__center">
+                        <strong>{readinessPercent}%</strong>
+                        <span>siap</span>
+                      </div>
+                    </div>
+                    <div className="maker-readiness-list">
+                      {readinessItems.map((item) => (
+                        <button key={item.label} type="button" onClick={() => selectEditorTab(item.tab)} className={item.ready ? "is-ready" : ""}>
+                          <span className="maker-readiness-list__dot" />
+                          <span>{item.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </aside>
+                )}
+              </div>
             ))}
             </div>
           </div>
@@ -6590,6 +6651,12 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
                         </div>
                         <div className="grid gap-3 sm:grid-cols-3">{velocityParameters.map((definition) => renderParameter(definition))}</div>
                       </section>
+                      <WaveGeneratorPatternStudio
+                        midiSequences={project.midiSequences}
+                        projectTempo={project.tempoBpm}
+                        transport={wavePatternTransport}
+                        onSequencesChange={(midiSequences) => updateDesignerProject((current) => ({ ...current, midiSequences }), "wave-generator-patterns")}
+                      />
                     </div> : null;
                   })()}
                 </div>
@@ -6774,11 +6841,7 @@ function BuildProgressPanel({ build, onCancel, onRetry, downloadBuilds = [], onD
             </div>
             {active && onCancel && <button type="button" onClick={onCancel} className="rounded-xl border border-red-300/20 px-4 py-2.5 text-xs font-bold text-red-200 hover:bg-red-300/10">Batalkan build</button>}
             {(failed || canceled) && onRetry && <button type="button" onClick={onRetry} className="inline-flex items-center gap-2 rounded-xl border border-sky-300/25 bg-sky-300/[0.08] px-5 py-3 text-xs font-bold text-sky-100 hover:bg-sky-300/15"><RotateCcw className="h-4 w-4" />Ulangi build</button>}
-            {downloadBuilds.map((item) => (
-              <button key={item.platform} type="button" onClick={() => onDownload(item.build)} className="inline-flex items-center gap-2 rounded-xl border border-emerald-300/25 bg-emerald-300/[0.1] px-5 py-3 text-xs font-bold text-emerald-100 hover:bg-emerald-300/15">
-                <Download className="h-4 w-4" />Unduh {item.label} terakhir
-              </button>
-            ))}
+            <LatestBuildDownloadMenu builds={downloadBuilds} onDownload={onDownload} align="right" />
           </div>
         </div>
 
@@ -6835,6 +6898,66 @@ function BuildProgressPanel({ build, onCancel, onRetry, downloadBuilds = [], onD
   );
 }
 
+function LatestBuildDownloadMenu({ builds = [], onDownload, align = "right" }) {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const closeMenu = (event) => {
+      if (event.key === "Escape") setOpen(false);
+      if (event.type === "pointerdown" && !menuRef.current?.contains(event.target)) setOpen(false);
+    };
+    window.addEventListener("keydown", closeMenu);
+    window.addEventListener("pointerdown", closeMenu);
+    return () => {
+      window.removeEventListener("keydown", closeMenu);
+      window.removeEventListener("pointerdown", closeMenu);
+    };
+  }, [open]);
+
+  if (!builds.length) return null;
+
+  return (
+    <div ref={menuRef} className={`maker-latest-download ${align === "left" ? "is-left" : ""}`}>
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        className="maker-latest-download__trigger"
+        aria-expanded={open}
+        aria-haspopup="menu"
+      >
+        <Download className="h-3.5 w-3.5" />
+        <span>Unduh build terakhir</span>
+        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div className="maker-latest-download__menu" role="menu" aria-label="Pilih build terakhir untuk diunduh">
+          {builds.map((item) => (
+            <button
+              key={item.platform}
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                onDownload(item.build);
+              }}
+            >
+              <span className={`maker-build-platform-menu__icon is-${item.platform}`}>
+                {item.platform === "macos" ? <MacIcon /> : <WindowsIcon />}
+              </span>
+              <span className="maker-build-platform-menu__copy">
+                <strong>Unduh {item.label} terakhir</strong>
+                <small>{item.platform === "macos" ? "Universal Apple Silicon + Intel" : "VST3 untuk Windows"}</small>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SectionHeading({ number, title, description }) {
   return (
     <div className="flex items-start gap-3">
@@ -6846,6 +6969,24 @@ function SectionHeading({ number, title, description }) {
 
 function FieldLabel({ children, ...props }) {
   return <span {...props} className="block text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">{children}</span>;
+}
+
+function DesignerColorField({ label, value, onChange, colorClipboard, onCopy, ariaLabel, className = "" }) {
+  const color = isHexColor(value) ? value.toUpperCase() : "#000000";
+  const canPaste = isHexColor(colorClipboard);
+  return (
+    <div className={className}>
+      <FieldLabel>{label}</FieldLabel>
+      <div className="maker-color-field mt-2">
+        <input type="color" className="maker-color-input" value={color} onChange={(event) => onChange(event.target.value.toUpperCase())} aria-label={ariaLabel || label} />
+        <span className="maker-color-field__value">{color}</span>
+        <span className="maker-color-field__actions" role="group" aria-label={`Salin atau tempel ${label.toLowerCase()}`}>
+          <button type="button" onClick={() => onCopy(color)} className={colorClipboard === color ? "is-copied" : ""} aria-label={`Salin ${label.toLowerCase()}`} title="Salin warna"><Copy aria-hidden="true" /></button>
+          <button type="button" onClick={() => canPaste && onChange(colorClipboard)} disabled={!canPaste} aria-label={`Tempel ${label.toLowerCase()}`} title={canPaste ? `Tempel ${colorClipboard}` : "Salin warna terlebih dahulu"}><ClipboardPaste aria-hidden="true" /></button>
+        </span>
+      </div>
+    </div>
+  );
 }
 
 function ToggleRow({ title, description, creditPrice = null, checked, onChange }) {
@@ -6881,6 +7022,124 @@ const applyCustomDspPreviewPlan = (graph, plan) => {
   graph.topology = topology;
   return true;
 };
+
+const GENERATED_SEQUENCE_PREFIXES = WAVE_GENERATOR_MODES.map(({ label }) => `${label} ·`);
+
+function WaveGeneratorPatternStudio({ midiSequences, onSequencesChange, projectTempo, transport }) {
+  const [config, setConfig] = useState(() => normalizeWaveGeneratorConfig({
+    bpm: projectTempo,
+    stepNotes: DEFAULT_STEP_NOTES,
+  }));
+  const generatedSequences = midiSequences.filter((sequence) => GENERATED_SEQUENCE_PREFIXES.some((prefix) => String(sequence.name || "").startsWith(prefix)));
+  const activeMode = WAVE_GENERATOR_MODES.find(({ id }) => id === config.mode) || WAVE_GENERATOR_MODES[0];
+  const updateConfig = (key, value) => setConfig((current) => normalizeWaveGeneratorConfig({ ...current, [key]: value }));
+  const generate = () => {
+    const nextConfig = normalizeWaveGeneratorConfig({ ...config, variation: config.variation + 1 });
+    const sequence = createWaveGeneratorSequence(nextConfig, makeId());
+    setConfig(nextConfig);
+    onSequencesChange([...midiSequences, sequence].slice(-16));
+    transport.setSelectedSequenceId(sequence.id);
+    toast.success(`${activeMode.label} dibuat dan ditambahkan ke MIDI Grooves`);
+  };
+  const removeSequence = (sequence) => {
+    if (transport.playingSequenceId === sequence.id) transport.stop();
+    onSequencesChange(midiSequences.filter((item) => item.id !== sequence.id));
+    if (transport.selectedSequenceId === sequence.id) transport.setSelectedSequenceId("");
+  };
+  const fieldClass = "mt-1 w-full rounded-lg border border-white/10 bg-zinc-950 px-2.5 py-2 text-[10px] font-semibold text-zinc-200 outline-none focus:border-fuchsia-300/40";
+  const fieldLabel = "text-[9px] font-black uppercase tracking-[0.13em] text-zinc-500";
+
+  return (
+    <section className="rounded-xl border border-fuchsia-300/20 bg-gradient-to-br from-fuchsia-300/[0.055] via-violet-300/[0.025] to-transparent p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[10px] font-black uppercase tracking-[0.16em] text-fuchsia-200">Pattern Lab</div>
+          <div className="mt-1 text-sm font-black text-white">{activeMode.label}</div>
+          <p className="mt-1 text-[10px] leading-4 text-zinc-500">{activeMode.detail}. Hasilnya menjadi MIDI loop proyek dan dapat dipreview langsung dengan suara Wave Generator.</p>
+        </div>
+        <span className="rounded-full border border-fuchsia-300/20 bg-fuchsia-300/10 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wide text-fuchsia-100">{generatedSequences.length} pola dibuat</span>
+      </div>
+
+      <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-5" role="tablist" aria-label="Pilih generator pola">
+        {WAVE_GENERATOR_MODES.map((mode) => {
+          const selected = mode.id === config.mode;
+          return <button key={mode.id} type="button" role="tab" aria-selected={selected} onClick={() => updateConfig("mode", mode.id)} className={`rounded-xl border px-3 py-2.5 text-left transition ${selected ? "border-fuchsia-300/40 bg-fuchsia-300/15 text-white" : "border-white/[0.07] bg-black/20 text-zinc-500 hover:border-white/15 hover:text-zinc-300"}`}><span className="block text-[10px] font-black">{mode.label}</span><span className="mt-0.5 block text-[8px] leading-3 opacity-70">{mode.detail}</span></button>;
+        })}
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+        <label className={fieldLabel}>Root
+          <select className={fieldClass} value={config.root} onChange={(event) => updateConfig("root", event.target.value)}>{WAVE_NOTE_NAMES.map((note, index) => <option key={note} value={index}>{note}</option>)}</select>
+        </label>
+        <label className={fieldLabel}>Scale
+          <select className={fieldClass} value={config.scale} onChange={(event) => updateConfig("scale", event.target.value)}>{WAVE_SCALE_OPTIONS.map((scale) => <option key={scale.id} value={scale.id}>{scale.label}</option>)}</select>
+        </label>
+        <label className={fieldLabel}>Octave
+          <select className={fieldClass} value={config.octave} onChange={(event) => updateConfig("octave", event.target.value)}>{[1, 2, 3, 4, 5, 6].map((octave) => <option key={octave} value={octave}>{octave}</option>)}</select>
+        </label>
+        <label className={fieldLabel}>Tempo
+          <div className="relative"><input className={`${fieldClass} pr-12`} type="number" min="40" max="240" value={config.bpm} onChange={(event) => updateConfig("bpm", event.target.value)} /><span className="pointer-events-none absolute bottom-2.5 right-2.5 text-[8px] text-zinc-600">BPM</span></div>
+        </label>
+        <label className={fieldLabel}>Length
+          <select className={fieldClass} value={config.steps} onChange={(event) => updateConfig("steps", event.target.value)}><option value="8">8 steps</option><option value="16">16 steps</option><option value="32">32 steps</option></select>
+        </label>
+        <label className={fieldLabel}>Gate · {Math.round(config.gate * 100)}%
+          <input className="mt-3 w-full accent-fuchsia-300" type="range" min="0.2" max="1.5" step="0.05" value={config.gate} onChange={(event) => updateConfig("gate", event.target.value)} />
+        </label>
+      </div>
+
+      {config.mode === "arpeggiator" && <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <label className={fieldLabel}>Direction<select className={fieldClass} value={config.direction} onChange={(event) => updateConfig("direction", event.target.value)}><option value="up">Up</option><option value="down">Down</option><option value="updown">Up / Down</option><option value="random">Random</option></select></label>
+        <label className={fieldLabel}>Chord notes<select className={fieldClass} value={config.chordType} onChange={(event) => updateConfig("chordType", event.target.value)}><option value="triad">Triad</option><option value="seventh">Seventh</option></select></label>
+        <label className={fieldLabel}>Range<select className={fieldClass} value={config.octaves} onChange={(event) => updateConfig("octaves", event.target.value)}><option value="1">1 octave</option><option value="2">2 octaves</option><option value="3">3 octaves</option></select></label>
+      </div>}
+
+      {config.mode === "chord" && <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <label className={fieldLabel}>Progression<select className={fieldClass} value={config.progression} onChange={(event) => updateConfig("progression", event.target.value)}>{WAVE_PROGRESSION_OPTIONS.map((progression) => <option key={progression.id} value={progression.id}>{progression.label}</option>)}</select></label>
+        <div className="rounded-lg border border-white/[0.07] bg-black/20 px-3 py-2 text-[10px] leading-4 text-zinc-500">Setiap chord memakai triad diatonik dan dibagi rata sepanjang loop.</div>
+      </div>}
+
+      {config.mode === "step" && <div className="mt-4">
+        <div className="mb-2 flex items-center justify-between gap-3"><span className={fieldLabel}>Step notes</span><span className="text-[9px] text-zinc-600">Klik angka untuk aktif/nonaktif · pilih degree nada</span></div>
+        <div className="grid grid-cols-4 gap-2 sm:grid-cols-8 lg:grid-cols-16">
+          {config.stepNotes.slice(0, config.steps).map((degree, index) => <div key={index} className={`rounded-lg border p-1.5 ${degree === null ? "border-white/[0.06] bg-black/20" : "border-fuchsia-300/25 bg-fuchsia-300/[0.08]"}`}>
+            <button type="button" aria-pressed={degree !== null} onClick={() => updateConfig("stepNotes", config.stepNotes.map((value, step) => step === index ? (value === null ? 0 : null) : value))} className={`w-full rounded py-1 text-[9px] font-black ${degree === null ? "bg-white/[0.03] text-zinc-700" : "bg-fuchsia-300/15 text-fuchsia-100"}`}>{index + 1}</button>
+            <select aria-label={`Nada step ${index + 1}`} disabled={degree === null} value={degree ?? 0} onChange={(event) => updateConfig("stepNotes", config.stepNotes.map((value, step) => step === index ? Number(event.target.value) : value))} className="mt-1 w-full rounded border border-white/[0.07] bg-zinc-950 px-1 py-1 text-[8px] text-zinc-300 disabled:opacity-25">{Array.from({ length: 14 }, (_, value) => <option key={value} value={value}>{value + 1}</option>)}</select>
+          </div>)}
+        </div>
+      </div>}
+
+      {config.mode === "bassline" && <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <label className={fieldLabel}>Bass style<select className={fieldClass} value={config.bassStyle} onChange={(event) => updateConfig("bassStyle", event.target.value)}><option value="pulse">Pulse</option><option value="octave">Octave Drive</option><option value="acid">Acid Motion</option><option value="syncopated">Syncopated</option></select></label>
+        <div className="rounded-lg border border-white/[0.07] bg-black/20 px-3 py-2 text-[10px] leading-4 text-zinc-500">Bassline otomatis ditempatkan satu octave di bawah root dengan accent dinamis.</div>
+      </div>}
+
+      {config.mode === "melody" && <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <label className={fieldLabel}>Contour<select className={fieldClass} value={config.contour} onChange={(event) => updateConfig("contour", event.target.value)}><option value="free">Free</option><option value="rising">Rising</option><option value="falling">Falling</option></select></label>
+        <label className={fieldLabel}>Range<select className={fieldClass} value={config.range} onChange={(event) => updateConfig("range", event.target.value)}><option value="1">1 octave</option><option value="2">2 octaves</option><option value="3">3 octaves</option></select></label>
+        <label className={fieldLabel}>Density · {Math.round(config.density * 100)}%<input className="mt-3 w-full accent-fuchsia-300" type="range" min="0.25" max="1" step="0.05" value={config.density} onChange={(event) => updateConfig("density", event.target.value)} /></label>
+      </div>}
+
+      <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-white/[0.07] pt-4">
+        <button type="button" onClick={generate} className="inline-flex items-center gap-2 rounded-lg border border-fuchsia-300/30 bg-fuchsia-300/15 px-4 py-2 text-[10px] font-black text-fuchsia-50 hover:bg-fuchsia-300/25"><Sparkles className="h-3.5 w-3.5" /> Generate {activeMode.label}</button>
+        <span className="text-[9px] text-zinc-600">Generate lagi untuk variasi baru · maksimal 16 MIDI groove per proyek</span>
+      </div>
+
+      {generatedSequences.length > 0 && <div className="mt-4 space-y-2">
+        <div className={fieldLabel}>Generated patterns</div>
+        {generatedSequences.slice().reverse().map((sequence) => {
+          const playing = transport.playingSequenceId === sequence.id;
+          const noteCount = sequence.events.filter(({ type }) => type === "note_on").length;
+          return <div key={sequence.id} className={`flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2 ${playing ? "border-emerald-300/30 bg-emerald-300/[0.07]" : "border-white/[0.07] bg-black/20"}`}>
+            <div className="min-w-0 flex-1"><div className="truncate text-[10px] font-bold text-zinc-200">{sequence.name}</div><div className="mt-0.5 text-[8px] text-zinc-600">{noteCount} notes · {Math.round(sequence.tempos?.[0]?.bpm || 120)} BPM · loop aktif</div></div>
+            <button type="button" onClick={() => playing ? transport.stop() : transport.play(sequence)} className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[9px] font-bold ${playing ? "border-emerald-300/30 bg-emerald-300/15 text-emerald-100" : "border-white/10 text-zinc-300 hover:bg-white/[0.05]"}`}>{playing ? <Square className="h-3 w-3" fill="currentColor" /> : <Play className="h-3 w-3" fill="currentColor" />}{playing ? "Stop" : "Preview"}</button>
+            <button type="button" aria-label={`Hapus ${sequence.name}`} onClick={() => removeSequence(sequence)} className="rounded-md border border-red-300/10 p-1.5 text-zinc-600 hover:bg-red-300/10 hover:text-red-300"><Trash2 className="h-3.5 w-3.5" /></button>
+          </div>;
+        })}
+      </div>}
+    </section>
+  );
+}
 
 function EffectPreviewLab({ controls, engineModules, customImpulses = {}, accentColor, projectTemplate, sharedAnalyserRef }) {
   const graphRef = useRef(null);
@@ -7388,6 +7647,10 @@ function PanelFeatureContent({ panel, controls, engineModules = [], presets, mid
 
 function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentColor, uiColor = "#09090b", pluginName, manufacturerName, pluginVersion, pluginKind = "instrument", instrumentType, brandTagline, brandFont, brandSize = 24, brandX = 18, brandY = 13, brandAlign = "left", uiTemplate, projectTemplate, keyboardKeys, onKeyboardKeysChange, canvasWidth, canvasHeight, backgroundImageUrl, backgroundImageName, backgroundFit, backgroundOpacity, backgroundImageX = 50, backgroundImageY = 50, backgroundImageWidth = 100, backgroundImageHeight = 100, componentStyle = "css", pricing = DEFAULT_VST_PRICING, gridSnapEnabled = true, gridSize = 8, resizeAspectLocked = true, backgroundUploadEndpoint, customBackgroundEnabled = true, imageUploadEndpoint = "", imageUploadEnabled = false, onCanvasChange, canUndo = false, canRedo = false, onUndo, onRedo, midiPressedPitches, activeHitPitches = new Set(), velocity, sustainEnabled, pitchBendEnabled = true, modulationEnabled = true, pitchBendValue, modulationValue, onPitchBendChange, onModulationChange, meterAnalyserRef, controls, engineModules, presets = [], midiSequences = [], samplerGroups = [], onFeatureChange, selectedControlId, selectedControlIds = [], onNoteOn, onNoteOff, onAdd, onSelect, onUpdate, onUpdateMany, onMoveLayer, onRemove, onRemoveSelected, onDrop }) {
   const selectedControl = controls.find((control) => control.id === selectedControlId);
+  const selectedKeyboardPitches = selectedControl?.kind === "keyboard"
+    ? Array.from({ length: selectedControl.keyCount ?? keyboardKeys }, (_, index) => 36 + index)
+    : [];
+  const selectedKeyboardKeyColors = normalizeKeyboardKeyColors(selectedControl?.keyColors ?? selectedControl?.key_colors);
   const selectedEngineModule = engineModules.find((module) => module.id === selectedControl?.moduleId);
   const selectedEngineModuleOption = dspRackOption(selectedEngineModule?.type);
   const selectedControlIdSet = new Set(selectedControlIds);
@@ -7420,10 +7683,29 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
   const [replaceControlId, setReplaceControlId] = useState(null);
   const [backgroundTemplatePickerOpen, setBackgroundTemplatePickerOpen] = useState(false);
   const [brandFontPickerOpen, setBrandFontPickerOpen] = useState(false);
+  const [colorClipboard, setColorClipboard] = useState("");
+  const [keyboardColorSelection, setKeyboardColorSelection] = useState(null);
+  const activeKeyboardColorPitch = keyboardColorSelection
+    && keyboardColorSelection.controlId === selectedControl?.id
+    && selectedKeyboardPitches.includes(keyboardColorSelection.pitch)
+    ? keyboardColorSelection.pitch
+    : null;
   const [openPanelId, setOpenPanelId] = useState(null);
   const midiTransport = useMidiGrooveTransport(midiSequences, onNoteOn, onNoteOff);
   const [selectedPrismBandIndex, setSelectedPrismBandIndex] = useState(1);
   const prismAnalyzers = controls.filter((control) => control.kind === "spectrum" && (control.component_variant || "realtime-spectrum") === "realtime-spectrum");
+  const indicatorActiveFor = (control) => {
+    if (control.captureLevel !== undefined) return Number(control.captureLevel) >= 0.5;
+    const sourceId = control.indicatorSourceId ?? control.indicator_source_id;
+    const source = sourceId ? controls.find((candidate) => candidate.id === sourceId) : null;
+    if (!source) return Number(control.value) >= 50;
+    if (source.kind === "panel_button") return openPanelId === source.id;
+    if (source.kind === "pad") return activeHitPitches.has(source.notePitch ?? 60) || midiPressedPitches.has(source.notePitch ?? 60);
+    const sourceValue = Number(source.value) || 0;
+    if (source.kind === "button" && source.parameter === "bypass") return sourceValue < 50;
+    if (["button", "solo", "mute"].includes(source.kind)) return sourceValue > 0;
+    return sourceValue >= 50;
+  };
   const prismAnalyzerForContext = (control) => prismAnalyzers.find((analyzer) => analyzer.id === (control.prismOwnerId ?? control.prism_owner_id)) || prismAnalyzers[0] || null;
   const prismContextModeFor = (control) => prismAnalyzerForContext(control)?.prismControlMode ?? prismAnalyzerForContext(control)?.prism_control_mode ?? "direct";
   const activePrismModule = engineModules.find((module) => prismAnalyzers.some((analyzer) => analyzer.moduleId === module.id) && module.type === "prism_eq") || engineModules.find((module) => module.type === "prism_eq") || null;
@@ -8244,14 +8526,22 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                     keyboardPitches={Array.from({ length: control.keyCount ?? keyboardKeys }, (_, index) => 36 + index)}
                     tokenNamespace={`plugin-${control.id}`}
                     accentColor={accentColor}
+                    keyColors={control.keyColors ?? control.key_colors}
+                    colorSelectedPitch={keyboardColorSelection?.controlId === control.id ? keyboardColorSelection.pitch : null}
                     variant={control.component_variant || "classic"}
                     velocity={velocity}
                     sustainEnabled={sustainEnabled}
+                    onKeySelect={(pitch) => {
+                      onSelect(control.id);
+                      setKeyboardColorSelection({ controlId: control.id, pitch });
+                    }}
                     onNoteOn={onNoteOn}
                     onNoteOff={onNoteOff}
                   />
                 ) : control.kind === "gain_meter" || control.kind === "vu_meter" ? (
                   <PreviewOutputMeter captureLevel={control.captureLevel} kind={control.kind} meterSource={control.parameter} moduleId={control.moduleId} meterMode={control.meterMode ?? control.meter_mode ?? (control.kind === "gain_meter" ? "stereo" : "mono")} variant={control.component_variant || (control.kind === "vu_meter" ? "dark-vu" : "led")} analyserRef={meterAnalyserRef} accentColor={accentColor} asset={filmstripAssetFor(control, componentStyle, "meter")} />
+                ) : control.kind === "indicator" ? (
+                  <RoundLedIndicator active={indicatorActiveFor(control)} color={control.controlColor ?? control.control_color ?? accentColor} />
                 ) : control.kind === "image" ? (
                   <img
                     src={control.imageUrl ?? control.image_url}
@@ -8263,6 +8553,8 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                 ) : control.kind === "spectrum" ? (
                   control.component_variant === "stereo-vectorscope" ? (
                     <StereoVectorscopeDisplay analyserRef={meterAnalyserRef} accentColor={control.visualColor ?? control.visual_color ?? accentColor} showCorrelationMeter={control.showCorrelationMeter !== false && control.show_correlation_meter !== false} />
+                  ) : control.component_variant === "realtime-waveform" ? (
+                    <RealtimeWaveformDisplay analyserRef={meterAnalyserRef} accentColor={control.visualColor ?? control.visual_color ?? accentColor} />
                   ) : (
                     <PrismSpectrumDisplay
                       analyserRef={meterAnalyserRef}
@@ -8524,13 +8816,13 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
               {BRAND_FONT_OPTIONS.map((font) => <option key={font.id} value={font.id}>{font.name}</option>)}
             </select>
           </label>}
-          {selectedControl.kind === "text" && <label>
-            <FieldLabel>Warna text</FieldLabel>
-            <span className="mt-2 flex items-center gap-2">
-              <input type="color" className="maker-color-input" value={isHexColor(selectedControl.textColor ?? selectedControl.text_color) ? (selectedControl.textColor ?? selectedControl.text_color) : "#F4F4F5"} onChange={(event) => onUpdate(selectedControl.id, { textColor: event.target.value })} />
-              <span className="font-mono text-[10px] uppercase text-zinc-400">{isHexColor(selectedControl.textColor ?? selectedControl.text_color) ? (selectedControl.textColor ?? selectedControl.text_color) : "#F4F4F5"}</span>
-            </span>
-          </label>}
+          {selectedControl.kind === "text" && <DesignerColorField
+            label="Warna text"
+            value={isHexColor(selectedControl.textColor ?? selectedControl.text_color) ? (selectedControl.textColor ?? selectedControl.text_color) : "#F4F4F5"}
+            onChange={(color) => onUpdate(selectedControl.id, { textColor: color })}
+            colorClipboard={colorClipboard}
+            onCopy={setColorClipboard}
+          />}
           {selectedControl.kind !== "text" && <label>
             <FieldLabel>Posisi label</FieldLabel>
             <select className="maker-input mt-2" value={normalizeLabelPosition(selectedControl.labelPosition ?? selectedControl.label_position)} onChange={(event) => onUpdate(selectedControl.id, { labelPosition: event.target.value })}>
@@ -8587,45 +8879,92 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                   {SAMPLER_PITCHES.map((pitch) => <option key={pitch} value={pitch}>{midiNoteName(pitch)}</option>)}
                 </select>
               </label>
-              <label>
-                <FieldLabel>Warna permukaan pad</FieldLabel>
-                <span className="mt-2 flex items-center gap-2">
-                  <input type="color" className="maker-color-input" value={isHexColor(selectedControl.padColor) ? selectedControl.padColor : defaultPadSurfaceColor(selectedControl.component_variant)} onChange={(event) => onUpdate(selectedControl.id, { padColor: event.target.value })} />
-                  <span className="font-mono text-[10px] uppercase text-zinc-400">{isHexColor(selectedControl.padColor) ? selectedControl.padColor : defaultPadSurfaceColor(selectedControl.component_variant)}</span>
-                </span>
-              </label>
-              <label>
-                <FieldLabel>Warna nyala lampu</FieldLabel>
-                <span className="mt-2 flex items-center gap-2">
-                  <input type="color" className="maker-color-input" value={isHexColor(selectedControl.padActiveColor) ? selectedControl.padActiveColor : defaultPadActiveColor(selectedControl.component_variant, selectedControl.notePitch ?? 60, accentColor)} onChange={(event) => onUpdate(selectedControl.id, { padActiveColor: event.target.value })} />
-                  <span className="font-mono text-[10px] uppercase text-zinc-400">{isHexColor(selectedControl.padActiveColor) ? selectedControl.padActiveColor : defaultPadActiveColor(selectedControl.component_variant, selectedControl.notePitch ?? 60, accentColor)}</span>
-                </span>
-              </label>
+              <DesignerColorField
+                label="Warna permukaan pad"
+                value={isHexColor(selectedControl.padColor) ? selectedControl.padColor : defaultPadSurfaceColor(selectedControl.component_variant)}
+                onChange={(color) => onUpdate(selectedControl.id, { padColor: color })}
+                colorClipboard={colorClipboard}
+                onCopy={setColorClipboard}
+              />
+              <DesignerColorField
+                label="Warna nyala lampu"
+                value={isHexColor(selectedControl.padActiveColor) ? selectedControl.padActiveColor : defaultPadActiveColor(selectedControl.component_variant, selectedControl.notePitch ?? 60, accentColor)}
+                onChange={(color) => onUpdate(selectedControl.id, { padActiveColor: color })}
+                colorClipboard={colorClipboard}
+                onCopy={setColorClipboard}
+              />
             </>
           ) : selectedControl.kind === "keyboard" ? (
-            <label>
-              <FieldLabel>Jumlah piano keys</FieldLabel>
-              <select className="maker-input mt-2" value={selectedControl.keyCount ?? keyboardKeys} onChange={(event) => {
-                const keyCount = Number(event.target.value);
-                onUpdate(selectedControl.id, { keyCount, label: `${keyCount} Keys` });
-                onKeyboardKeysChange(keyCount);
-              }}>
-                {KEYBOARD_SIZE_OPTIONS.map((count) => <option key={count} value={count}>{count} tuts</option>)}
-              </select>
-            </label>
+            <>
+              <label>
+                <FieldLabel>Jumlah piano keys</FieldLabel>
+                <select className="maker-input mt-2" value={selectedControl.keyCount ?? keyboardKeys} onChange={(event) => {
+                  const keyCount = Number(event.target.value);
+                  onUpdate(selectedControl.id, { keyCount, label: `${keyCount} Keys` });
+                  onKeyboardKeysChange(keyCount);
+                }}>
+                  {KEYBOARD_SIZE_OPTIONS.map((count) => <option key={count} value={count}>{count} tuts</option>)}
+                </select>
+              </label>
+              <div className="maker-key-color-editor md:col-span-2">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <FieldLabel>Warna tuts terpilih</FieldLabel>
+                    <p className="mt-1 text-[9px] text-zinc-500">Klik langsung satu tuts pada keyboard di canvas untuk menampilkan pilihan warnanya.</p>
+                  </div>
+                  <button type="button" className="text-[9px] font-bold text-zinc-500 transition hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-35" disabled={!Object.keys(selectedKeyboardKeyColors).length} onClick={() => onUpdate(selectedControl.id, { keyColors: {} })}>Reset semua</button>
+                </div>
+                {activeKeyboardColorPitch === null ? (
+                  <div className="mt-3 rounded-xl border border-dashed border-sky-300/20 bg-sky-300/[0.035] px-3 py-3 text-[9px] text-zinc-500">Belum ada tuts yang dipilih.</div>
+                ) : <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
+                  <DesignerColorField label={`Warna ${midiNoteName(activeKeyboardColorPitch)}`} value={selectedKeyboardKeyColors[String(activeKeyboardColorPitch)] || defaultKeyboardKeyColor(selectedControl.component_variant, activeKeyboardColorPitch)} onChange={(nextColor) => onUpdate(selectedControl.id, { keyColors: { ...selectedKeyboardKeyColors, [String(activeKeyboardColorPitch)]: nextColor } })} colorClipboard={colorClipboard} onCopy={setColorClipboard} />
+                  <button type="button" className="h-[2.95rem] rounded-xl border border-white/10 px-3 text-[9px] font-bold text-zinc-400 transition hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-35" disabled={!selectedKeyboardKeyColors[String(activeKeyboardColorPitch)]} onClick={() => { const nextColors = { ...selectedKeyboardKeyColors }; delete nextColors[String(activeKeyboardColorPitch)]; onUpdate(selectedControl.id, { keyColors: nextColors }); }}>Reset tuts</button>
+                </div>}
+              </div>
+            </>
           ) : ["pitch_bend", "modulation"].includes(selectedControl.parameter) ? (
             <>
               <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2.5">
                 <FieldLabel>Fungsi native</FieldLabel>
                 <span className="mt-1 block text-[10px] text-zinc-400">{selectedControl.parameter === "pitch_bend" ? "Pitch Bend MIDI · rentang ±2 semitone · kembali otomatis ke tengah" : "Modulation Wheel MIDI CC1 · vibrato hingga ±0.5 semitone"}</span>
               </div>
-              {["pitch-bend-led", "modulation-led"].includes(selectedControl.component_variant) && <label>
-                <FieldLabel>Warna LED & slider</FieldLabel>
-                <span className="mt-2 flex items-center gap-2">
-                  <input type="color" className="maker-color-input" value={isHexColor(selectedControl.controlColor ?? selectedControl.control_color) ? (selectedControl.controlColor ?? selectedControl.control_color) : accentColor} onChange={(event) => onUpdate(selectedControl.id, { controlColor: event.target.value })} />
-                  <span className="font-mono text-[10px] uppercase text-zinc-400">{isHexColor(selectedControl.controlColor ?? selectedControl.control_color) ? (selectedControl.controlColor ?? selectedControl.control_color) : accentColor}</span>
-                </span>
-              </label>}
+              {["pitch-bend-led", "modulation-led"].includes(selectedControl.component_variant) && <DesignerColorField
+                label="Warna LED & slider"
+                value={isHexColor(selectedControl.controlColor ?? selectedControl.control_color) ? (selectedControl.controlColor ?? selectedControl.control_color) : accentColor}
+                onChange={(color) => onUpdate(selectedControl.id, { controlColor: color })}
+                colorClipboard={colorClipboard}
+                onCopy={setColorClipboard}
+              />}
+            </>
+          ) : selectedControl.kind === "indicator" ? (
+            <>
+              <DesignerColorField
+                label="Warna lampu LED"
+                value={isHexColor(selectedControl.controlColor ?? selectedControl.control_color) ? (selectedControl.controlColor ?? selectedControl.control_color) : accentColor}
+                onChange={(color) => onUpdate(selectedControl.id, { controlColor: color })}
+                colorClipboard={colorClipboard}
+                onCopy={setColorClipboard}
+              />
+              <label>
+                <FieldLabel>Sumber indikator</FieldLabel>
+                <select className="maker-input mt-2" value={selectedControl.indicatorSourceId ?? selectedControl.indicator_source_id ?? ""} onChange={(event) => onUpdate(selectedControl.id, { indicatorSourceId: event.target.value || null })}>
+                  <option value="">Manual</option>
+                  {controls.filter((control) => control.id !== selectedControl.id && control.kind !== "indicator").map((control) => <option key={control.id} value={control.id}>{control.label || control.kind}</option>)}
+                </select>
+              </label>
+              {!(selectedControl.indicatorSourceId ?? selectedControl.indicator_source_id) && (
+                <label>
+                  <FieldLabel>Status manual</FieldLabel>
+                  <select className="maker-input mt-2" value={Number(selectedControl.value) >= 50 ? "on" : "off"} onChange={(event) => onUpdate(selectedControl.id, { value: event.target.value === "on" ? 100 : 0 })}>
+                    <option value="off">Mati</option>
+                    <option value="on">Nyala</option>
+                  </select>
+                </label>
+              )}
+              <div className="rounded-xl border border-cyan-300/15 bg-cyan-300/[0.04] px-3 py-2.5">
+                <FieldLabel>Fungsi native</FieldLabel>
+                <span className="mt-1 block text-[10px] text-zinc-400">Lampu mengikuti status komponen sumber pada preview browser dan hasil VST3 native.</span>
+              </div>
             </>
           ) : selectedControl.kind === "image" ? (
             <>
@@ -8653,13 +8992,13 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
             </>
           ) : selectedControl.kind === "spectrum" ? (
             <>
-              <label>
-                <FieldLabel>Warna analyzer</FieldLabel>
-                <span className="mt-2 flex items-center gap-2">
-                  <input type="color" className="maker-color-input" value={isHexColor(selectedControl.visualColor ?? selectedControl.visual_color) ? (selectedControl.visualColor ?? selectedControl.visual_color) : accentColor} onChange={(event) => onUpdate(selectedControl.id, { visualColor: event.target.value })} />
-                  <span className="font-mono text-[10px] uppercase text-zinc-400">{selectedControl.visualColor ?? selectedControl.visual_color ?? accentColor}</span>
-                </span>
-              </label>
+              <DesignerColorField
+                label="Warna analyzer"
+                value={isHexColor(selectedControl.visualColor ?? selectedControl.visual_color) ? (selectedControl.visualColor ?? selectedControl.visual_color) : accentColor}
+                onChange={(color) => onUpdate(selectedControl.id, { visualColor: color })}
+                colorClipboard={colorClipboard}
+                onCopy={setColorClipboard}
+              />
               {selectedControl.component_variant === "stereo-vectorscope" && (
                 <label>
                   <FieldLabel>Correlation meter</FieldLabel>
@@ -8692,6 +9031,8 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                 <FieldLabel>Fungsi native</FieldLabel>
                 <span className="mt-1 block text-[10px] text-zinc-400">{selectedControl.component_variant === "stereo-vectorscope"
                   ? "Stereo vectorscope real-time · phase correlation −1 sampai +1 · aktif pada preview browser dan hasil VST3 native"
+                  : selectedControl.component_variant === "realtime-waveform"
+                    ? "Waveform output real-time · bentuk gelombang bergerak mengikuti audio pada preview browser dan hasil VST3 native"
                   : selectedControl.component_variant === "pure-spectrum"
                     ? "FFT output real-time murni tanpa node atau kontrol EQ · aktif pada preview browser dan hasil VST3 native"
                     : "FFT output real-time · aktif pada preview browser dan hasil VST3 native · band EQ yang ditambahkan dari analyzer sudah termasuk dan tidak menambah biaya komponen"}</span>
@@ -8699,13 +9040,13 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
             </>
           ) : selectedControl.kind === "visual" ? (
             <>
-              <label>
-                <FieldLabel>Warna scale ring</FieldLabel>
-                <span className="mt-2 flex items-center gap-2">
-                  <input type="color" className="maker-color-input" value={isHexColor(selectedControl.visualColor ?? selectedControl.visual_color) ? (selectedControl.visualColor ?? selectedControl.visual_color) : "#E8E0CF"} onChange={(event) => onUpdate(selectedControl.id, { visualColor: event.target.value })} />
-                  <span className="font-mono text-[10px] uppercase text-zinc-400">{isHexColor(selectedControl.visualColor ?? selectedControl.visual_color) ? (selectedControl.visualColor ?? selectedControl.visual_color) : "#E8E0CF"}</span>
-                </span>
-              </label>
+              <DesignerColorField
+                label="Warna scale ring"
+                value={isHexColor(selectedControl.visualColor ?? selectedControl.visual_color) ? (selectedControl.visualColor ?? selectedControl.visual_color) : "#E8E0CF"}
+                onChange={(color) => onUpdate(selectedControl.id, { visualColor: color })}
+                colorClipboard={colorClipboard}
+                onCopy={setColorClipboard}
+              />
               <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2.5">
                 <FieldLabel>Fungsi native</FieldLabel>
                 <span className="mt-1 block text-[10px] text-zinc-400">Visual statis · tidak mengubah parameter audio</span>
@@ -8862,20 +9203,8 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
         </div>
       ) : null}
       <div className="maker-interface-ui-colors grid grid-cols-2 gap-3 rounded-2xl border border-white/[0.07] bg-[#111014] p-4">
-        <label>
-          <FieldLabel>Warna aksen UI</FieldLabel>
-          <span className="mt-2 flex items-center gap-2 rounded-xl border border-white/10 bg-black/30 px-2.5 py-2">
-            <input type="color" value={accentColor} onChange={(event) => onCanvasChange({ accentColor: event.target.value })} className="h-8 w-10 shrink-0 cursor-pointer rounded border-0 bg-transparent" aria-label="Warna aksen plugin" />
-            <span className="min-w-0 truncate font-mono text-[10px] text-zinc-400">{accentColor.toUpperCase()}</span>
-          </span>
-        </label>
-        <label>
-          <FieldLabel>Warna dasar UI</FieldLabel>
-          <span className="mt-2 flex items-center gap-2 rounded-xl border border-white/10 bg-black/30 px-2.5 py-2">
-            <input type="color" value={uiColor} onChange={(event) => onCanvasChange({ uiColor: event.target.value })} className="h-8 w-10 shrink-0 cursor-pointer rounded border-0 bg-transparent" aria-label="Warna dasar UI plugin" />
-            <span className="min-w-0 truncate font-mono text-[10px] text-zinc-400">{uiColor.toUpperCase()}</span>
-          </span>
-        </label>
+        <DesignerColorField label="Warna aksen UI" value={accentColor} onChange={(color) => onCanvasChange({ accentColor: color })} colorClipboard={colorClipboard} onCopy={setColorClipboard} ariaLabel="Warna aksen plugin" />
+        <DesignerColorField label="Warna dasar UI" value={uiColor} onChange={(color) => onCanvasChange({ uiColor: color })} colorClipboard={colorClipboard} onCopy={setColorClipboard} ariaLabel="Warna dasar UI plugin" />
       </div>
       </div>
       </div>
@@ -8981,6 +9310,8 @@ const CREDIT_COMPONENT_KIND_LABELS = {
   pad: "Pad",
   keyboard: "Keyboard",
   visual: "Visual",
+  spectrum: "Spectrum",
+  indicator: "Lampu LED",
   text: "Text",
   panel_button: "Panel Button",
   image: "Gambar upload",
@@ -9388,6 +9719,11 @@ function CustomerBuildLicenseDialog({ mode = "export", platform = "windows", set
   );
 }
 
+function RoundLedIndicator({ active = false, color = "#22D3EE" }) {
+  const safeColor = isHexColor(color) ? color : "#22D3EE";
+  return <span className={`maker-round-led-indicator ${active ? "is-on" : ""}`} style={{ "--maker-led-color": safeColor }} role="img" aria-label={active ? "Lampu indikator menyala" : "Lampu indikator mati"}><i /></span>;
+}
+
 function ComponentThumbnail({ variant }) {
   const { kind, style: appearance, id } = variant;
   const assetKind = ["button", "solo", "mute"].includes(kind) ? "button" : ["gain_meter", "vu_meter"].includes(kind) ? "meter" : kind;
@@ -9412,6 +9748,8 @@ function ComponentThumbnail({ variant }) {
   } else if (kind === "knob") {
     const visualVariant = PAN_LED_KNOB_BASES[id] || id;
     preview = <span className={`maker-rotary-knob maker-knob--${id} ${visualVariant !== id ? `maker-knob--${visualVariant}` : ""}`} style={{ "--knob-angle": isPanKnobVariant(id) ? "0deg" : "40deg", "--knob-progress": "175.5deg" }}>{id === "chicken-head" && <span className="maker-chicken-head-knob__scale"><span>MIN</span><span>MAX</span></span>}{id === "ivory-lever" && <span className="maker-ivory-lever__scale"><span>MIN</span><span>MAX</span></span>}{id === "orbit-encoder" && <OrbitEncoderLights value={65} />}{isPanLedKnobVariant(id) && <PanLedRing value={50} type={panLedStyleForVariant(id)} />}<span className="maker-rotary-knob__indicator" /><span className="maker-rotary-knob__value">{isPanKnobVariant(id) ? "C" : "65"}</span></span>;
+  } else if (kind === "indicator") {
+    preview = <span className="maker-gallery-led-indicator"><RoundLedIndicator active color={variant.color} /></span>;
   } else if (["button", "solo", "mute"].includes(kind)) {
     preview = (
       <span className={`maker-gallery-button-stage maker-gallery-button-stage--${id} maker-canvas-control--${kind}`}>
@@ -9449,7 +9787,9 @@ function ComponentThumbnail({ variant }) {
   } else if (kind === "spectrum") {
     preview = id === "stereo-vectorscope"
       ? <span className="maker-gallery-vectorscope"><i /><i /><b /><em /></span>
-      : <span className={`maker-gallery-spectrum ${id === "pure-spectrum" ? "is-pure" : ""}`}><i /><i /><i /><i /><i /><b /></span>;
+      : id === "realtime-waveform"
+        ? <span className="maker-gallery-waveform"><i /><b /></span>
+        : <span className={`maker-gallery-spectrum ${id === "pure-spectrum" ? "is-pure" : ""}`}><i /><i /><i /><i /><i /><b /></span>;
   } else if (kind === "visual") {
     preview = <ScaleRing variant={id} color={variant.color} />;
   } else if (kind === "text") {
@@ -9748,6 +10088,77 @@ function PreviewOutputMeter({ kind, meterSource = "output_level", moduleId = nul
   }
   const maximum = Math.max(...displayed);
   return <div className={`maker-gain-meter maker-meter--${variant} is-${meterMode}`} style={{ "--maker-accent": accentColor }}><div className="maker-gain-meter__channels">{displayed.map((value, index) => <i key={index} data-channel={meterMode === "stereo" ? (index ? "R" : "L") : undefined} style={{ "--maker-level": `${value * 100}%` }} />)}</div><span>{isGainReduction ? `${(maximum * 24).toFixed(1)} dB GR` : maximum > 0.001 ? `${Math.max(-60, 20 * Math.log10(maximum)).toFixed(1)} dB` : "−∞ dB"}</span></div>;
+}
+
+function RealtimeWaveformDisplay({ analyserRef, accentColor }) {
+  const canvasRef = useRef(null);
+  useEffect(() => {
+    let frame = 0;
+    let samples = null;
+    const draw = () => {
+      frame = window.requestAnimationFrame(draw);
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const bounds = canvas.getBoundingClientRect();
+      const width = Math.max(1, bounds.width);
+      const height = Math.max(1, bounds.height);
+      const ratio = Math.min(1.5, window.devicePixelRatio || 1);
+      const pixelWidth = Math.round(width * ratio);
+      const pixelHeight = Math.round(height * ratio);
+      if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+        canvas.width = pixelWidth;
+        canvas.height = pixelHeight;
+      }
+      const context = canvas.getContext("2d");
+      context.setTransform(ratio, 0, 0, ratio, 0, 0);
+      context.clearRect(0, 0, width, height);
+      const color = isHexColor(accentColor) ? accentColor : "#A78BFA";
+      context.strokeStyle = hexColorWithAlpha(color, 0.13);
+      context.lineWidth = 1;
+      for (let index = 1; index < 8; index += 1) {
+        const x = width * index / 8;
+        context.beginPath(); context.moveTo(x, 0); context.lineTo(x, height); context.stroke();
+      }
+      for (let index = 1; index < 4; index += 1) {
+        const y = height * index / 4;
+        context.beginPath(); context.moveTo(0, y); context.lineTo(width, y); context.stroke();
+      }
+      const analyser = analyserRef?.current;
+      const channels = analyser?._vstMeterChannels || (analyser ? [analyser] : []);
+      const size = Math.min(2048, Math.max(256, channels[0]?.fftSize || 1024));
+      if (!samples || samples.length !== size) samples = new Float32Array(size);
+      samples.fill(0);
+      if (channels.length) {
+        const channelData = new Float32Array(size);
+        channels.slice(0, 2).forEach((channel) => {
+          channel.getFloatTimeDomainData(channelData);
+          for (let index = 0; index < size; index += 1) samples[index] += channelData[index] / Math.min(2, channels.length);
+        });
+      }
+      let start = 0;
+      for (let index = 1; index < Math.floor(size / 2); index += 1) {
+        if (samples[index - 1] <= 0 && samples[index] > 0) { start = index; break; }
+      }
+      context.beginPath();
+      for (let pixel = 0; pixel <= Math.ceil(width); pixel += 1) {
+        const sampleIndex = Math.min(size - 1, start + Math.floor(pixel / Math.max(1, width) * (size - start - 1)));
+        const x = pixel;
+        const y = height * 0.5 - Math.max(-1, Math.min(1, samples[sampleIndex] || 0)) * height * 0.43;
+        if (pixel === 0) context.moveTo(x, y); else context.lineTo(x, y);
+      }
+      context.save();
+      context.strokeStyle = hexColorWithAlpha(color, 0.95);
+      context.shadowColor = color;
+      context.shadowBlur = 10;
+      context.lineWidth = 1.8;
+      context.lineJoin = "round";
+      context.stroke();
+      context.restore();
+    };
+    frame = window.requestAnimationFrame(draw);
+    return () => window.cancelAnimationFrame(frame);
+  }, [accentColor, analyserRef]);
+  return <div className="maker-prism-spectrum maker-realtime-waveform" style={{ inset: 0, "--spectrum-color": isHexColor(accentColor) ? accentColor : "#A78BFA" }} aria-label="Realtime audio waveform"><canvas ref={canvasRef} className="maker-prism-spectrum__canvas" /></div>;
 }
 
 function PrismSpectrumDisplay({ analyserRef, prismModule, onParameterChange, onBandSelect, onBandDelete, selectedBandIndex = 1, accentColor, interactive = true, style }) {
@@ -11262,7 +11673,7 @@ function SamplerMappingEditor({ accentColor, samples, pricing = DEFAULT_VST_PRIC
   );
 }
 
-function SamplerKeyboard({ accentColor, velocity, sustainEnabled, onSustainToggle, pitchBendEnabled = false, onPitchBendToggle, modulationEnabled = false, onModulationToggle, onVelocityChange, audioStatus, onNoteOn, onNoteOff, keyboardPitches = SAMPLER_PITCHES, compact = false, fitWidth = false, variant = "classic", externalPressedPitches = new Set(), tokenNamespace = "sampler", mappingView = null, mappingToolbar = null, scrollTargetPitch = null }) {
+function SamplerKeyboard({ accentColor, velocity, sustainEnabled, onSustainToggle, pitchBendEnabled = false, onPitchBendToggle, modulationEnabled = false, onModulationToggle, onVelocityChange, audioStatus, onNoteOn, onNoteOff, onKeySelect = null, keyboardPitches = SAMPLER_PITCHES, keyColors = {}, colorSelectedPitch = null, compact = false, fitWidth = false, variant = "classic", externalPressedPitches = new Set(), tokenNamespace = "sampler", mappingView = null, mappingToolbar = null, scrollTargetPitch = null }) {
   const [pressedPitches, setPressedPitches] = useState(() => new Set());
   const activeTokensRef = useRef(new Set());
   const gestureTokensRef = useRef(new Map());
@@ -11289,6 +11700,7 @@ function SamplerKeyboard({ accentColor, velocity, sustainEnabled, onSustainToggl
   const keyWidth = compact ? 18 : 30;
   const beginNote = (pitch, event, tokenPrefix) => {
     event.preventDefault();
+    onKeySelect?.(pitch);
     if (event.pointerId !== undefined) event.currentTarget.setPointerCapture?.(event.pointerId);
     const gestureKey = `${tokenPrefix}-${pitch}-${event.pointerId ?? "keyboard"}`;
     const previousToken = gestureTokensRef.current.get(gestureKey);
@@ -11382,30 +11794,34 @@ function SamplerKeyboard({ accentColor, velocity, sustainEnabled, onSustainToggl
               "--maker-black-height": fitWidth ? "62%" : compact ? "48px" : "78px",
             }}
           >
-            {whitePitches.map((pitch, index) => (
-              <button
-                type="button"
-                key={pitch}
-                {...keyProps(pitch)}
-                data-vst-pitch={pitch}
-                className={`maker-sampler-key maker-sampler-key--white ${(pressedPitches.has(pitch) || externalPressedPitches.has(pitch)) ? "is-pressed" : ""} ${index === whitePitches.length - 1 ? "is-last" : ""}`}
-                style={{ gridColumn: index + 1 }}
-                aria-label={`Mainkan ${midiNoteName(pitch)}`}
-                title={midiNoteName(pitch)}
-              >
-                {pitch % 12 === 0 && <span>{midiNoteName(pitch)}</span>}
-              </button>
-            ))}
-            {blackPitches.map((pitch) => {
-              const whitePosition = whitePitches.filter((whitePitch) => whitePitch < pitch).length;
+            {whitePitches.map((pitch, index) => {
+              const customColor = isHexColor(keyColors?.[pitch] ?? keyColors?.[String(pitch)]) ? (keyColors[pitch] ?? keyColors[String(pitch)]) : null;
               return (
                 <button
                   type="button"
                   key={pitch}
                   {...keyProps(pitch)}
                   data-vst-pitch={pitch}
-                  className={`maker-sampler-key maker-sampler-key--black ${(pressedPitches.has(pitch) || externalPressedPitches.has(pitch)) ? "is-pressed" : ""}`}
-                  style={{ left: fitWidth ? `calc((${whitePosition} * (100% / ${whitePitches.length})) - ((100% / ${whitePitches.length}) * 0.3))` : `${whitePosition * keyWidth - (keyWidth * 0.3)}px` }}
+                  className={`maker-sampler-key maker-sampler-key--white ${customColor ? "has-custom-color" : ""} ${colorSelectedPitch === pitch ? "is-color-selected" : ""} ${(pressedPitches.has(pitch) || externalPressedPitches.has(pitch)) ? "is-pressed" : ""} ${index === whitePitches.length - 1 ? "is-last" : ""}`}
+                  style={{ gridColumn: index + 1, ...(customColor ? { "--maker-key-color": customColor } : {}) }}
+                  aria-label={`Mainkan ${midiNoteName(pitch)}`}
+                  title={midiNoteName(pitch)}
+                >
+                  {pitch % 12 === 0 && <span>{midiNoteName(pitch)}</span>}
+                </button>
+              );
+            })}
+            {blackPitches.map((pitch) => {
+              const whitePosition = whitePitches.filter((whitePitch) => whitePitch < pitch).length;
+              const customColor = isHexColor(keyColors?.[pitch] ?? keyColors?.[String(pitch)]) ? (keyColors[pitch] ?? keyColors[String(pitch)]) : null;
+              return (
+                <button
+                  type="button"
+                  key={pitch}
+                  {...keyProps(pitch)}
+                  data-vst-pitch={pitch}
+                  className={`maker-sampler-key maker-sampler-key--black ${customColor ? "has-custom-color" : ""} ${colorSelectedPitch === pitch ? "is-color-selected" : ""} ${(pressedPitches.has(pitch) || externalPressedPitches.has(pitch)) ? "is-pressed" : ""}`}
+                  style={{ left: fitWidth ? `calc((${whitePosition} * (100% / ${whitePitches.length})) - ((100% / ${whitePitches.length}) * 0.3))` : `${whitePosition * keyWidth - (keyWidth * 0.3)}px`, ...(customColor ? { "--maker-key-color": customColor } : {}) }}
                   aria-label={`Mainkan ${midiNoteName(pitch)}`}
                   title={midiNoteName(pitch)}
                 />

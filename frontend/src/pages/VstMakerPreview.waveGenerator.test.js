@@ -5,7 +5,7 @@ describe("VST Maker Wave Generator note routing", () => {
   const source = fs.readFileSync(path.join(__dirname, "VstMakerPreview.jsx"), "utf8");
 
   test("keeps the oscillator and full DSP active for Mapping, Designer, and Web MIDI", () => {
-    expect(source).toContain("const playWaveGeneratorNote = (pitch, velocity, token) => {");
+    expect(source).toContain("const playWaveGeneratorNote = (pitch, velocity, token, playbackOptions = null) => {");
     expect(source).toContain("const waveStarted = playWaveGeneratorNote(pitch, velocity, token);");
     expect(source).not.toContain('if (previewMode !== "instrument") return false;');
     expect(source).not.toContain('previewMode === "mapping"');
@@ -28,7 +28,7 @@ describe("VST Maker Wave Generator note routing", () => {
     expect(source).toContain(">Respons Velocity</div>");
     expect(source).toContain("const velocityParameters = option.parameters.filter(({ key }) => velocityKeys.has(key));");
     expect(source.indexOf(">Respons Velocity</div>")).toBeGreaterThan(source.indexOf("Bypass generator</label>"));
-    expect(source).toContain('const monoMode = unit("voice_mode", 1) >= 0.5;');
+    expect(source).toContain('const monoMode = unit("voice_mode", 1) >= 0.5 && !playbackOptions?.patternScheduled;');
     expect(source).toContain('if (!retrigger) {');
   });
 
@@ -37,6 +37,14 @@ describe("VST Maker Wave Generator note routing", () => {
     expect(source).toContain(">Oscillator 2</div>");
     expect(source).toContain('role="switch" aria-checked={osc2Enabled}');
     expect(source).toContain('updateEngineModuleParameter(waveGeneratorModule.id, "osc2_enabled", osc2Enabled ? 0 : 1)');
+  });
+
+  test("offers five MIDI pattern generators with dedicated Wave Generator preview", () => {
+    expect(source).toContain("<WaveGeneratorPatternStudio");
+    expect(source).toContain("Generate {activeMode.label}");
+    expect(source).toContain("playWavePatternNote");
+    expect(source).toContain("patternScheduled: true");
+    expect(source).toContain("onSequencesChange([...midiSequences, sequence].slice(-16))");
   });
 
   test("starts each keyboard gesture once and keeps mono held-note fallback", () => {
