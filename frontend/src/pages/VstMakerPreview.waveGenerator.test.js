@@ -43,14 +43,17 @@ describe("VST Maker Wave Generator note routing", () => {
     expect(source).not.toContain("if (activeWaveVoicesRef.current.get(token) === voice) activeWaveVoicesRef.current.delete(token);");
   });
 
-  test("forces stuck voices off and avoids unused per-voice effects with a shared rack", () => {
+  test("forces stuck voices off and avoids legacy effects in every per-voice path", () => {
     expect(source).toContain('window.addEventListener("blur", stopAllWaveNotes);');
     expect(source).toContain('window.addEventListener("pagehide", stopAllWaveNotes);');
     expect(source).toContain('document.addEventListener("visibilitychange", stopWhenHidden);');
     expect(source).toContain("voice.cleanupTimer = window.setTimeout");
     expect(source).toContain("cleanupWaveVoice(voice);");
     expect(source).toContain("let effectNodes = null;");
-    expect(source.indexOf("effectNodes = { saturation")).toBeGreaterThan(source.indexOf("} else {\n      toneFilter = context.createBiquadFilter();"));
+    expect(source).not.toContain("effectNodes = { saturation");
+    expect(source).toContain("filter.connect(toneFilter);");
+    expect(source).toContain("toneFilter.connect(ampGain);");
+    expect(source).not.toContain("ampGain.connect(toneFilter);");
   });
 
   test("separates both oscillators and defaults OSC2 to an explicit switch", () => {

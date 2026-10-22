@@ -2910,8 +2910,8 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     let chorusLfo = null;
     let pendingDirectGain = null;
     mixBus.connect(filter);
-    filter.connect(ampGain);
     if (rackGraph) {
+      filter.connect(ampGain);
       masterGain.gain.value = moduleMix;
       ampGain.connect(masterGain);
       masterGain.connect(releaseGate);
@@ -2919,6 +2919,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     } else if (rackPending) {
       // Keep the note path immediate while the shared worklet is loading. The
       // voice is moved into the rack as soon as installation completes.
+      filter.connect(ampGain);
       ampGain.connect(masterGain);
       masterGain.gain.value = moduleMix;
       pendingDirectGain = context.createGain();
@@ -2930,37 +2931,14 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       toneFilter.type = "highshelf";
       toneFilter.frequency.value = 500 + macroValue("tone", 50) * 65;
       toneFilter.gain.value = (macroValue("tone", 50) - 50) * 0.24;
-      const saturation = context.createWaveShaper();
-      saturation.oversample = "2x";
-      const saturationAmount = macroValue("tone", 50) / 100;
-      const saturationKey = saturationAmount.toFixed(3);
-      if (project.effects.saturation && !saturationCurvesRef.current.has(saturationKey)) saturationCurvesRef.current.set(saturationKey, saturationCurve(saturationAmount));
-      saturation.curve = project.effects.saturation ? saturationCurvesRef.current.get(saturationKey) : null;
-      const dryGain = context.createGain(); dryGain.gain.value = 1;
-      const reverb = context.createConvolver();
-      if (project.effects.reverb && !reverbImpulseRef.current) reverbImpulseRef.current = createReverbImpulse(context);
-      reverb.buffer = project.effects.reverb ? reverbImpulseRef.current : null;
-      const reverbGain = context.createGain();
-      const delay = context.createDelay(1.5); delay.delayTime.value = 30 / Math.max(20, Math.min(300, Number(project.tempoBpm) || 120));
-      const delayFeedback = context.createGain(); delayFeedback.gain.value = 0.2;
-      const delayGain = context.createGain();
-      const chorus = context.createDelay(0.2); chorus.delayTime.value = 0.028;
-      const chorusGain = context.createGain();
-      chorusLfo = context.createOscillator(); chorusLfo.frequency.value = 0.8;
-      const chorusDepth = context.createGain(); chorusDepth.gain.value = 0.008;
-      const space = macroValue("space", 50) / 100;
-      reverbGain.gain.value = project.effects.reverb ? 0.08 + space * 0.25 : 0;
-      delayGain.gain.value = project.effects.delay ? 0.06 + space * 0.18 : 0;
-      chorusGain.gain.value = project.effects.chorus ? 0.04 + space * 0.12 : 0;
-      ampGain.connect(toneFilter);
-      toneFilter.connect(saturation);
-      saturation.connect(dryGain); dryGain.connect(masterGain);
-      saturation.connect(reverb); reverb.connect(reverbGain); reverbGain.connect(masterGain);
-      saturation.connect(delay); delay.connect(delayFeedback); delayFeedback.connect(delay); delay.connect(delayGain); delayGain.connect(masterGain);
-      saturation.connect(chorus); chorus.connect(chorusGain); chorusGain.connect(masterGain); chorusLfo.connect(chorusDepth); chorusDepth.connect(chorus.delayTime);
+      // Legacy preview effects are no longer part of saved projects. Keep the
+      // lightweight path genuinely direct, and put every filter before the amp
+      // envelope so no stateful node can ring after the note reaches zero.
+      filter.connect(toneFilter);
+      toneFilter.connect(ampGain);
+      ampGain.connect(masterGain);
       masterGain.connect(releaseGate);
       releaseGate.connect(masterPanner).connect(meterAnalyserRef.current || context.destination);
-      effectNodes = { saturation, dryGain, reverb, reverbGain, delay, delayFeedback, delayGain, chorus, chorusGain, chorusLfo, chorusDepth };
     }
 
     const sources = [];
