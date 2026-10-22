@@ -35,6 +35,9 @@ describe("VST Maker Wave Generator note routing", () => {
   test("bounds preview polyphony and removes retargeted mono voices by identity", () => {
     expect(source).toContain("const polyphonyLimit = Math.max(1, Math.min(128, Number(projectRef.current.polyphony) || 32));");
     expect(source).toContain("while (activeWaveVoicesRef.current.size >= polyphonyLimit)");
+    expect(source).toContain("drainWaveVoiceRegistry(activeWaveVoicesRef.current)");
+    expect(source).toContain("moveWaveVoiceRegistryToken(");
+    expect(source).toContain("if (displacedVoice) stopWaveVoice(null, displacedVoice, true);");
     expect(source).toContain("removeWaveVoiceFromRegistry(stolenVoice);");
     expect(source).toContain("removeWaveVoiceFromRegistry(voice);");
     expect(source).not.toContain("if (activeWaveVoicesRef.current.get(token) === voice) activeWaveVoicesRef.current.delete(token);");

@@ -58,7 +58,7 @@ import { decodeAndPreprocessImpulse, normalizeImpulseSettings } from "../lib/vst
 import { parseMidiFile } from "../lib/vstMidiFile";
 import { MIDI_LOOKAHEAD_MS, MIDI_SCHEDULER_INTERVAL_MS, MIDI_START_DELAY_MS, buildMidiPlaybackTimeline } from "../lib/vstMidiScheduler";
 import { DEFAULT_STEP_NOTES, WAVE_GENERATOR_MODES, WAVE_NOTE_NAMES, WAVE_SCALE_OPTIONS, WAVE_SINGLE_CHORD_OPTIONS, createWaveGeneratorSequence, normalizeWaveGeneratorConfig } from "../lib/vstWaveGenerators";
-import { WAVE_DECLICK_ATTACK_SECONDS, WAVE_MIN_GAIN, shouldScheduleWaveRelease, waveAmpEnvelopeValueAt } from "../lib/vstWaveEnvelope";
+import { WAVE_DECLICK_ATTACK_SECONDS, WAVE_MIN_GAIN, drainWaveVoiceRegistry, moveWaveVoiceRegistryToken, shouldScheduleWaveRelease, waveAmpEnvelopeValueAt } from "../lib/vstWaveEnvelope";
 import { DEFAULT_VST_PRICING, componentCreditPrice, createVstTemplatePricingBaseline, formatCredits, isCustomVstBackground, normalizeVstPricing, quoteVstProjectCredits } from "../lib/vstMakerPricing";
 import { NEON_POP_DRUM_HITS, PREMIUM_PIANO_BACKGROUND_URL, REGENT_DEFAULT_CONTROLS, REGENT_WHITE_DEFAULT_CONTROLS, VST_PROJECT_TEMPLATES } from "../data/vstTemplates";
 import { DEFAULT_VST_FILMSTRIP_SKIN, VST_KNOB_ASSETS, filmstripFrameStyle } from "../data/vstFilmstripSkins";
@@ -2836,7 +2836,8 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
         activeWaveVoicesRef.current.set(token, existingVoice);
         return true;
       }
-      activeWaveVoicesRef.current.forEach((voice, voiceToken) => stopWaveVoice(voiceToken, voice, true));
+      drainWaveVoiceRegistry(activeWaveVoicesRef.current)
+        .forEach((voice) => stopWaveVoice(null, voice, true));
     }
     const polyphonyLimit = Math.max(1, Math.min(128, Number(projectRef.current.polyphony) || 32));
     while (activeWaveVoicesRef.current.size >= polyphonyLimit) {
@@ -4097,13 +4098,20 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       const parameters = module?.parameters || {};
       const monoMode = Math.max(0, Math.min(1, Number(parameters.voice_mode ?? 1))) >= 0.5;
       const fallbackNote = monoMode ? selectedHeldWaveNote() : null;
-      if (fallbackNote) {
+      const releaseScheduled = waveVoice.releaseScheduledAt != null && Number.isFinite(Number(waveVoice.releaseScheduledAt));
+      if (fallbackNote && !waveVoice.cleaned && !releaseScheduled) {
+        const displacedVoice = moveWaveVoiceRegistryToken(
+          activeWaveVoicesRef.current,
+          token,
+          fallbackNote.token,
+          waveVoice,
+        );
+        if (displacedVoice) stopWaveVoice(null, displacedVoice, true);
         retargetWaveVoice(waveVoice, fallbackNote.pitch, fallbackNote.velocity, parameters);
-        activeWaveVoicesRef.current.delete(token);
-        activeWaveVoicesRef.current.set(fallbackNote.token, waveVoice);
       } else {
         waveVoice.held = false;
-        if (!samplerSustainRef.current) stopWaveVoice(token, waveVoice);
+        if (waveVoice.cleaned || releaseScheduled) removeWaveVoiceFromRegistry(waveVoice);
+        else if (!samplerSustainRef.current) stopWaveVoice(token, waveVoice);
       }
     }
     if (!voice) {

@@ -1,6 +1,8 @@
 import {
   WAVE_DECLICK_ATTACK_SECONDS,
   WAVE_MIN_GAIN,
+  drainWaveVoiceRegistry,
+  moveWaveVoiceRegistryToken,
   shouldScheduleWaveRelease,
   waveAmpEnvelopeValueAt,
 } from "./vstWaveEnvelope";
@@ -37,5 +39,31 @@ describe("Wave Generator amplitude envelope", () => {
     expect(shouldScheduleWaveRelease(12.098, 12.125)).toBe(false);
     expect(shouldScheduleWaveRelease(12.125, 12.098)).toBe(true);
     expect(shouldScheduleWaveRelease(12.098, 12.125, true)).toBe(true);
+  });
+
+  test("detaches every unique mono voice before a retrigger creates its replacement", () => {
+    const oldVoice = { id: "old" };
+    const duplicateVoice = { id: "duplicate" };
+    const registry = new Map([
+      ["old-token", oldVoice],
+      ["old-alias", oldVoice],
+      ["duplicate-token", duplicateVoice],
+    ]);
+
+    expect(drainWaveVoiceRegistry(registry)).toEqual([oldVoice, duplicateVoice]);
+    expect(registry.size).toBe(0);
+  });
+
+  test("moves a mono fallback token without orphaning the voice it displaces", () => {
+    const staleVoice = { id: "stale" };
+    const currentVoice = { id: "current" };
+    const registry = new Map([
+      ["older-note", staleVoice],
+      ["stale-alias", staleVoice],
+      ["current-note", currentVoice],
+    ]);
+
+    expect(moveWaveVoiceRegistryToken(registry, "current-note", "older-note", currentVoice)).toBe(staleVoice);
+    expect(Array.from(registry.entries())).toEqual([["older-note", currentVoice]]);
   });
 });

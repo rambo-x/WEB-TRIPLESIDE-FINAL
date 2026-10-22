@@ -1,6 +1,27 @@
 export const WAVE_MIN_GAIN = 0.0001;
 export const WAVE_DECLICK_ATTACK_SECONDS = 0.003;
 
+export const drainWaveVoiceRegistry = (registry) => {
+  if (!(registry instanceof Map)) return [];
+  const voices = Array.from(new Set(registry.values())).filter(Boolean);
+  registry.clear();
+  return voices;
+};
+
+export const moveWaveVoiceRegistryToken = (registry, currentToken, nextToken, voice) => {
+  if (!(registry instanceof Map) || !voice) return null;
+  const displacedVoice = registry.get(nextToken);
+  registry.forEach((registeredVoice, registeredToken) => {
+    if (
+      registeredToken === currentToken
+      || registeredVoice === voice
+      || (displacedVoice && displacedVoice !== voice && registeredVoice === displacedVoice)
+    ) registry.delete(registeredToken);
+  });
+  registry.set(nextToken, voice);
+  return displacedVoice && displacedVoice !== voice ? displacedVoice : null;
+};
+
 export const shouldScheduleWaveRelease = (currentReleaseAt, nextReleaseAt, immediate = false) => {
   if (immediate) return true;
   const current = Number(currentReleaseAt);
