@@ -74,6 +74,16 @@ describe("Wave Generator pattern tools", () => {
     expect(sequence.generatorConfig).toEqual(expect.objectContaining({ chordMode: "progression", customProgression: "I - vi - IV - V" }));
   });
 
+  test("accepts ordinary degree numbers and keeps an emptied progression field empty", () => {
+    const sequence = createWaveGeneratorSequence({
+      mode: "chord", chordMode: "progression", scale: "major", triggerPitch: 60,
+      customProgression: "1 6 4 5", steps: 16,
+    }, "numeric-progression");
+    const roots = sequence.events.filter(({ type }) => type === "note_on").filter((_, index) => index % 3 === 0);
+    expect(roots.map(({ note }) => note)).toEqual([60, 69, 65, 67]);
+    expect(normalizeWaveGeneratorConfig({ customProgression: "" }).customProgression).toBe("");
+  });
+
   test("uses deterministic variation and clamps unsafe input", () => {
     const first = createWaveGeneratorSequence({ mode: "melody", variation: 7 }, "first");
     const second = createWaveGeneratorSequence({ mode: "melody", variation: 7 }, "second");

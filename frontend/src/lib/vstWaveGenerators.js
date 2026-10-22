@@ -193,9 +193,9 @@ export const normalizeWaveGeneratorConfig = (input = {}) => ({
   chordMode: input.chordMode === "single" ? "single" : "progression",
   singleChordType: WAVE_SINGLE_CHORD_OPTIONS.some((chord) => chord.id === input.singleChordType) ? input.singleChordType : "major",
   progression: WAVE_PROGRESSION_OPTIONS.some((progression) => progression.id === input.progression) ? input.progression : "pop",
-  customProgression: typeof input.customProgression === "string" && input.customProgression.trim()
-    ? input.customProgression.trim().slice(0, 96)
-    : "I - V - vi - IV",
+  customProgression: typeof input.customProgression === "string"
+    ? input.customProgression.slice(0, 96)
+    : "1 - 5 - 6 - 4",
   bassStyle: ["pulse", "octave", "acid", "syncopated"].includes(input.bassStyle) ? input.bassStyle : "pulse",
   contour: ["free", "rising", "falling"].includes(input.contour) ? input.contour : "free",
   density: clamp(input.density, 0.25, 1, 0.7),

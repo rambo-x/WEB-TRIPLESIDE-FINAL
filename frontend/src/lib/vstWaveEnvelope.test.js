@@ -1,6 +1,7 @@
 import {
   WAVE_DECLICK_ATTACK_SECONDS,
   WAVE_MIN_GAIN,
+  shouldScheduleWaveRelease,
   waveAmpEnvelopeValueAt,
 } from "./vstWaveEnvelope";
 
@@ -30,5 +31,11 @@ describe("Wave Generator amplitude envelope", () => {
 
   test("returns the silent floor before a scheduled voice begins", () => {
     expect(waveAmpEnvelopeValueAt(envelope, 9.9)).toBe(WAVE_MIN_GAIN);
+  });
+
+  test("does not restart a release tail at a later loop boundary", () => {
+    expect(shouldScheduleWaveRelease(12.098, 12.125)).toBe(false);
+    expect(shouldScheduleWaveRelease(12.125, 12.098)).toBe(true);
+    expect(shouldScheduleWaveRelease(12.098, 12.125, true)).toBe(true);
   });
 });

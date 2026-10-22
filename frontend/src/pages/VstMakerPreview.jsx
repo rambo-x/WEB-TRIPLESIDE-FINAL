@@ -58,7 +58,7 @@ import { decodeAndPreprocessImpulse, normalizeImpulseSettings } from "../lib/vst
 import { parseMidiFile } from "../lib/vstMidiFile";
 import { MIDI_LOOKAHEAD_MS, MIDI_SCHEDULER_INTERVAL_MS, MIDI_START_DELAY_MS, buildMidiPlaybackTimeline } from "../lib/vstMidiScheduler";
 import { DEFAULT_STEP_NOTES, WAVE_GENERATOR_MODES, WAVE_NOTE_NAMES, WAVE_SCALE_OPTIONS, WAVE_SINGLE_CHORD_OPTIONS, createWaveGeneratorSequence, normalizeWaveGeneratorConfig } from "../lib/vstWaveGenerators";
-import { WAVE_DECLICK_ATTACK_SECONDS, WAVE_MIN_GAIN, waveAmpEnvelopeValueAt } from "../lib/vstWaveEnvelope";
+import { WAVE_DECLICK_ATTACK_SECONDS, WAVE_MIN_GAIN, shouldScheduleWaveRelease, waveAmpEnvelopeValueAt } from "../lib/vstWaveEnvelope";
 import { DEFAULT_VST_PRICING, componentCreditPrice, createVstTemplatePricingBaseline, formatCredits, isCustomVstBackground, normalizeVstPricing, quoteVstProjectCredits } from "../lib/vstMakerPricing";
 import { NEON_POP_DRUM_HITS, PREMIUM_PIANO_BACKGROUND_URL, REGENT_DEFAULT_CONTROLS, REGENT_WHITE_DEFAULT_CONTROLS, VST_PROJECT_TEMPLATES } from "../data/vstTemplates";
 import { DEFAULT_VST_FILMSTRIP_SKIN, VST_KNOB_ASSETS, filmstripFrameStyle } from "../data/vstFilmstripSkins";
@@ -2703,6 +2703,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       ? 0
       : Math.max(0, scheduledAtPerformance - performance.now()) / 1000;
     const now = (context?.currentTime || 0) + delaySeconds;
+    if (!shouldScheduleWaveRelease(voice.releaseScheduledAt, now, immediate)) return;
     const releaseSeconds = immediate ? 0.005 : voice.releaseSeconds;
     try {
       const gain = voice.ampGain.gain;
@@ -7183,7 +7184,7 @@ function WaveGeneratorPatternStudio({ liveConfig, midiSequences, onLiveConfigCha
 
       {config.mode === "chord" && <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <label className={fieldLabel}>Mode chord<select className={fieldClass} value={config.chordMode} onChange={(event) => updateConfig("chordMode", event.target.value)}><option value="single">1 Chord</option><option value="progression">Chord Berjalan</option></select></label>
-        {config.chordMode === "single" ? <label className={fieldLabel}>Jenis chord<select className={fieldClass} value={config.singleChordType} onChange={(event) => updateConfig("singleChordType", event.target.value)}>{WAVE_SINGLE_CHORD_OPTIONS.map((chord) => <option key={chord.id} value={chord.id}>{chord.label}</option>)}</select></label> : <label className={fieldLabel}>Progression bebas<input className={fieldClass} type="text" maxLength="96" value={config.customProgression} onChange={(event) => updateConfig("customProgression", event.target.value)} placeholder="I - V - vi - IV" /><span className="mt-1.5 block normal-case tracking-normal text-zinc-600">Isi degree I–VII atau 1–7, pisahkan dengan spasi, koma, atau tanda hubung.</span></label>}
+        {config.chordMode === "single" ? <label className={fieldLabel}>Jenis chord<select className={fieldClass} value={config.singleChordType} onChange={(event) => updateConfig("singleChordType", event.target.value)}>{WAVE_SINGLE_CHORD_OPTIONS.map((chord) => <option key={chord.id} value={chord.id}>{chord.label}</option>)}</select></label> : <label className={fieldLabel}>Progression bebas<input className={fieldClass} type="text" inputMode="numeric" maxLength="96" value={config.customProgression} onChange={(event) => updateConfig("customProgression", event.target.value)} placeholder="1 - 5 - 6 - 4" /><span className="mt-1.5 block normal-case tracking-normal text-zinc-600">Tulis angka 1–7, pisahkan dengan spasi, koma, atau tanda hubung. Kolom boleh dikosongkan.</span></label>}
         <div className="rounded-lg border border-white/[0.07] bg-black/20 px-3 py-2 text-[10px] leading-4 text-zinc-500 sm:col-span-2">{config.chordMode === "single" ? "Preview memainkan tepat satu chord. Live Trigger menahan chord selama tuts ditekan." : "Preview dan Live Trigger memainkan progression yang Anda tulis sebagai loop."}</div>
       </div>}
 

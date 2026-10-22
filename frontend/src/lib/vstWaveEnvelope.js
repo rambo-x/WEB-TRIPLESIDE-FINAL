@@ -1,6 +1,14 @@
 export const WAVE_MIN_GAIN = 0.0001;
 export const WAVE_DECLICK_ATTACK_SECONDS = 0.003;
 
+export const shouldScheduleWaveRelease = (currentReleaseAt, nextReleaseAt, immediate = false) => {
+  if (immediate) return true;
+  const current = Number(currentReleaseAt);
+  const next = Number(nextReleaseAt);
+  if (!Number.isFinite(current) || !Number.isFinite(next)) return true;
+  return next < current;
+};
+
 const positiveGain = (value, fallback = WAVE_MIN_GAIN) => {
   const number = Number(value);
   return Number.isFinite(number) ? Math.max(WAVE_MIN_GAIN, number) : fallback;
