@@ -2699,6 +2699,12 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     pendingPreviewVoiceMetaRef.current.delete(token);
   };
 
+  const removeWaveVoiceFromRegistry = (voice) => {
+    activeWaveVoicesRef.current.forEach((registeredVoice, registeredToken) => {
+      if (registeredVoice === voice) activeWaveVoicesRef.current.delete(registeredToken);
+    });
+  };
+
   const stopWaveVoice = (token, voice, immediate = false, scheduledAtPerformance = null) => {
     if (!voice) return;
     const context = audioContextRef.current;
@@ -2808,6 +2814,14 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
         return true;
       }
       activeWaveVoicesRef.current.forEach((voice, voiceToken) => stopWaveVoice(voiceToken, voice, true));
+    }
+    const polyphonyLimit = Math.max(1, Math.min(128, Number(projectRef.current.polyphony) || 32));
+    while (activeWaveVoicesRef.current.size >= polyphonyLimit) {
+      const [stolenToken, stolenVoice] = Array.from(activeWaveVoicesRef.current.entries())
+        .sort(([, left], [, right]) => Number(left.held) - Number(right.held) || Number(left.startedOrder || 0) - Number(right.startedOrder || 0))[0] || [];
+      if (!stolenVoice) break;
+      stopWaveVoice(stolenToken, stolenVoice, true);
+      removeWaveVoiceFromRegistry(stolenVoice);
     }
     const mixBus = context.createGain();
     const filter = context.createBiquadFilter();
@@ -2983,13 +2997,13 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     sources.forEach((item) => { if (!item.noise && item.source.detune) vibratoGain.connect(item.source.detune); });
     const effectNodes = { saturation, dryGain, reverb, reverbGain, delay, delayFeedback, delayGain, chorus, chorusGain, chorusLfo, chorusDepth };
     const ampEnvelope = { startAt: now, attackSeconds, decaySeconds, targetGain, sustainGain };
-    const voice = { sources, ampGain, ampEnvelope, filter, masterGain, masterPanner, toneFilter, vibratoLfo, vibratoGain, effectNodes, usesSharedRack: Boolean(rackGraph), pendingSharedRack: rackPending, pendingDirectGain: rackPending ? pendingDirectGain : null, rackSendGain: null, rackInputGain: moduleMix, pitch, held: true, targetGain, releaseSeconds };
+    const voice = { sources, ampGain, ampEnvelope, filter, masterGain, masterPanner, toneFilter, vibratoLfo, vibratoGain, effectNodes, usesSharedRack: Boolean(rackGraph), pendingSharedRack: rackPending, pendingDirectGain: rackPending ? pendingDirectGain : null, rackSendGain: null, rackInputGain: moduleMix, pitch, held: true, targetGain, releaseSeconds, startedOrder: waveNoteSequenceRef.current };
     let endedSources = 0;
     sources.forEach(({ source }) => { source.onended = () => {
       endedSources += 1;
       if (endedSources < sources.length) return;
       try { mixBus.disconnect(); filter.disconnect(); ampGain.disconnect(); toneFilter.disconnect(); masterGain.disconnect(); masterPanner.disconnect(); vibratoLfo.disconnect(); vibratoGain.disconnect(); cleanupAudioNodes(effectNodes); } catch { /* already disconnected */ }
-      if (activeWaveVoicesRef.current.get(token) === voice) activeWaveVoicesRef.current.delete(token);
+      removeWaveVoiceFromRegistry(voice);
     }; });
     activeWaveVoicesRef.current.set(token, voice);
     sources.forEach(({ source, noise }) => {
@@ -7837,6 +7851,7 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
     : null;
   const [openPanelId, setOpenPanelId] = useState(null);
   const midiTransport = useMidiGrooveTransport(midiSequences, onNoteOn, onNoteOff);
+  const generatedMidiSequences = midiSequences.filter((sequence) => sequence.generatorConfig);
   const [selectedPrismBandIndex, setSelectedPrismBandIndex] = useState(1);
   const prismAnalyzers = controls.filter((control) => control.kind === "spectrum" && (control.component_variant || "realtime-spectrum") === "realtime-spectrum");
   const indicatorActiveFor = (control) => {
@@ -7845,7 +7860,7 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
     const source = sourceId ? controls.find((candidate) => candidate.id === sourceId) : null;
     if (!source) return Number(control.value) >= 50;
     if (source.kind === "panel_button") return openPanelId === source.id;
-    if (source.midiSequenceId ?? source.midi_sequence_id) return midiTransport.playingSequenceId === (source.midiSequenceId ?? source.midi_sequence_id);
+    if (source.midiSequenceId ?? source.midi_sequence_id) return livePatternConfig?.enabled === true && livePatternConfig.sourceSequenceId === (source.midiSequenceId ?? source.midi_sequence_id);
     if (source.kind === "pad") return activeHitPitches.has(source.notePitch ?? 60) || midiPressedPitches.has(source.notePitch ?? 60);
     const sourceValue = Number(source.value) || 0;
     if (source.kind === "button" && source.parameter === "bypass") return sourceValue < 50;
@@ -8543,14 +8558,17 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
               const canvasPosition = canvasPositionFor(control);
               const boundMidiSequenceId = control.midiSequenceId ?? control.midi_sequence_id ?? "";
               const boundMidiSequence = midiSequences.find((sequence) => sequence.id === boundMidiSequenceId) || null;
-              const boundMidiSequencePlaying = boundMidiSequenceId !== "" && midiTransport.playingSequenceId === boundMidiSequenceId;
-              const toggleBoundMidiSequence = () => {
-                if (!boundMidiSequence) return;
-                if (boundMidiSequencePlaying) midiTransport.stop();
-                else {
-                  midiTransport.setSelectedSequenceId(boundMidiSequence.id);
-                  midiTransport.play(boundMidiSequence);
-                }
+              const boundLivePattern = boundMidiSequence?.generatorConfig ? boundMidiSequence : null;
+              const boundLivePatternActive = Boolean(boundLivePattern && livePatternConfig?.enabled === true && livePatternConfig.sourceSequenceId === boundLivePattern.id);
+              const toggleBoundLivePattern = () => {
+                if (!boundLivePattern) return;
+                midiTransport.stop();
+                if (boundLivePatternActive) onLivePatternConfigChange?.(null);
+                else onLivePatternConfigChange?.({
+                  ...normalizeWaveGeneratorConfig(boundLivePattern.generatorConfig),
+                  enabled: true,
+                  sourceSequenceId: boundLivePattern.id,
+                });
               };
               return (
               <article
@@ -8618,7 +8636,7 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                   </button>
                 ) : control.kind === "button" || control.kind === "solo" || control.kind === "mute" ? (
                   <FilmstripButton
-                    value={boundMidiSequence ? (boundMidiSequencePlaying ? 100 : 0) : control.value}
+                    value={boundLivePattern ? (boundLivePatternActive ? 100 : 0) : control.value}
                     label={control.label}
                     offLabel={control.off_label}
                     onLabel={control.on_label}
@@ -8626,7 +8644,7 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                     kind={control.kind}
                     variant={control.component_variant || "classic"}
                     asset={filmstripAssetFor(control, componentStyle, "button")}
-                    onChange={(value) => boundMidiSequence ? toggleBoundMidiSequence() : onUpdate(control.id, { value })}
+                    onChange={(value) => boundLivePattern ? toggleBoundLivePattern() : onUpdate(control.id, { value })}
                   />
                 ) : control.kind === "knob" ? (
                   <RotaryKnob
@@ -8674,9 +8692,9 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                     padColor={control.padColor ?? control.pad_color}
                     padActiveColor={control.padActiveColor ?? control.pad_active_color}
                     variant={control.component_variant || "rubber"}
-                    externalPressed={boundMidiSequence ? boundMidiSequencePlaying : activeHitPitches.has(control.notePitch ?? 60) || midiPressedPitches.has(control.notePitch ?? 60)}
-                    onNoteOn={boundMidiSequence ? toggleBoundMidiSequence : onNoteOn}
-                    onNoteOff={boundMidiSequence ? () => {} : onNoteOff}
+                    externalPressed={boundLivePattern ? boundLivePatternActive : activeHitPitches.has(control.notePitch ?? 60) || midiPressedPitches.has(control.notePitch ?? 60)}
+                    onNoteOn={boundLivePattern ? toggleBoundLivePattern : onNoteOn}
+                    onNoteOff={boundLivePattern ? () => {} : onNoteOff}
                   />
                 ) : control.kind === "keyboard" ? (
                   <SamplerKeyboard
@@ -9305,12 +9323,15 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
           )}
           {["button", "pad"].includes(selectedControl.kind) && (
             <label className="md:col-span-2">
-              <FieldLabel>Pola MIDI saat komponen ditekan</FieldLabel>
+              <FieldLabel>Pola Pattern Lab untuk Live Trigger</FieldLabel>
               <select className="maker-input mt-2" value={selectedControl.midiSequenceId ?? selectedControl.midi_sequence_id ?? ""} onChange={(event) => onUpdate(selectedControl.id, { midiSequenceId: event.target.value || null, midi_sequence_id: null })}>
                 <option value="">Tidak terhubung</option>
-                {midiSequences.map((sequence) => <option key={sequence.id} value={sequence.id}>{sequence.name}</option>)}
+                {(selectedControl.midiSequenceId ?? selectedControl.midi_sequence_id) && !generatedMidiSequences.some((sequence) => sequence.id === (selectedControl.midiSequenceId ?? selectedControl.midi_sequence_id)) && (
+                  <option value={selectedControl.midiSequenceId ?? selectedControl.midi_sequence_id} disabled>Pola lama tidak mendukung Live Trigger</option>
+                )}
+                {generatedMidiSequences.map((sequence) => <option key={sequence.id} value={sequence.id}>{sequence.name}</option>)}
               </select>
-              <span className="mt-1 block text-[9px] text-zinc-500">Komponen memainkan atau menghentikan pola ini di preview dan VST3 hasil build.</span>
+              <span className="mt-1 block text-[9px] text-zinc-500">Tekan komponen untuk mengaktifkan pola. Setelah aktif, keyboard atau MIDI menentukan root dan melepas tuts akan menghentikan pola.</span>
             </label>
           )}
           <label className="flex min-h-11 items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/20 px-3">

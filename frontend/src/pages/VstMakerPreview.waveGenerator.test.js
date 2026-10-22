@@ -32,6 +32,14 @@ describe("VST Maker Wave Generator note routing", () => {
     expect(source).toContain('if (!retrigger) {');
   });
 
+  test("bounds preview polyphony and removes retargeted mono voices by identity", () => {
+    expect(source).toContain("const polyphonyLimit = Math.max(1, Math.min(128, Number(projectRef.current.polyphony) || 32));");
+    expect(source).toContain("while (activeWaveVoicesRef.current.size >= polyphonyLimit)");
+    expect(source).toContain("removeWaveVoiceFromRegistry(stolenVoice);");
+    expect(source).toContain("removeWaveVoiceFromRegistry(voice);");
+    expect(source).not.toContain("if (activeWaveVoicesRef.current.get(token) === voice) activeWaveVoicesRef.current.delete(token);");
+  });
+
   test("separates both oscillators and defaults OSC2 to an explicit switch", () => {
     expect(source).toContain(">Oscillator 1</div>");
     expect(source).toContain(">Oscillator 2</div>");
@@ -80,6 +88,15 @@ describe("VST Maker Wave Generator note routing", () => {
     expect(liveIndex).toBeGreaterThan(previewIndex);
     expect(source).toContain("Hanya satu pola dapat aktif.");
     expect(source).not.toContain("if (liveEnabled) onLiveConfigChange({ ...next, enabled: true });");
+  });
+
+  test("lets Button and Pad arm generated Pattern Lab sequences as Live Trigger", () => {
+    expect(source).toContain("const generatedMidiSequences = midiSequences.filter((sequence) => sequence.generatorConfig);");
+    expect(source).toContain("const toggleBoundLivePattern = () => {");
+    expect(source).toContain("sourceSequenceId: boundLivePattern.id");
+    expect(source).toContain("Pola Pattern Lab untuk Live Trigger");
+    expect(source).toContain("generatedMidiSequences.map((sequence)");
+    expect(source).not.toContain("const toggleBoundMidiSequence = () => {");
   });
 
   test("offers single and free-progression chord modes", () => {

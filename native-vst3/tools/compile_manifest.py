@@ -460,10 +460,19 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
         tempos = sorted(sequence.get("tempos") or [{"tick": 0, "bpm": 120}], key=lambda tempo: int(tempo.get("tick", 0)))
         for tempo in tempos:
             midi_tempo_lines.append(f"    MidiTempoInfo{{{max(0, int(tempo.get('tick', 0)))}, {cpp_float(clamp(tempo.get('bpm'), 20, 400, 120))}}},")
+        generator_config = sequence.get("generator_config")
+        trigger_root_pitch = -1
+        live_hold = False
+        if isinstance(generator_config, dict):
+            generator_root = max(0, min(11, int(generator_config.get("root", 0))))
+            generator_octave = max(1, min(6, int(generator_config.get("octave", 3))))
+            trigger_root_pitch = max(0, min(127, 12 * (generator_octave + 1) + generator_root))
+            live_hold = generator_config.get("mode") == "chord" and generator_config.get("chordMode") == "single"
         midi_sequence_lines.append("    MidiSequenceInfo{" + ", ".join((
             cpp_string(sequence.get("id") or f"midi-{len(midi_sequence_lines) + 1}"), cpp_string(sequence.get("name") or "MIDI"),
             str(max(24, min(9600, int(sequence.get("ppq", 480))))), str(max(0, int(sequence.get("duration_ticks", 0)))),
             cpp_bool(sequence.get("loop_enabled", False)), str(event_offset), str(len(midi_event_lines) - event_offset), str(tempo_offset), str(len(midi_tempo_lines) - tempo_offset),
+            str(trigger_root_pitch), cpp_bool(live_hold),
         )) + "},")
 
     name = str(spec.get("name") or "TripleSide Instrument").strip(); build = spec.get("build") or {}
@@ -540,7 +549,7 @@ struct PresetGroupInfo {{ int groupIndex; float volume, pan; bool mute, solo; }}
 struct PresetModuleInfo {{ int moduleIndex; bool bypassed; float mix; int parameterOffset, parameterCount; }};
 struct PresetModuleParameterInfo {{ int moduleIndex; const char* key; float value; }};
 struct MidiMappingInfo {{ bool note; int channel, sourceNumber, targetControlIndex; float minimum, maximum; bool inverted; }};
-struct MidiSequenceInfo {{ const char* id; const char* name; int ppq, durationTicks; bool loopEnabled; int eventOffset, eventCount, tempoOffset, tempoCount; }};
+struct MidiSequenceInfo {{ const char* id; const char* name; int ppq, durationTicks; bool loopEnabled; int eventOffset, eventCount, tempoOffset, tempoCount, triggerRootPitch; bool liveHold; }};
 struct MidiEventInfo {{ int tick; bool noteOn; int note, velocity, channel; }};
 struct MidiTempoInfo {{ int tick; float bpm; }};
 struct DspModuleInfo {{ const char* id; const char* type; const char* name; int parentIndex, order; bool bypassed; float mix; int parameterOffset, parameterCount; }};

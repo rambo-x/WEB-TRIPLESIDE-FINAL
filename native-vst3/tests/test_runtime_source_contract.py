@@ -74,6 +74,20 @@ def test_windows_groove_transport_loops_smoothly_and_survives_panel_close():
     assert "stopMidiSequence" not in close_panel
 
 
+def test_generated_pattern_buttons_arm_transposed_live_trigger():
+    source = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+    instrument_header = (SOURCE_DIR / "NativeInstrument.h").read_text(encoding="utf-8")
+    instrument_source = (SOURCE_DIR / "NativeInstrument.cpp").read_text(encoding="utf-8")
+
+    assert "setLivePatternSequence" in instrument_header
+    assert "routeLivePatternNote" in instrument_source
+    assert "pitch-pattern.triggerRootPitch" in instrument_source
+    assert "event.note+audioGrooveTranspose" in instrument_source
+    assert "audioGrooveLiveTrigger&&sequence.liveHold" in instrument_source
+    assert "instrument.livePatternSequenceIndex()==c.midiSequenceIndex" in source
+    assert "instrument.setLivePatternSequence(instrument.livePatternSequenceIndex()==c.midiSequenceIndex?-1:c.midiSequenceIndex)" in source
+
+
 def test_embedded_resource_loader_supports_rc_quoted_names():
     source = (SOURCE_DIR / "EmbeddedResource.cpp").read_text(encoding="utf-8")
 

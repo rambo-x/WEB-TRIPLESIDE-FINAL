@@ -93,6 +93,7 @@ def test_compiles_midi_sequence_loop_setting(tmp_path):
     spec["midi_sequences"] = [{
         "id": "groove-1", "name": "Main Groove", "ppq": 480,
         "duration_ticks": 1920, "loop_enabled": True,
+        "generator_config": {"mode": "arpeggiator", "root": 2, "octave": 3},
         "events": [
             {"tick": 0, "type": "control_change", "controller": 64, "value": 127, "channel": 9},
             {"tick": 0, "type": "note_on", "note": 36, "velocity": 110, "channel": 9},
@@ -110,9 +111,33 @@ def test_compiles_midi_sequence_loop_setting(tmp_path):
     result = output.read_text(encoding="utf-8")
     assert "bool loopEnabled" in result
     assert 'MidiSequenceInfo{"groove-1", "Main Groove", 480, 1920, true, 0, 2' in result
+    assert "triggerRootPitch; bool liveHold;" in result
+    assert "0, 1, 50, false}" in result
     assert result.count("MidiEventInfo{") == 2
     assert 'ControlInfo{"pattern-button", "button", "Pattern", "Pattern", "ON", "space", -1, -1, 0,' in result
     assert 'PresetInfo{"pattern-preset", "Pattern Preset", false, 0, 0, 0, 0, 0, 0, 0}' in result
+
+
+def test_compiles_single_chord_as_held_live_pattern(tmp_path):
+    spec = project_spec()
+    spec["midi_sequences"] = [{
+        "id": "held-chord", "name": "Held Chord", "ppq": 480,
+        "duration_ticks": 480, "loop_enabled": False,
+        "events": [
+            {"tick": 0, "type": "note_on", "note": 48, "velocity": 100, "channel": 0},
+            {"tick": 360, "type": "note_off", "note": 48, "velocity": 0, "channel": 0},
+        ],
+        "tempos": [{"tick": 0, "bpm": 120}],
+        "generator_config": {"mode": "chord", "chordMode": "single", "root": 0, "octave": 3},
+    }]
+    source = tmp_path / "project.json"
+    output = tmp_path / "NativeProject.h"
+    source.write_text(json.dumps(spec), encoding="utf-8")
+
+    MODULE.compile_manifest(source, output)
+
+    result = output.read_text(encoding="utf-8")
+    assert 'MidiSequenceInfo{"held-chord", "Held Chord", 480, 480, false, 0, 2, 0, 1, 48, true}' in result
 
 
 def test_compiles_customer_build_license_contract(tmp_path):

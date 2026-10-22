@@ -152,7 +152,7 @@ float indicatorValue(NativeInstrument& instrument, std::size_t index, NSInteger 
     if (sourceIndex < 0 || sourceIndex >= static_cast<int>(project::kControls.size())) return std::clamp(indicator.value, 0.f, 1.f);
     const auto& source = project::kControls[static_cast<std::size_t>(sourceIndex)];
     if (equals(source.kind, "panel_button")) return openPanel == sourceIndex ? 1.f : 0.f;
-    if (source.midiSequenceIndex >= 0) return playingMidiSequence == source.midiSequenceIndex ? 1.f : 0.f;
+    if (source.midiSequenceIndex >= 0) return instrument.livePatternSequenceIndex() == source.midiSequenceIndex ? 1.f : 0.f;
     if (equals(source.kind, "pad")) return instrument.isNoteActive(source.notePitch) || activeNote == source.notePitch ? 1.f : 0.f;
     const float value = displayedValue(instrument, static_cast<std::size_t>(sourceIndex), selectedPrismBand);
     if (equals(source.kind, "button") && equals(source.parameter, "bypass")) return value < .5f ? 1.f : 0.f;
@@ -966,7 +966,7 @@ namespace project = tripleside::project;
     float value = equals(control.kind, "indicator")
         ? indicatorValue(*_instrument, static_cast<std::size_t>(index), _selectedPrismBand, _openPanel, _activeNote, _playingMidiSequence)
         : displayedValue(*_instrument, static_cast<std::size_t>(index), _selectedPrismBand);
-    if (control.midiSequenceIndex >= 0) value = _playingMidiSequence == control.midiSequenceIndex ? 1.f : 0.f;
+    if (control.midiSequenceIndex >= 0) value = _instrument->livePatternSequenceIndex() == control.midiSequenceIndex ? 1.f : 0.f;
     else if (equals(control.kind, "pad")) value = hitPadVariant(control.variant)
         ? ([self hitPadFlashActive:control.notePitch] ? 1.f : 0.f)
         : ((_instrument->isNoteActive(control.notePitch) || _activeNote == control.notePitch) ? 1.f : 0.f);
@@ -1024,7 +1024,7 @@ namespace project = tripleside::project;
         auto value = equals(control.kind, "indicator")
             ? indicatorValue(*_instrument, index, _selectedPrismBand, _openPanel, _activeNote, _playingMidiSequence)
             : displayedValue(*_instrument, index, _selectedPrismBand);
-        if (control.midiSequenceIndex >= 0) value = _playingMidiSequence == control.midiSequenceIndex ? 1.f : 0.f;
+        if (control.midiSequenceIndex >= 0) value = _instrument->livePatternSequenceIndex() == control.midiSequenceIndex ? 1.f : 0.f;
         if (equals(control.kind, "panel_button")) value = _openPanel == static_cast<NSInteger>(index) ? 1.f : 0.f;
         const bool hitPad = equals(control.kind, "pad") && hitPadVariant(control.variant);
         if (equals(control.kind, "pad") && control.midiSequenceIndex < 0) value = hitPad ? ([self hitPadFlashActive:control.notePitch] ? 1.f : 0.f) : ((_instrument->isNoteActive(control.notePitch) || _activeNote == control.notePitch) ? 1.f : 0.f);
@@ -1283,8 +1283,9 @@ namespace project = tripleside::project;
             [self setControl:_dragControl value:neutralControlValue(control)];
             _dragControl = -1;
         } else if (control.midiSequenceIndex >= 0 && (equals(control.kind, "button") || equals(control.kind, "pad"))) {
-            if (_playingMidiSequence == control.midiSequenceIndex) [self stopMidiSequence];
-            else [self startMidiSequence:control.midiSequenceIndex];
+            [self stopMidiSequence];
+            _instrument->setLivePatternSequence(_instrument->livePatternSequenceIndex() == control.midiSequenceIndex ? -1 : control.midiSequenceIndex);
+            _selectedMidiSequence = control.midiSequenceIndex;
             _dragControl = -1;
         } else if (equals(control.kind, "pad")) {
             _activeNote = control.notePitch;
@@ -1345,8 +1346,9 @@ namespace project = tripleside::project;
         if (_openPanel == _dragControl) [self closePanel]; else [self openPanel:_dragControl];
         _dragControl = -1;
     } else if (control.midiSequenceIndex >= 0 && (equals(control.kind, "button") || equals(control.kind, "pad"))) {
-        if (_playingMidiSequence == control.midiSequenceIndex) [self stopMidiSequence];
-        else [self startMidiSequence:control.midiSequenceIndex];
+        [self stopMidiSequence];
+        _instrument->setLivePatternSequence(_instrument->livePatternSequenceIndex() == control.midiSequenceIndex ? -1 : control.midiSequenceIndex);
+        _selectedMidiSequence = control.midiSequenceIndex;
         _dragControl = -1;
     } else if (equals(control.kind, "keyboard")) {
         _activeNote = [self keyboardPitchAt:point control:_dragControl];

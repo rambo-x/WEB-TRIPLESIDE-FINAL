@@ -56,6 +56,8 @@ public:
     void stopGroove() noexcept;
     void setGrooveLoop(bool loop) noexcept;
     int groovePlayingSequence() const noexcept { return grooveActive.load(std::memory_order_relaxed); }
+    void setLivePatternSequence(int sequence) noexcept;
+    int livePatternSequenceIndex() const noexcept { return livePatternSequence.load(std::memory_order_relaxed); }
     bool isNoteActive(int pitch) const noexcept;
     unsigned noteTriggerCount(int pitch) const noexcept;
     float outputPeak(int channel) const noexcept { return peaks[static_cast<size_t>(channel)].load(std::memory_order_relaxed); }
@@ -95,6 +97,7 @@ private:
     void applyModuleControl(std::size_t, float) noexcept; void applyPrismRackParameter(int,int,float) noexcept;
     void applyEventsAt(Steinberg::Vst::IEventList*, Steinberg::int32&, int); void drainEditorNotes();
     void applyGrooveCommand() noexcept; void processGrooveSample() noexcept; void releaseGrooveNotes() noexcept;
+    bool routeLivePatternNote(int pitch, int velocity, bool on) noexcept;
     void setMidiNoteActive(int pitch, bool on) noexcept;
     void setSustain(bool on) noexcept;
     void noteOn(int pitch, int velocity, Steinberg::int32 noteId); void noteOff(int pitch, Steinberg::int32 noteId);
@@ -115,7 +118,8 @@ private:
     std::array<std::atomic<float>, project::kDspModules.size()> compressorGainReductions{};
     std::array<UiNote, 128> uiNotes{}; std::atomic<unsigned> uiWrite{0}, uiRead{0};
     std::atomic<int> grooveCommand{-2}, grooveActive{-1}; std::atomic<bool> grooveLoop{false};
-    int audioGrooveIndex=-1; std::size_t grooveEventCursor=0, grooveTempoCursor=0; double grooveTick=0, grooveBpm=120;
+    std::atomic<int> grooveTranspose{0}, grooveVelocity{127}, livePatternSequence{-1}, liveTriggerPitch{-1}; std::atomic<bool> grooveLiveTrigger{false};
+    int audioGrooveIndex=-1, audioGrooveTranspose=0, audioGrooveVelocity=127; bool audioGrooveLiveTrigger=false; std::size_t grooveEventCursor=0, grooveTempoCursor=0; double grooveTick=0, grooveBpm=120;
     std::array<unsigned char,128> grooveHeldNotes{};
     std::array<std::atomic<unsigned>, 128> activeMidiNotes{};
     std::array<std::atomic<unsigned>, 128> noteTriggers{};

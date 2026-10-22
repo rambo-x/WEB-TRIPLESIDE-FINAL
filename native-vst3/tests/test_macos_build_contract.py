@@ -68,6 +68,8 @@ def test_macos_panels_follow_preview_and_are_fully_interactive():
     assert '_presetNameInput' in view
     assert '_presetScrollOffset' in view
     assert '_selectedPresetRow' in view
+    assert "_instrument->setLivePatternSequence" in view
+    assert "_instrument->livePatternSequenceIndex() == control.midiSequenceIndex" in view
     assert '_hoveredPresetRow' in view
     assert 'NSTrackingMouseMoved' in view
     assert 'thumbHeight' in view
