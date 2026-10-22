@@ -69,7 +69,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/tripleside-empty-samples" "$RUNNER_TEMP/tripleside-macos-output"
           native-vst3/build-macos.sh \
-            --spec native-vst3/tests/fixtures/mixforge-effect.json \
+            --spec native-vst3/tests/fixtures/colored-keyboard-smoke.json \
             --samples-dir "$RUNNER_TEMP/tripleside-empty-samples" \
             --output-dir "$RUNNER_TEMP/tripleside-macos-output" \
             --vst3-sdk-dir "$GITHUB_WORKSPACE/.build-deps/vst3sdk" \

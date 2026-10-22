@@ -1031,8 +1031,9 @@ namespace project = tripleside::project;
         NSImage* image = [self imageNamed:key.file];
         if (!image || key.cellWidth <= 0 || key.cellHeight <= 0) continue;
         const NSInteger columns = std::max(1, key.columns);
-        const NSInteger row = key.frame / columns;
-        const NSInteger column = key.frame % columns;
+        const NSInteger frame = key.frame + 1;
+        const NSInteger row = frame / columns;
+        const NSInteger column = frame % columns;
         const CGFloat sourceY = image.size.height - (row + 1) * key.cellHeight;
         [image drawInRect:NSMakeRect(key.x, key.y, key.w, key.h)
                  fromRect:NSMakeRect(column * key.cellWidth, sourceY, key.cellWidth, key.cellHeight)

@@ -99,8 +99,24 @@ def test_native_runtime_maps_sustain_and_matches_preview_keyboard_origin():
     assert "if(voice.active&&!voice.held)voice.releasing=true" in instrument_source
     assert "return std::clamp(36,0,127-count+1)" in view_source
     assert 'L"C%d",n/12-1' in view_source
-    assert "drawKeyboard(keyboardContentRect(r),c.keyCount)" in view_source
+    assert "drawKeyboard(keyboardContentRect(r),c.keyCount,i)" in view_source
+    assert "project::kKeyColors" in view_source
+    assert "rgb(keyColor(n,0xf4f4f5))" in view_source
+    assert "rgb(keyColor(n,0x09090b))" in view_source
     assert "cy=(r.top+r.bottom)/2+16" in view_source
+
+
+def test_native_keyboard_atlas_uses_idle_and_next_pressed_frame_on_both_platforms():
+    windows_source = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+    mac_source = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
+    capture_source = (SOURCE_DIR.parent / "tools" / "render_visual_assets.py").read_text(encoding="utf-8")
+
+    assert "for active in (False, True):" in capture_source
+    assert "frame=key_index*2" in capture_source
+    assert "key.frame+(active?1:0)" in windows_source
+    assert "const NSInteger frame = key.frame + 1;" in mac_source
+    assert "const NSInteger row = frame / columns;" in mac_source
+    assert "const NSInteger column = frame % columns;" in mac_source
 
 
 def test_native_runtime_maps_pitch_bend_and_modulation_with_expression_dsp():

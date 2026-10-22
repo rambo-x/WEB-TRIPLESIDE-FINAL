@@ -550,7 +550,7 @@ def test_compiles_designer_and_sampler_runtime_fields(tmp_path):
     spec["effects"] = {"reverb": True, "delay": True, "chorus": True, "saturation": True}
     spec["sampler_groups"] = [{"id": "one", "name": "Sampler 1", "volume": 72, "pan": -0.2}]
     spec["interface"].update({"accent_color": "#123456", "ui_color": "#234567", "canvas_width": 900, "canvas_height": 540})
-    spec["interface"]["controls"].append({"id": "keys", "kind": "keyboard", "label": "Keys", "parameter": "keyboard", "x": 50, "y": 80, "width": 600, "height": 120, "key_count": 37, "note_pitch": 48, "show_background": False, "label_position": "bottom-right", "label_gap": 5})
+    spec["interface"]["controls"].append({"id": "keys", "kind": "keyboard", "label": "Keys", "parameter": "keyboard", "x": 50, "y": 80, "width": 600, "height": 120, "key_count": 37, "key_colors": {"36": "#ff0088", "37": "#00aaff", "invalid": "#ffffff"}, "note_pitch": 48, "show_background": False, "label_position": "bottom-right", "label_gap": 5})
     spec["interface"]["controls"].append({"id": "bypass", "kind": "button", "label": "Bypass", "off_label": "Bypass", "on_label": "ON", "parameter": "bypass", "x": 90, "y": 80, "value": 0})
     spec["interface"]["controls"].append({"id": "blank", "kind": "button", "label": "", "off_label": "", "on_label": "", "parameter": "bypass", "x": 80, "y": 80, "value": 0})
     spec["sampler_map"][0].update({"groupName": "Sampler 1", "sampleEnd": .8, "loopEnabled": True, "loopStart": .2, "loopEnd": .7, "loopCrossfadeMs": 12, "fadeInMs": 4, "roundRobin": 2, "chokeTargetPitches": [44, 46]})
@@ -575,8 +575,31 @@ def test_compiles_designer_and_sampler_runtime_fields(tmp_path):
     assert 'GroupInfo{"one", "Sampler 1", 0.72f, -0.2f' in result
     assert 'ControlInfo{"keys", "keyboard"' in result
     assert '37, "bottom-right", 5, "classic"' in result
+    assert "struct KeyColorInfo { int control, pitch; unsigned int colorRgb; };" in result
+    assert "KeyColorInfo{" in result
+    assert ", 36, 0xFF0088}" in result
+    assert ", 37, 0x00AAFF}" in result
+    assert "kKeyColors" in result
     assert 'ControlInfo{"bypass", "button", "Bypass", "Bypass", "ON", "bypass"' in result
     assert 'ControlInfo{"blank", "button", "", "", "", "bypass"' in result
+
+
+def test_colored_keyboard_smoke_fixture_has_distinct_white_and_black_key_colors(tmp_path):
+    fixture = Path(__file__).parent / "fixtures" / "colored-keyboard-smoke.json"
+    spec = json.loads(fixture.read_text(encoding="utf-8"))
+    keyboard = next(control for control in spec["interface"]["controls"] if control["kind"] == "keyboard")
+    colors = {int(pitch): color.lower() for pitch, color in keyboard["key_colors"].items()}
+    white_pitches = [pitch for pitch in colors if pitch % 12 in {0, 2, 4, 5, 7, 9, 11}]
+    black_pitches = [pitch for pitch in colors if pitch % 12 in {1, 3, 6, 8, 10}]
+
+    assert white_pitches and black_pitches
+    assert colors[white_pitches[0]] != colors[black_pitches[0]]
+
+    output = tmp_path / "NativeProject.h"
+    MODULE.compile_manifest(fixture, output)
+    result = output.read_text(encoding="utf-8")
+    assert "KeyColorInfo{1, 48, 0xFF2D55}" in result
+    assert "KeyColorInfo{1, 61, 0x00D4FF}" in result
 
 
 def test_compiles_static_knob_assets_and_variant(tmp_path):

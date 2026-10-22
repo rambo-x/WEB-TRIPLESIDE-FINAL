@@ -60,7 +60,7 @@ jobs:
           $output = Join-Path $env:RUNNER_TEMP "tripleside-windows-output"
           New-Item -ItemType Directory -Force -Path $samples, $output | Out-Null
           native-vst3/build-windows.ps1 `
-            -Spec native-vst3/tests/fixtures/mixforge-effect.json `
+            -Spec native-vst3/tests/fixtures/colored-keyboard-smoke.json `
             -SamplesDir $samples `
             -OutputDir $output `
             -Vst3SdkDir "$env:GITHUB_WORKSPACE\.build-deps\vst3sdk" `

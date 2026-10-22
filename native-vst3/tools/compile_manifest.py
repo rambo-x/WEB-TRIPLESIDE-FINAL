@@ -312,7 +312,7 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
             fail("panel buttons cannot be nested")
         if parent_panel_id and parent_panel_id not in panel_indices:
             fail("control references an unknown panel button")
-    control_lines, panel_lines = [], []
+    control_lines, panel_lines, key_color_lines = [], [], []
     for index, control in enumerate(controls):
         label = "Control" if control.get("label") is None else control.get("label")
         off_label = label if control.get("off_label") is None else control.get("off_label")
@@ -323,6 +323,18 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
         text_color_match = re.fullmatch(r"#?([0-9a-fA-F]{6})", str(control.get("text_color") or "#F4F4F5"))
         text_color_rgb = int(text_color_match.group(1), 16) if text_color_match else 0xF4F4F5
         control_kind = str(control.get("kind") or "knob")
+        if control_kind == "keyboard":
+            parsed_key_colors = []
+            for raw_pitch, raw_color in (control.get("key_colors") or {}).items():
+                try:
+                    pitch = int(raw_pitch)
+                except (TypeError, ValueError):
+                    continue
+                color_match = re.fullmatch(r"#?([0-9a-fA-F]{6})", str(raw_color or ""))
+                if 0 <= pitch <= 127 and color_match:
+                    parsed_key_colors.append((pitch, int(color_match.group(1), 16)))
+            for pitch, color_rgb in sorted(parsed_key_colors):
+                key_color_lines.append(f"    KeyColorInfo{{{index}, {pitch}, 0x{color_rgb:06X}}},")
         minimum_width = 240 if control_kind in {"keyboard", "spectrum"} else 32 if control_kind == "text" else 48
         minimum_height = 120 if control_kind == "spectrum" else 112 if control_kind == "keyboard" else 24 if control_kind == "text" else 48
         fields = (
@@ -491,6 +503,7 @@ struct SampleInfo {{ const char* resourceFile; }};
 struct GroupInfo {{ const char* id; const char* name; float volume; float pan; bool mute; bool solo; }};
 struct ZoneInfo {{ int sampleIndex, groupIndex, articulationIndex, micIndex, roundRobinSet, rootPitch, lowPitch, highPitch, velocityLow, velocityHigh, roundRobin; float sampleStart, sampleEnd, loopStart, loopEnd, fadeInMs, fadeOutMs, loopCrossfadeMs; int tuneSemitones; float tuneCents, gainDb, pan; bool loopEnabled, tempoSync; float sourceBpm; std::array<int, 16> chokeTargetPitches; int chokeTargetCount; }};
 struct ControlInfo {{ const char* id; const char* kind; const char* label; const char* offLabel; const char* onLabel; const char* parameter; int moduleIndex; float x, y; int width, height; float value, opacity, rotation; unsigned int colorRgb; bool showBackground; int notePitch, keyCount; const char* labelPosition; int labelGap; const char* variant; const char* meterMode; const char* textFont; unsigned int textColorRgb; bool showCorrelationMeter; bool spectrumBand; bool useFilmstrip; }};
+struct KeyColorInfo {{ int control, pitch; unsigned int colorRgb; }};
 struct PanelControlInfo {{ int parentPanelIndex; const char* panelType; float panelX, panelY, panelWidth, panelHeight; }};
 struct PresetInfo {{ const char* id; const char* name; bool factory; int valueOffset, valueCount, groupOffset, groupCount, moduleOffset, moduleCount; }};
 struct PresetValueInfo {{ int controlIndex; float value; }};
@@ -604,6 +617,7 @@ inline constexpr std::array<SampleInfo, {len(sample_lines)}> kSamples {{{{\n{chr
 inline constexpr std::array<GroupInfo, {len(group_lines)}> kGroups {{{{\n{chr(10).join(group_lines)}\n}}}};
 inline constexpr std::array<ZoneInfo, {len(zone_lines)}> kZones {{{{\n{chr(10).join(zone_lines)}\n}}}};
 inline constexpr std::array<ControlInfo, {len(control_lines)}> kControls {{{{\n{chr(10).join(control_lines)}\n}}}};
+inline constexpr std::array<KeyColorInfo, {len(key_color_lines)}> kKeyColors {{{{\n{chr(10).join(key_color_lines)}\n}}}};
 inline constexpr std::array<PanelControlInfo, {len(panel_lines)}> kPanelControls {{{{\n{chr(10).join(panel_lines)}\n}}}};
 inline constexpr std::array<PresetInfo, {len(preset_lines)}> kPresets {{{{\n{chr(10).join(preset_lines)}\n}}}};
 inline constexpr std::array<PresetValueInfo, {len(preset_value_lines)}> kPresetValues {{{{\n{chr(10).join(preset_value_lines)}\n}}}};

@@ -1,0 +1,84 @@
+{
+  "schema_version": "1.0",
+  "plugin_kind": "instrument",
+  "name": "MixForge Native Smoke",
+  "instrument_type": "Synth",
+  "instrument": { "type": "Synth", "polyphony": 32 },
+  "branding": {
+    "manufacturer_name": "TripleSide Studio",
+    "tagline": "COLORED KEYBOARD PARITY",
+    "font": "space-grotesk",
+    "font_size": 27,
+    "x": 50,
+    "y": 8,
+    "align": "center"
+  },
+  "interface": {
+    "template": "studio",
+    "accent_color": "#22d3ee",
+    "canvas_width": 920,
+    "canvas_height": 560,
+    "controls": [
+      { "id": "volume", "kind": "knob", "label": "Volume", "parameter": "volume", "x": 15, "y": 20, "value": 80, "width": 100, "height": 110 },
+      { "id": "keys", "kind": "keyboard", "label": "Keys", "parameter": "keyboard", "x": 50, "y": 75, "value": 0, "width": 760, "height": 150, "key_count": 49, "key_colors": { "48": "#ff2d55", "61": "#00d4ff" } }
+    ]
+  },
+  "effects": { "reverb": true, "delay": true, "chorus": true, "saturation": true },
+  "sampler_groups": [
+    { "id": "sampler-1", "name": "Sampler 1", "volume": 100, "pan": 0, "mute": false, "solo": false }
+  ],
+  "samples": [],
+  "sampler_map": [],
+  "dsp_graph": {
+    "version": 2,
+    "mode": "instrument_sources",
+    "source": "project",
+    "modules": [
+      {
+        "id": "osc-1",
+        "type": "wave_generator",
+        "name": "Wave Generator",
+        "parentId": null,
+        "order": 0,
+        "bypassed": false,
+        "mix": 0.9,
+        "parameters": {
+          "waveform": 0.5,
+          "octave": 0.5,
+          "semitone": 0.5,
+          "fine": 0.5,
+          "level": 0.65,
+          "pulse_width": 0.5,
+          "phase_reset": 1,
+          "attack": 0,
+          "decay": 0.2,
+          "sustain": 0.8,
+          "release": 0.18,
+          "filter_cutoff": 0.75,
+          "filter_resonance": 0.2,
+          "filter_env_amount": 0.65,
+          "filter_key_tracking": 0.5,
+          "osc2_enabled": 1,
+          "osc2_waveform": 0.25,
+          "osc2_octave": 0.5,
+          "osc2_detune": 0.54,
+          "osc2_level": 0.35,
+          "osc2_pulse_width": 0.5,
+          "sub_level": 0.15,
+          "noise_level": 0.05,
+          "noise_color": 0.5,
+          "unison_voices": 0.43,
+          "unison_detune": 0.2,
+          "stereo_spread": 0.7,
+          "glide": 0.25,
+          "glide_mode": 1,
+          "vibrato_rate": 0.45,
+          "vibrato_depth": 0.2,
+          "vibrato_delay": 0.15
+        }
+      }
+    ]
+  },
+  "sample_packaging": { "mode": "private_object_storage", "monolith": false },
+  "build": { "company_name": "TripleSide Studio", "version": "1.0.0", "formats": ["VST3"], "platforms": ["windows", "macos"] }
+}
