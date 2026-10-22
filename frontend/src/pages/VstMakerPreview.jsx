@@ -58,6 +58,7 @@ import { decodeAndPreprocessImpulse, normalizeImpulseSettings } from "../lib/vst
 import { parseMidiFile } from "../lib/vstMidiFile";
 import { MIDI_LOOKAHEAD_MS, MIDI_SCHEDULER_INTERVAL_MS, MIDI_START_DELAY_MS, buildMidiPlaybackTimeline } from "../lib/vstMidiScheduler";
 import { DEFAULT_STEP_NOTES, WAVE_GENERATOR_MODES, WAVE_NOTE_NAMES, WAVE_SCALE_OPTIONS, WAVE_SINGLE_CHORD_OPTIONS, createWaveGeneratorSequence, normalizeWaveGeneratorConfig } from "../lib/vstWaveGenerators";
+import { WAVE_DECLICK_ATTACK_SECONDS, WAVE_MIN_GAIN, waveAmpEnvelopeValueAt } from "../lib/vstWaveEnvelope";
 import { DEFAULT_VST_PRICING, componentCreditPrice, createVstTemplatePricingBaseline, formatCredits, isCustomVstBackground, normalizeVstPricing, quoteVstProjectCredits } from "../lib/vstMakerPricing";
 import { NEON_POP_DRUM_HITS, PREMIUM_PIANO_BACKGROUND_URL, REGENT_DEFAULT_CONTROLS, REGENT_WHITE_DEFAULT_CONTROLS, VST_PROJECT_TEMPLATES } from "../data/vstTemplates";
 import { DEFAULT_VST_FILMSTRIP_SKIN, VST_KNOB_ASSETS, filmstripFrameStyle } from "../data/vstFilmstripSkins";
@@ -2704,14 +2705,29 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     const now = (context?.currentTime || 0) + delaySeconds;
     const releaseSeconds = immediate ? 0.005 : voice.releaseSeconds;
     try {
-      voice.ampGain.gain.cancelScheduledValues(now);
-      voice.ampGain.gain.setValueAtTime(Math.max(0.0001, voice.ampGain.gain.value), now);
-      voice.ampGain.gain.exponentialRampToValueAtTime(0.0001, now + releaseSeconds);
+      const gain = voice.ampGain.gain;
+      const releaseBeforeStart = immediate && Number(voice.ampEnvelope?.startAt) > now;
+      if (releaseBeforeStart) {
+        gain.cancelScheduledValues(now);
+        gain.setValueAtTime(WAVE_MIN_GAIN, now);
+      } else if (scheduledAtPerformance != null && voice.ampEnvelope) {
+        const heldGain = waveAmpEnvelopeValueAt(voice.ampEnvelope, now);
+        gain.cancelScheduledValues(now);
+        gain.setValueAtTime(heldGain, now);
+        gain.exponentialRampToValueAtTime(WAVE_MIN_GAIN, now + releaseSeconds);
+      } else if (typeof gain.cancelAndHoldAtTime === "function") {
+        gain.cancelAndHoldAtTime(now);
+        gain.exponentialRampToValueAtTime(WAVE_MIN_GAIN, now + releaseSeconds);
+      } else {
+        gain.cancelScheduledValues(now);
+        gain.setValueAtTime(Math.max(WAVE_MIN_GAIN, gain.value), now);
+        gain.exponentialRampToValueAtTime(WAVE_MIN_GAIN, now + releaseSeconds);
+      }
       voice.sources.forEach(({ source }) => source.stop(now + releaseSeconds + 0.02));
       voice.vibratoLfo?.stop(now + releaseSeconds + 0.02);
       voice.effectNodes?.chorusLfo?.stop(now + releaseSeconds + 0.02);
     } catch { /* voice already stopped */ }
-    activeWaveVoicesRef.current.delete(token);
+    voice.releaseScheduledAt = now;
   };
 
   const selectedHeldWaveNote = () => {
@@ -2941,13 +2957,14 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     const now = context.currentTime + (playbackOptions?.patternScheduled
       ? Math.max(0, playbackOptions.scheduledAtPerformance - performance.now()) / 1000
       : 0);
-    const attackSeconds = 5 * (unit("attack", 0) ** 2.5);
+    const attackSeconds = Math.max(WAVE_DECLICK_ATTACK_SECONDS, 5 * (unit("attack", 0) ** 2.5));
     const decaySeconds = 0.01 + 4.99 * (unit("decay", 0.2) ** 2.2);
     const sustainLevel = unit("sustain", 1);
     const releaseSeconds = 0.01 + 9.99 * (unit("release", 0.18) ** 2.2);
-    ampGain.gain.setValueAtTime(attackSeconds > 0.001 ? 0.0001 : targetGain, now);
-    if (attackSeconds > 0.001) ampGain.gain.exponentialRampToValueAtTime(targetGain, now + attackSeconds);
-    ampGain.gain.exponentialRampToValueAtTime(Math.max(0.0001, targetGain * sustainLevel), now + attackSeconds + decaySeconds);
+    const sustainGain = Math.max(WAVE_MIN_GAIN, targetGain * sustainLevel);
+    ampGain.gain.setValueAtTime(WAVE_MIN_GAIN, now);
+    ampGain.gain.exponentialRampToValueAtTime(targetGain, now + attackSeconds);
+    ampGain.gain.exponentialRampToValueAtTime(sustainGain, now + attackSeconds + decaySeconds);
     const envelopeCutoff = Math.max(20, Math.min(context.sampleRate * 0.45, baseCutoff * (2 ** (filterEnvelopeSemitones / 12))));
     filter.frequency.setValueAtTime(envelopeCutoff, now);
     filter.frequency.exponentialRampToValueAtTime(Math.max(20, baseCutoff), now + attackSeconds + decaySeconds);
@@ -2961,7 +2978,8 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     vibratoLfo.connect(vibratoGain);
     sources.forEach((item) => { if (!item.noise && item.source.detune) vibratoGain.connect(item.source.detune); });
     const effectNodes = { saturation, dryGain, reverb, reverbGain, delay, delayFeedback, delayGain, chorus, chorusGain, chorusLfo, chorusDepth };
-    const voice = { sources, ampGain, filter, masterGain, masterPanner, toneFilter, vibratoLfo, vibratoGain, effectNodes, usesSharedRack: Boolean(rackGraph), pendingSharedRack: rackPending, pendingDirectGain: rackPending ? pendingDirectGain : null, rackSendGain: null, rackInputGain: moduleMix, pitch, held: true, targetGain, releaseSeconds };
+    const ampEnvelope = { startAt: now, attackSeconds, decaySeconds, targetGain, sustainGain };
+    const voice = { sources, ampGain, ampEnvelope, filter, masterGain, masterPanner, toneFilter, vibratoLfo, vibratoGain, effectNodes, usesSharedRack: Boolean(rackGraph), pendingSharedRack: rackPending, pendingDirectGain: rackPending ? pendingDirectGain : null, rackSendGain: null, rackInputGain: moduleMix, pitch, held: true, targetGain, releaseSeconds };
     let endedSources = 0;
     sources.forEach(({ source }) => { source.onended = () => {
       endedSources += 1;
