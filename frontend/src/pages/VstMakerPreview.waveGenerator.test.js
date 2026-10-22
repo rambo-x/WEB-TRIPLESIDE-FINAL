@@ -89,7 +89,9 @@ describe("VST Maker Wave Generator note routing", () => {
   test("plays one sustained chord per held key instead of the generated progression", () => {
     expect(source).toContain('if (liveWavePatternConfig.mode === "chord" && liveWavePatternConfig.chordMode === "single")');
     expect(source).toContain('.filter((event) => event.type === "note_on" && event.tick === 0)');
-    expect(source).toContain("playWavePatternNote(event.note, chordVelocity, noteToken);");
+    expect(source).toContain("scheduledAtAudioTime,");
+    expect(source).toContain("playWavePatternNote(event.note, chordVelocity, noteToken, null, null, null, {");
+    expect(source).toContain("(trigger?.noteTokens || []).forEach((noteToken) => stopWavePatternNote(noteToken));");
     expect(source).toContain("stopLivePatternTrigger(trigger);");
     expect(source).toContain("Preset Live Trigger 1 Chord aktif.");
   });
@@ -132,6 +134,14 @@ describe("VST Maker Wave Generator note routing", () => {
     const previewBody = source.match(/const playSamplerNote = async[\s\S]*?\n  const releaseSamplerVoice/)?.[0] || "";
     expect(previewBody.indexOf("const waveStarted = playWaveGeneratorNote(pitch, velocity, token);")).toBeGreaterThan(-1);
     expect(previewBody.indexOf("const waveStarted = playWaveGeneratorNote(pitch, velocity, token);")).toBeLessThan(previewBody.indexOf("await previewContext.resume()"));
+  });
+
+  test("gives direct synth notes headroom and aligns every voice in a live chord", () => {
+    expect(source).toContain("const voiceStartAt = waveVoiceStartTime(context.currentTime, playbackOptions, performance.now());");
+    expect(source).toContain("item.source.frequency.setValueAtTime(item.startFrequency, voiceStartAt);");
+    expect(source).toContain("const now = voiceStartAt;");
+    expect(source).toContain("const scheduledAtAudioTime = (context?.currentTime || 0) + WAVE_CHORD_START_LOOKAHEAD_SECONDS;");
+    expect(source).toContain("const releaseBeforeStart = Number(voice.ampEnvelope?.startAt) > now;");
   });
 
   test("reuses expensive waveform data between notes", () => {

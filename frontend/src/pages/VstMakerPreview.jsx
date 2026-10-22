@@ -58,7 +58,7 @@ import { decodeAndPreprocessImpulse, normalizeImpulseSettings } from "../lib/vst
 import { parseMidiFile } from "../lib/vstMidiFile";
 import { MIDI_LOOKAHEAD_MS, MIDI_SCHEDULER_INTERVAL_MS, MIDI_START_DELAY_MS, buildMidiPlaybackTimeline } from "../lib/vstMidiScheduler";
 import { DEFAULT_STEP_NOTES, WAVE_GENERATOR_MODES, WAVE_NOTE_NAMES, WAVE_SCALE_OPTIONS, WAVE_SINGLE_CHORD_OPTIONS, createWaveGeneratorSequence, normalizeWaveGeneratorConfig } from "../lib/vstWaveGenerators";
-import { WAVE_DECLICK_ATTACK_SECONDS, WAVE_MIN_GAIN, drainWaveVoiceRegistry, moveWaveVoiceRegistryToken, shouldScheduleWaveRelease, waveAmpEnvelopeValueAt } from "../lib/vstWaveEnvelope";
+import { WAVE_CHORD_START_LOOKAHEAD_SECONDS, WAVE_DECLICK_ATTACK_SECONDS, WAVE_DIRECT_START_LOOKAHEAD_SECONDS, WAVE_MIN_GAIN, drainWaveVoiceRegistry, moveWaveVoiceRegistryToken, shouldScheduleWaveRelease, waveAmpEnvelopeValueAt, waveVoiceStartTime } from "../lib/vstWaveEnvelope";
 import { DEFAULT_VST_PRICING, componentCreditPrice, createVstTemplatePricingBaseline, formatCredits, isCustomVstBackground, normalizeVstPricing, quoteVstProjectCredits } from "../lib/vstMakerPricing";
 import { NEON_POP_DRUM_HITS, PREMIUM_PIANO_BACKGROUND_URL, REGENT_DEFAULT_CONTROLS, REGENT_WHITE_DEFAULT_CONTROLS, VST_PROJECT_TEMPLATES } from "../data/vstTemplates";
 import { DEFAULT_VST_FILMSTRIP_SKIN, VST_KNOB_ASSETS, filmstripFrameStyle } from "../data/vstFilmstripSkins";
@@ -2734,7 +2734,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     voice.held = false;
     try {
       const gain = voice.ampGain.gain;
-      const releaseBeforeStart = immediate && Number(voice.ampEnvelope?.startAt) > now;
+      const releaseBeforeStart = Number(voice.ampEnvelope?.startAt) > now;
       if (releaseBeforeStart) {
         gain.cancelScheduledValues(now);
         gain.setValueAtTime(WAVE_MIN_GAIN, now);
@@ -2974,16 +2974,12 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       const legatoOnly = unit("glide_mode", 0) >= 0.5;
       const shouldGlide = glideSeconds > 0 && lastWavePitchRef.current !== null && (!legatoOnly || activeWaveVoicesRef.current.size > 0);
       const startFrequency = shouldGlide ? targetFrequency * (2 ** ((lastWavePitchRef.current - pitch) / 12)) : targetFrequency;
-      const scheduledStart = context.currentTime + (playbackOptions?.patternScheduled
-        ? Math.max(0, playbackOptions.scheduledAtPerformance - performance.now()) / 1000
-        : 0);
-      source.frequency.setValueAtTime(startFrequency, scheduledStart);
-      if (shouldGlide) source.frequency.exponentialRampToValueAtTime(targetFrequency, scheduledStart + glideSeconds);
+      source.frequency.value = startFrequency;
       source.detune.value = detuneCents;
       const sourceGain = context.createGain(); sourceGain.gain.value = sourceLevel;
       const panner = context.createStereoPanner(); panner.pan.value = pan;
       source.connect(sourceGain); sourceGain.connect(panner); panner.connect(mixBus);
-      sources.push({ source, sourceGain, panner, baseDetune: detuneCents, noise: false, role });
+      sources.push({ source, sourceGain, panner, baseDetune: detuneCents, noise: false, role, startFrequency, targetFrequency, glideSeconds, shouldGlide });
       return source;
     };
     for (let index = 0; index < unisonVoices; index += 1) {
@@ -2996,13 +2992,19 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     if (noiseLevel > 0) createNoiseSource(unit("noise_color", 0.5), noiseLevel, 0, "noise");
     lastWavePitchRef.current = pitch;
 
+    // Resolve this only after potentially expensive periodic-wave/noise setup,
+    // then reuse it for every oscillator, filter, and envelope in the voice.
+    const voiceStartAt = waveVoiceStartTime(context.currentTime, playbackOptions, performance.now());
+    sources.forEach((item) => {
+      if (item.noise || !item.source?.frequency) return;
+      item.source.frequency.setValueAtTime(item.startFrequency, voiceStartAt);
+      if (item.shouldGlide) item.source.frequency.exponentialRampToValueAtTime(item.targetFrequency, voiceStartAt + item.glideSeconds);
+    });
     const bendSemitones = projectRef.current.pitchBendEnabled === true ? ((pitchBendRef.current - 50) / 50) * 2 : 0;
     sources.forEach((item) => { if (!item.noise && item.source.detune) item.source.detune.value = item.baseDetune + bendSemitones * 100; });
     const velocityGain = waveGeneratorVelocityGain(velocity, parameters);
     const targetGain = Math.max(0.0001, velocityGain * 0.32);
-    const now = context.currentTime + (playbackOptions?.patternScheduled
-      ? Math.max(0, playbackOptions.scheduledAtPerformance - performance.now()) / 1000
-      : 0);
+    const now = voiceStartAt;
     const attackSeconds = Math.max(WAVE_DECLICK_ATTACK_SECONDS, 5 * (unit("attack", 0) ** 2.5));
     const decaySeconds = 0.01 + 4.99 * (unit("decay", 0.2) ** 2.2);
     const sustainLevel = unit("sustain", 1);
@@ -4151,11 +4153,13 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
   midiSustainRef.current = setSamplerSustainState;
 
   const playWavePatternNote = (pitch, velocity, token, _articulation, _micPosition, _samplerName, playbackOptions = null) => {
-    const scheduledAtPerformance = playbackOptions?.scheduledAtPerformance ?? performance.now();
+    const scheduledAtPerformance = playbackOptions?.scheduledAtPerformance
+      ?? performance.now() + WAVE_DIRECT_START_LOOKAHEAD_SECONDS * 1000;
     const delayMs = Math.max(0, scheduledAtPerformance - performance.now());
     const started = playWaveGeneratorNote(pitch, velocity, token, {
       patternScheduled: true,
       scheduledAtPerformance,
+      scheduledAtAudioTime: playbackOptions?.scheduledAtAudioTime,
     });
     if (started) scheduleGrooveVisual(token, pitch, delayMs, true);
     return started;
@@ -4196,7 +4200,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
   const wavePatternTransport = useMidiGrooveTransport(project.midiSequences, playWavePatternNote, stopWavePatternNote);
 
   const stopLivePatternTrigger = (trigger) => {
-    (trigger?.noteTokens || []).forEach((noteToken) => stopWavePatternNote(noteToken, { forceRelease: true }));
+    (trigger?.noteTokens || []).forEach((noteToken) => stopWavePatternNote(noteToken));
   };
 
   const clearLivePatternTrigger = (trigger) => {
@@ -4227,12 +4231,19 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       triggerPitch: pitch,
     }, `live-wave-pattern-${token}`);
     if (liveWavePatternConfig.mode === "chord" && liveWavePatternConfig.chordMode === "single") {
+      const context = ensureAudioContext();
+      if (context?.state === "suspended") context.resume().catch(() => {});
+      const scheduledAtPerformance = performance.now() + WAVE_CHORD_START_LOOKAHEAD_SECONDS * 1000;
+      const scheduledAtAudioTime = (context?.currentTime || 0) + WAVE_CHORD_START_LOOKAHEAD_SECONDS;
       trigger.noteTokens = sequence.events
         .filter((event) => event.type === "note_on" && event.tick === 0)
         .map((event, index) => {
           const noteToken = `live-wave-chord-${token}-${index}`;
           const chordVelocity = Math.max(1, Math.round(event.velocity * velocity / 127));
-          playWavePatternNote(event.note, chordVelocity, noteToken);
+          playWavePatternNote(event.note, chordVelocity, noteToken, null, null, null, {
+            scheduledAtPerformance,
+            scheduledAtAudioTime,
+          });
           return noteToken;
         });
     } else {

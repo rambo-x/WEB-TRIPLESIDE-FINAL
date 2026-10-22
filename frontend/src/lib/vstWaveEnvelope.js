@@ -1,5 +1,23 @@
 export const WAVE_MIN_GAIN = 0.0001;
 export const WAVE_DECLICK_ATTACK_SECONDS = 0.003;
+// Direct keyboard gestures still need a few render quanta of headroom. Starting
+// an oscillator at currentTime can skip the silent edge of its attack ramp when
+// the audio thread has already entered the current render quantum.
+export const WAVE_DIRECT_START_LOOKAHEAD_SECONDS = 0.012;
+// A held chord constructs several voices synchronously before any may start, so
+// it needs enough shared headroom for the last voice to retain the same safe edge.
+export const WAVE_CHORD_START_LOOKAHEAD_SECONDS = 0.02;
+
+export const waveVoiceStartTime = (currentAudioTime, playbackOptions = null, currentPerformanceTime = 0) => {
+  const audioNow = Number.isFinite(Number(currentAudioTime)) ? Number(currentAudioTime) : 0;
+  const scheduledAtAudioTime = Number(playbackOptions?.scheduledAtAudioTime);
+  if (Number.isFinite(scheduledAtAudioTime)) return Math.max(audioNow, scheduledAtAudioTime);
+  const scheduledAtPerformance = Number(playbackOptions?.scheduledAtPerformance);
+  if (playbackOptions?.patternScheduled && Number.isFinite(scheduledAtPerformance)) {
+    return audioNow + Math.max(0, scheduledAtPerformance - Number(currentPerformanceTime || 0)) / 1000;
+  }
+  return audioNow + WAVE_DIRECT_START_LOOKAHEAD_SECONDS;
+};
 
 export const drainWaveVoiceRegistry = (registry) => {
   if (!(registry instanceof Map)) return [];

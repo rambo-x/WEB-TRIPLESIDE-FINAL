@@ -1,10 +1,13 @@
 import {
   WAVE_DECLICK_ATTACK_SECONDS,
+  WAVE_CHORD_START_LOOKAHEAD_SECONDS,
+  WAVE_DIRECT_START_LOOKAHEAD_SECONDS,
   WAVE_MIN_GAIN,
   drainWaveVoiceRegistry,
   moveWaveVoiceRegistryToken,
   shouldScheduleWaveRelease,
   waveAmpEnvelopeValueAt,
+  waveVoiceStartTime,
 } from "./vstWaveEnvelope";
 
 describe("Wave Generator amplitude envelope", () => {
@@ -33,6 +36,13 @@ describe("Wave Generator amplitude envelope", () => {
 
   test("returns the silent floor before a scheduled voice begins", () => {
     expect(waveAmpEnvelopeValueAt(envelope, 9.9)).toBe(WAVE_MIN_GAIN);
+  });
+
+  test("gives direct notes render headroom and preserves exact shared chord timing", () => {
+    expect(waveVoiceStartTime(4, null, 1000)).toBeCloseTo(4 + WAVE_DIRECT_START_LOOKAHEAD_SECONDS, 9);
+    expect(WAVE_CHORD_START_LOOKAHEAD_SECONDS).toBeGreaterThan(WAVE_DIRECT_START_LOOKAHEAD_SECONDS);
+    expect(waveVoiceStartTime(4, { patternScheduled: true, scheduledAtPerformance: 1250 }, 1000)).toBeCloseTo(4.25, 9);
+    expect(waveVoiceStartTime(4, { patternScheduled: true, scheduledAtAudioTime: 4.012 }, 1000)).toBeCloseTo(4.012, 9);
   });
 
   test("does not restart a release tail at a later loop boundary", () => {
