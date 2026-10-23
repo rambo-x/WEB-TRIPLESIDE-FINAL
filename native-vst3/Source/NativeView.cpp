@@ -147,6 +147,7 @@ void NativeView::drawVisualControl(size_t index){
     const bool panelChild=project::kPanelControls[index].parentPanelIndex>=0;
     if(panelChild&&s.hw>0&&s.hh>0){const auto hit=controlRect(index);const float scaleX=(hit.right-hit.left)/s.hw,scaleY=(hit.bottom-hit.top)/s.hh;spriteX=hit.left+(s.x-s.hx)*scaleX;spriteY=hit.top+(s.y-s.hy)*scaleY;spriteWidth=s.w*scaleX;spriteHeight=s.h*scaleY;}
     auto id=displayedParameter(index);float value=equals(c.kind,"indicator")?indicatorValue(index):(id==kNoParamId?c.value:static_cast<float>(instrument.getParamNormalized(id)));
+    if(c.midiSequenceIndex>=0)value=instrument.livePatternSequenceIndex()==c.midiSequenceIndex?1.f:0.f;
     const bool meter=equals(c.kind,"vu_meter")||equals(c.kind,"gain_meter");
     std::array<float,2> displayed{value,value};
     if(meter){
@@ -161,7 +162,7 @@ void NativeView::drawVisualControl(size_t index){
         const float browserDecay=reduction?.88f:equals(c.kind,"vu_meter")?.9f:.82f,decay=std::pow(browserDecay,elapsed/16.6667f);auto&smoothed=visualMeterLevels[index];
         for(size_t channel=0;channel<2;++channel){smoothed[channel]=std::max(std::clamp(measured[channel],0.f,1.f),smoothed[channel]*decay);displayed[channel]=smoothed[channel];}
         value=std::max(displayed[0],displayed[1]);
-    }else if(equals(c.kind,"pad")){const bool hitPad=equals(c.variant,"hit-effect")||equals(c.variant,"diffuse-hit")||equals(c.variant,"smooth-diffuse-hit");value=(hitPad?hitPadFlashActive(c.notePitch):c.notePitch==activeNote||instrument.isNoteActive(c.notePitch))?1.f:0.f;}
+    }else if(c.midiSequenceIndex<0&&equals(c.kind,"pad")){const bool hitPad=equals(c.variant,"hit-effect")||equals(c.variant,"diffuse-hit")||equals(c.variant,"smooth-diffuse-hit");value=(hitPad?hitPadFlashActive(c.notePitch):c.notePitch==activeNote||instrument.isNoteActive(c.notePitch))?1.f:0.f;}
     const auto frameFor=[&](float level){return static_cast<int>(std::lround(std::clamp(level,0.f,1.f)*(s.frames-1)));};
     const bool hitPad=equals(c.kind,"pad")&&(equals(c.variant,"hit-effect")||equals(c.variant,"diffuse-hit")||equals(c.variant,"smooth-diffuse-hit"));
     if(hitPad&&value>.5f){const float insetX=spriteWidth*.08f,insetY=spriteHeight*.08f;drawVisualSprite(s.file,frameFor(value),s.columns,s.w,s.h,spriteX+insetX,spriteY+insetY,spriteWidth-2*insetX,spriteHeight-2*insetY,.68f);}else drawVisualSprite(s.file,frameFor(value),s.columns,s.w,s.h,spriteX,spriteY,spriteWidth,spriteHeight);

@@ -86,6 +86,9 @@ def test_generated_pattern_buttons_arm_transposed_live_trigger():
     assert "audioGrooveLiveTrigger&&sequence.liveHold" in instrument_source
     assert "instrument.livePatternSequenceIndex()==c.midiSequenceIndex" in source
     assert "instrument.setLivePatternSequence(instrument.livePatternSequenceIndex()==c.midiSequenceIndex?-1:c.midiSequenceIndex)" in source
+    visual_control = source.split("void NativeView::drawVisualControl(size_t index)", 1)[1].split("void NativeView::drawVisualCanvas()", 1)[0]
+    assert "if(c.midiSequenceIndex>=0)value=instrument.livePatternSequenceIndex()==c.midiSequenceIndex?1.f:0.f;" in visual_control
+    assert 'else if(c.midiSequenceIndex<0&&equals(c.kind,"pad"))' in visual_control
 
 
 def test_embedded_resource_loader_supports_rc_quoted_names():
