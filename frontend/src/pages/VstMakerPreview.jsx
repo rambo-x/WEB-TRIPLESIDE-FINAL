@@ -6075,6 +6075,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
           downloadBuilds={latestReadyBuildDownloads}
           onDownload={downloadBuildArtifact}
           onCollapse={!buildInProgress && !queueingBuild ? () => setBuildPanelExpanded(false) : null}
+          hideDownloads={buildLicenseDialogOpen}
         />}
 
         {latestBuild && !showExpandedBuildPanel && (
@@ -6086,7 +6087,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
             </div>
             <span className="font-mono text-xs font-bold text-zinc-500">{Number(latestBuild.progress) || 0}%</span>
             <button type="button" onClick={() => setBuildPanelExpanded(true)} className="rounded-xl border border-white/10 px-4 py-2.5 text-xs font-bold text-zinc-300 hover:bg-white/5">Lihat detail</button>
-            <LatestBuildDownloadMenu builds={latestReadyBuildDownloads} onDownload={downloadBuildArtifact} />
+            {!buildLicenseDialogOpen && <LatestBuildDownloadMenu builds={latestReadyBuildDownloads} onDownload={downloadBuildArtifact} />}
           </section>
         )}
 
@@ -7039,7 +7040,7 @@ function LiveCustomerActivityPanel({ activity }) {
   );
 }
 
-function BuildProgressPanel({ build, onCancel, onRetry, downloadBuilds = [], onDownload, onCollapse }) {
+function BuildProgressPanel({ build, onCancel, onRetry, downloadBuilds = [], onDownload, onCollapse, hideDownloads = false }) {
   const progress = Math.max(0, Math.min(100, Number(build.progress) || 0));
   const active = ACTIVE_BUILD_STATUSES.includes(build.status);
   const currentStage = buildStageIndex(build);
@@ -7088,7 +7089,7 @@ function BuildProgressPanel({ build, onCancel, onRetry, downloadBuilds = [], onD
             </div>
             {active && onCancel && <button type="button" onClick={onCancel} className="rounded-xl border border-red-300/20 px-4 py-2.5 text-xs font-bold text-red-200 hover:bg-red-300/10">Batalkan build</button>}
             {(failed || canceled) && onRetry && <button type="button" onClick={onRetry} className="inline-flex items-center gap-2 rounded-xl border border-sky-300/25 bg-sky-300/[0.08] px-5 py-3 text-xs font-bold text-sky-100 hover:bg-sky-300/15"><RotateCcw className="h-4 w-4" />Ulangi build</button>}
-            <LatestBuildDownloadMenu builds={downloadBuilds} onDownload={onDownload} align="right" />
+            {!hideDownloads && <LatestBuildDownloadMenu builds={downloadBuilds} onDownload={onDownload} align="right" />}
           </div>
         </div>
 
@@ -9953,7 +9954,7 @@ function CustomerBuildLicenseDialog({ mode = "export", platform = "windows", set
   const grandTotal = Number(quote.totalCredits) + distributionCredits;
   const insufficient = Number(balance) < grandTotal;
   return (
-    <div className="fixed inset-0 z-[120] grid place-items-center bg-black/75 px-4 py-8 backdrop-blur-sm" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
+    <div className="fixed inset-0 z-[300] grid place-items-center bg-black/75 px-4 py-8 backdrop-blur-sm" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
       <section className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-amber-300/20 bg-[#0a0a0d] p-5 shadow-2xl md:p-7" role="dialog" aria-modal="true" aria-labelledby="build-license-dialog-title">
         <div className="flex items-start justify-between gap-4">
           <div>

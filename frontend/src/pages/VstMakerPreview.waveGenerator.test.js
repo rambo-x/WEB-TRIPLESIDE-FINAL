@@ -253,6 +253,14 @@ describe("VST Maker Wave Generator note routing", () => {
     expect(source).toContain('api.post("/customer/license-distributions/purchase"');
   });
 
+  test("keeps latest-build downloads behind the final license dialog", () => {
+    expect(source).toContain("hideDownloads={buildLicenseDialogOpen}");
+    expect(source).toContain("{!buildLicenseDialogOpen && <LatestBuildDownloadMenu builds={latestReadyBuildDownloads}");
+    expect(source).toContain("function BuildProgressPanel({ build, onCancel, onRetry, downloadBuilds = [], onDownload, onCollapse, hideDownloads = false })");
+    expect(source).toContain("{!hideDownloads && <LatestBuildDownloadMenu builds={downloadBuilds}");
+    expect(source).toContain('className="fixed inset-0 z-[300] grid place-items-center');
+  });
+
   test("preserves an explicit zero-activation build choice", () => {
     expect(source).toContain("if (Number(value) === 0) return 0;");
     expect(source).toContain("license_max_activations: normalizeLicenseActivationChoice(project.licenseMaxActivations)");
