@@ -25,6 +25,7 @@ export default function VstVisualRender() {
     showBackground: c.show_background, notePitch: c.note_pitch, keyCount: c.key_count,
     labelPosition: c.label_position,
     labelGap: c.label_gap,
+    stateLabelGap: c.state_label_gap,
     meterMode: c.meter_mode,
     padColor: c.pad_color, padActiveColor: c.pad_active_color,
     imageUrl: c.image_url, imageName: c.image_name,

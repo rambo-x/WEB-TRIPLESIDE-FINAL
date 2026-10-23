@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import re
 from pathlib import Path
 import pytest
 
@@ -78,6 +79,42 @@ def test_compiles_linked_led_and_realtime_waveform_contract(tmp_path):
     assert "0x39FF88" in result
     assert '"realtime-waveform"' in result
     assert "0xA78BFA" in result
+
+
+def test_compiles_stomp_bar_spectrum_toggle_gap_and_tiny_led_contract(tmp_path):
+    spec = project_spec()
+    spec["interface"]["controls"] = [
+        {"id": "stomp", "kind": "button", "label": "Stomp", "parameter": "bypass", "value": 0,
+         "component_variant": "stomp-footswitch", "width": 112, "height": 112},
+        {"id": "bars", "kind": "spectrum", "label": "Bars", "parameter": "output_level", "value": 0,
+         "component_variant": "bar-spectrum-visualizer", "visual_color": "#38BDF8", "show_background": False,
+         "width": 640, "height": 260},
+        {"id": "gap-min", "kind": "button", "label": "Min", "parameter": "bypass", "value": 0,
+         "component_variant": "mechanical-toggle", "state_label_gap": 0},
+        {"id": "gap-default", "kind": "button", "label": "Default", "parameter": "bypass", "value": 0,
+         "component_variant": "mechanical-toggle"},
+        {"id": "gap-max", "kind": "button", "label": "Max", "parameter": "bypass", "value": 0,
+         "component_variant": "mechanical-toggle", "state_label_gap": 32},
+        {"id": "tiny-led", "kind": "indicator", "label": "LED", "parameter": "visual", "value": 0,
+         "component_variant": "round-indicator", "width": 1, "height": 1},
+    ]
+    source = tmp_path / "project.json"
+    output = tmp_path / "NativeProject.h"
+    source.write_text(json.dumps(spec), encoding="utf-8")
+
+    MODULE.compile_manifest(source, output)
+
+    result = output.read_text(encoding="utf-8")
+    lines = {match.group(1): match.group(0) for match in re.finditer(r'ControlInfo\{"([^"]+)"[^\n]+', result)}
+    assert '"stomp-footswitch"' in lines["stomp"]
+    assert '"bar-spectrum-visualizer"' in lines["bars"]
+    assert ', 0, "mechanical-toggle"' in lines["gap-min"]
+    assert ', 5, "mechanical-toggle"' in lines["gap-default"]
+    assert ', 32, "mechanical-toggle"' in lines["gap-max"]
+    assert ', 12, 12,' in lines["tiny-led"]
+    resources = output.with_name("NativeAssets.rc").read_text(encoding="utf-8")
+    assert "stomp-footswitch-off-v1.png" in resources
+    assert "stomp-footswitch-on-v1.png" in resources
 
 
 def test_compiles_midi_sequence_loop_setting(tmp_path):
@@ -630,7 +667,7 @@ def test_compiles_designer_and_sampler_runtime_fields(tmp_path):
     assert 'kManufacturer = "Acme Audio"' in result
     assert 'GroupInfo{"one", "Sampler 1", 0.72f, -0.2f' in result
     assert 'ControlInfo{"keys", "keyboard"' in result
-    assert '37, "bottom-right", 5, "classic"' in result
+    assert '37, "bottom-right", 5, 5, "classic"' in result
     assert "struct KeyColorInfo { int control, pitch; unsigned int colorRgb; };" in result
     assert "KeyColorInfo{" in result
     assert ", 36, 0xFF0088}" in result

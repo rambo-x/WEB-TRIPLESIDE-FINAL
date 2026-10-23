@@ -225,6 +225,8 @@ namespace project = tripleside::project;
     NSInteger _dragPrismBand;
     std::array<unsigned, 128> _padTriggerGenerations;
     std::array<double, 128> _padFlashUntil;
+    BarSpectrumAnalyzer _barSpectrumAnalyzer;
+    double _barSpectrumUpdatedAt;
     NSInteger _openPanel;
     NSInteger _panelDragMode;
     NSInteger _mixerDragGroup;
@@ -689,7 +691,7 @@ namespace project = tripleside::project;
             _instrument->applyModulePresetValue(static_cast<std::size_t>(parameter.moduleIndex), parameter.key, parameter.value);
         }
     }
-    [self stopMidiSequence]; _selectedMidiSequence = preset.midiSequenceIndex;
+    _selectedMidiSequence = preset.midiSequenceIndex;
 }
 
 - (void)applyUserPreset:(NSInteger)index {
@@ -708,7 +710,7 @@ namespace project = tripleside::project;
         if (cursor >= preset.moduleValues.size()) break;
         _instrument->applyModulePresetValue(static_cast<std::size_t>(parameter.moduleIndex), parameter.key, preset.moduleValues[cursor++]);
     }
-    [self stopMidiSequence]; _selectedMidiSequence = preset.midiSequenceIndex;
+    _selectedMidiSequence = preset.midiSequenceIndex;
 }
 
 - (void)saveUserPreset {
@@ -952,13 +954,59 @@ namespace project = tripleside::project;
     strokeRounded(rect, 11.2, rgbColor(color, .22));
 }
 
+- (void)drawBarSpectrumInRect:(NSRect)rect color:(unsigned)color {
+    color = color ? color : project::kAccentRgb;
+    constexpr std::size_t sampleCount = BarSpectrumAnalyzer::fftSize;
+    std::array<float, sampleCount> left{}, right{};
+    _instrument->copyAnalysisSamples(left.data(), left.size(), 0);
+    _instrument->copyAnalysisSamples(right.data(), right.size(), 1);
+    const double now = [NSDate timeIntervalSinceReferenceDate];
+    const float elapsed = _barSpectrumUpdatedAt > 0 ? std::clamp(static_cast<float>(now - _barSpectrumUpdatedAt), .016f, .12f) : .032f;
+    _barSpectrumUpdatedAt = now;
+    const auto& levels = _barSpectrumAnalyzer.process(left.data(), right.data(), sampleCount,
+        static_cast<float>(_instrument->analysisSampleRate()), elapsed);
+    const CGFloat slot = NSWidth(rect) / levels.size();
+    const CGFloat barWidth = std::max<CGFloat>(2, slot * .54);
+    NSColor* startColor = rgbColor(color, .98);
+    for (std::size_t index = 0; index < levels.size(); ++index) {
+        const CGFloat barHeight = levels[index] * NSHeight(rect) * .86;
+        if (barHeight < 1) continue;
+        const CGFloat fraction = static_cast<CGFloat>(index) / std::max<std::size_t>(1, levels.size() - 1);
+        [[startColor blendedColorWithFraction:fraction ofColor:NSColor.whiteColor] setFill];
+        NSRectFill(NSMakeRect(NSMinX(rect) + index * slot + (slot - barWidth) * .5,
+            NSMidY(rect) - barHeight * .5, barWidth, barHeight));
+    }
+}
+
 - (void)drawPanelControl:(NSInteger)index {
     if (index < 0 || static_cast<std::size_t>(index) >= project::kControls.size()
         || static_cast<std::size_t>(index) >= project::kVisualControls.size()) return;
     const auto& control = project::kControls[static_cast<std::size_t>(index)];
     const auto& visual = project::kVisualControls[static_cast<std::size_t>(index)];
     if (equals(control.kind, "spectrum") && equals(control.variant, "realtime-waveform")) {
-        [self drawWaveformInRect:[self panelChildRect:index] color:control.colorRgb];
+        const NSRect waveform = [self panelChildRect:index];
+        [NSGraphicsContext saveGraphicsState];
+        CGContextSetAlpha([[NSGraphicsContext currentContext] CGContext], std::clamp<CGFloat>(control.opacity, 0, 1));
+        if (std::abs(control.rotation) >= .001f) {
+            const NSPoint center = NSMakePoint(NSMidX(waveform), NSMidY(waveform));
+            NSAffineTransform* rotation = [NSAffineTransform transform];
+            [rotation translateXBy:center.x yBy:center.y]; [rotation rotateByDegrees:control.rotation]; [rotation translateXBy:-center.x yBy:-center.y]; [rotation concat];
+        }
+        [self drawWaveformInRect:waveform color:control.colorRgb];
+        [NSGraphicsContext restoreGraphicsState];
+        return;
+    }
+    if (equals(control.kind, "spectrum") && equals(control.variant, "bar-spectrum-visualizer")) {
+        const NSRect spectrum = [self panelChildRect:index];
+        [NSGraphicsContext saveGraphicsState];
+        CGContextSetAlpha([[NSGraphicsContext currentContext] CGContext], std::clamp<CGFloat>(control.opacity, 0, 1));
+        if (std::abs(control.rotation) >= .001f) {
+            const NSPoint center = NSMakePoint(NSMidX(spectrum), NSMidY(spectrum));
+            NSAffineTransform* rotation = [NSAffineTransform transform];
+            [rotation translateXBy:center.x yBy:center.y]; [rotation rotateByDegrees:control.rotation]; [rotation translateXBy:-center.x yBy:-center.y]; [rotation concat];
+        }
+        [self drawBarSpectrumInRect:spectrum color:control.colorRgb];
+        [NSGraphicsContext restoreGraphicsState];
         return;
     }
     NSImage* image = [self imageNamed:visual.file];
@@ -1012,12 +1060,26 @@ namespace project = tripleside::project;
         if (equals(control.kind, "spectrum") && equals(control.variant, "realtime-waveform")) {
             const NSRect waveform = controlLayoutRect(control, visual);
             [NSGraphicsContext saveGraphicsState];
+            CGContextSetAlpha([[NSGraphicsContext currentContext] CGContext], std::clamp<CGFloat>(control.opacity, 0, 1));
             if (std::abs(control.rotation) >= .001f) {
                 const NSPoint center = NSMakePoint(NSMidX(waveform), NSMidY(waveform));
                 NSAffineTransform* rotation = [NSAffineTransform transform];
                 [rotation translateXBy:center.x yBy:center.y]; [rotation rotateByDegrees:control.rotation]; [rotation translateXBy:-center.x yBy:-center.y]; [rotation concat];
             }
             [self drawWaveformInRect:waveform color:control.colorRgb];
+            [NSGraphicsContext restoreGraphicsState];
+            continue;
+        }
+        if (equals(control.kind, "spectrum") && equals(control.variant, "bar-spectrum-visualizer")) {
+            const NSRect spectrum = controlLayoutRect(control, visual);
+            [NSGraphicsContext saveGraphicsState];
+            CGContextSetAlpha([[NSGraphicsContext currentContext] CGContext], std::clamp<CGFloat>(control.opacity, 0, 1));
+            if (std::abs(control.rotation) >= .001f) {
+                const NSPoint center = NSMakePoint(NSMidX(spectrum), NSMidY(spectrum));
+                NSAffineTransform* rotation = [NSAffineTransform transform];
+                [rotation translateXBy:center.x yBy:center.y]; [rotation rotateByDegrees:control.rotation]; [rotation translateXBy:-center.x yBy:-center.y]; [rotation concat];
+            }
+            [self drawBarSpectrumInRect:spectrum color:control.colorRgb];
             [NSGraphicsContext restoreGraphicsState];
             continue;
         }

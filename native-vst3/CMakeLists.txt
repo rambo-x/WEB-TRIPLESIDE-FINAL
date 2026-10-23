@@ -33,6 +33,7 @@ add_subdirectory("${TRIPLESIDE_VST3_SDK_DIR}" "${CMAKE_BINARY_DIR}/vst3sdk" EXCL
 smtg_enable_vst3_sdk()
 
 set(TRIPLESIDE_NATIVE_SOURCES
+    Source/BarSpectrumAnalyzer.h
     Source/DspModules.cpp
     Source/DspModules.h
     Source/EmbeddedResource.cpp
@@ -109,6 +110,12 @@ elseif(APPLE)
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/Assets/fonts/Manrope-wght.ttf"
             "$<TARGET_BUNDLE_CONTENT_DIR:TripleSideNativeInstrument>/Resources/Manrope-wght.ttf"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/Assets/stomp-footswitch-off-v1.png"
+            "$<TARGET_BUNDLE_CONTENT_DIR:TripleSideNativeInstrument>/Resources/stomp-footswitch-off-v1.png"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/Assets/stomp-footswitch-on-v1.png"
+            "$<TARGET_BUNDLE_CONTENT_DIR:TripleSideNativeInstrument>/Resources/stomp-footswitch-on-v1.png"
         VERBATIM)
 endif()
 

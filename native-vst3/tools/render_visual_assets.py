@@ -149,7 +149,8 @@ def render(spec_path, url, browser=None):
             page.screenshot(path=str(assets/'visual_reference.png'), clip=clip, omit_background=True)
             # An independent live-DOM reference exercises a parameter endpoint and
             # simultaneous white/black notes, not just the initial idle frame.
-            changed = next((c for c in controls if not c.get('parent_panel_id') and c['kind'] in {'knob','fader','vu_meter','gain_meter'}), None)
+            changed = next((c for c in controls if not c.get('parent_panel_id') and c.get('component_variant') == 'stomp-footswitch'), None)
+            changed = changed or next((c for c in controls if not c.get('parent_panel_id') and c['kind'] in {'knob','fader','vu_meter','gain_meter'}), None)
             active_pitches = [48, 52, 55, 61]
             if changed:
                 page.evaluate('(f) => window.__vstVisual.setFrame(f)', dict(id=changed['id'],value=100))

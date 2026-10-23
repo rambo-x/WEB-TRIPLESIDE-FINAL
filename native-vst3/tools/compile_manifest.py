@@ -62,6 +62,13 @@ def label_position(value: object) -> str:
     }
     return normalized if normalized in supported else "top-left"
 
+def state_label_gap(control: dict) -> int:
+    if str(control.get("kind") or "") != "button" or str(control.get("component_variant") or "") != "mechanical-toggle":
+        return 5
+    explicit = control.get("state_label_gap")
+    value = explicit if explicit is not None else 5 + clamp(control.get("label_y"), -5, 27, 0)
+    return int(round(clamp(value, 0, 32, 5)))
+
 def rc_string(value: str) -> str:
     return value.replace('"', '""')
 
@@ -373,6 +380,7 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
             str(max(12, min(88, int(control.get("key_count") or 49)))),
             cpp_string(label_position(control.get("label_position"))),
             str(max(0, min(24, int(control.get("label_gap", 12))))),
+            str(state_label_gap(control)),
             cpp_string(control.get("component_variant") or "classic"),
             cpp_string(control.get("meter_mode") or ("stereo" if control.get("kind") == "gain_meter" else "mono")),
             cpp_string(control.get("text_font") or "space-grotesk"),
@@ -540,7 +548,7 @@ namespace tripleside::project {{
 struct SampleInfo {{ const char* resourceFile; }};
 struct GroupInfo {{ const char* id; const char* name; float volume; float pan; bool mute; bool solo; }};
 struct ZoneInfo {{ int sampleIndex, groupIndex, articulationIndex, micIndex, roundRobinSet, rootPitch, lowPitch, highPitch, velocityLow, velocityHigh, roundRobin; float sampleStart, sampleEnd, loopStart, loopEnd, fadeInMs, fadeOutMs, loopCrossfadeMs; int tuneSemitones; float tuneCents, gainDb, pan; bool loopEnabled, tempoSync; float sourceBpm; std::array<int, 16> chokeTargetPitches; int chokeTargetCount; }};
-struct ControlInfo {{ const char* id; const char* kind; const char* label; const char* offLabel; const char* onLabel; const char* parameter; int moduleIndex; int indicatorSourceIndex; int midiSequenceIndex; float x, y; int width, height; float value, opacity, rotation; unsigned int colorRgb; bool showBackground; int notePitch, keyCount; const char* labelPosition; int labelGap; const char* variant; const char* meterMode; const char* textFont; unsigned int textColorRgb; bool showCorrelationMeter; bool spectrumBand; bool useFilmstrip; }};
+struct ControlInfo {{ const char* id; const char* kind; const char* label; const char* offLabel; const char* onLabel; const char* parameter; int moduleIndex; int indicatorSourceIndex; int midiSequenceIndex; float x, y; int width, height; float value, opacity, rotation; unsigned int colorRgb; bool showBackground; int notePitch, keyCount; const char* labelPosition; int labelGap, stateLabelGap; const char* variant; const char* meterMode; const char* textFont; unsigned int textColorRgb; bool showCorrelationMeter; bool spectrumBand; bool useFilmstrip; }};
 struct KeyColorInfo {{ int control, pitch; unsigned int colorRgb; }};
 struct PanelControlInfo {{ int parentPanelIndex; const char* panelType; float panelX, panelY, panelWidth, panelHeight; }};
 struct PresetInfo {{ const char* id; const char* name; bool factory; int valueOffset, valueCount, groupOffset, groupCount, moduleOffset, moduleCount, midiSequenceIndex; }};

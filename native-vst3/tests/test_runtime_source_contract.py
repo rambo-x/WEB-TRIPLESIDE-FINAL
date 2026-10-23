@@ -710,3 +710,41 @@ def test_native_windows_draws_mixer_metal_fader_and_led_ladder_variants():
     assert "active?mechanicalToggleOn.Get():mechanicalToggleOff.Get()" in view
     assert "availableWidth/608.f" in view
     assert "availableHeight/608.f" in view
+
+
+def test_native_stomp_and_bar_spectrum_are_live_on_both_platforms():
+    header = (SOURCE_DIR / "BarSpectrumAnalyzer.h").read_text(encoding="utf-8")
+    windows = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+    mac = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
+
+    assert "fftSize = 2048" in header
+    assert "bandCount = 48" in header
+    assert "minimumFrequency = 35.f" in header
+    assert "maximumFrequency = 18000.f" in header
+    assert "tiltDbPerOctave = 4.5f" in header
+    assert "attackSeconds = .045f" in header
+    assert "releaseSeconds = .34f" in header
+    assert 'equals(currentControlVariant,"bar-spectrum-visualizer")' in windows
+    assert 'equals(control.variant, "bar-spectrum-visualizer")' in mac
+    assert 'loadBitmap(L"stomp-footswitch-off-v1.png",stompFootswitchOff)' in windows
+    assert 'active?stompFootswitchOn.Get():stompFootswitchOff.Get()' in windows
+    capture = (SOURCE_DIR.parent / "tools" / "render_visual_assets.py").read_text(encoding="utf-8")
+    verifier = (SOURCE_DIR.parent / "tools" / "verify_visual_assets.py").read_text(encoding="utf-8")
+    assert "c.get('component_variant') == 'stomp-footswitch'" in capture
+    assert "source.get('id') == state.get('id')" in verifier
+
+
+def test_loading_native_presets_preserves_running_groove_transport():
+    windows = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+    mac = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
+
+    windows_factory = windows.split("void NativeView::applyFactoryPreset", 1)[1].split("NativeView::UserPreset", 1)[0]
+    windows_user = windows.split("void NativeView::applyUserPreset", 1)[1].split("void NativeView::overwriteUserPreset", 1)[0]
+    mac_factory = mac.split("- (void)applyFactoryPreset:", 1)[1].split("- (void)applyUserPreset:", 1)[0]
+    mac_user = mac.split("- (void)applyUserPreset:", 1)[1].split("- (void)saveUserPreset", 1)[0]
+    assert "stopMidiSequence" not in windows_factory
+    assert "stopMidiSequence" not in windows_user
+    assert "stopMidiSequence" not in mac_factory
+    assert "stopMidiSequence" not in mac_user
+    assert "selectedMidiSequence=p.midiSequenceIndex" in windows_factory
+    assert "_selectedMidiSequence = preset.midiSequenceIndex" in mac_factory

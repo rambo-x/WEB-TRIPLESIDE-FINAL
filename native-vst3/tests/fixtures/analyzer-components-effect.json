@@ -3,7 +3,7 @@
   "plugin_kind": "effect",
   "project_template": "basicfx",
   "dsp_profile": "standard",
-  "visual_contract": { "version": 1, "mode": "native_live" },
+  "visual_contract": { "version": 1, "mode": "shared_preview" },
   "name": "Analyzer Components Native Smoke",
   "instrument": { "type": "Audio Effect", "polyphony": 8 },
   "branding": { "manufacturer_name": "TripleSide Studio", "tagline": "ANALYZER COMPONENT VALIDATION", "font": "space-grotesk", "font_size": 22, "x": 50, "y": 8, "align": "center" },
@@ -16,8 +16,12 @@
     "canvas_height": 540,
     "background": { "url": null, "fit": "cover", "opacity": 100, "x": 50, "y": 50, "width": 100, "height": 100 },
     "controls": [
-      { "id": "pure", "kind": "spectrum", "label": "Pure Spectrum", "parameter": "output_level", "x": 30, "y": 52, "width": 440, "height": 300, "value": 0, "component_style": "css", "component_variant": "pure-spectrum", "visual_color": "#34D399", "show_background": false },
-      { "id": "vector", "kind": "spectrum", "label": "Stereo Vectorscope", "parameter": "output_level", "x": 76, "y": 52, "width": 360, "height": 300, "value": 0, "component_style": "css", "component_variant": "stereo-vectorscope", "visual_color": "#F59E0B", "show_background": false }
+      { "id": "pure", "kind": "spectrum", "label": "Pure Spectrum", "parameter": "output_level", "x": 24, "y": 34, "width": 360, "height": 180, "value": 0, "component_style": "css", "component_variant": "pure-spectrum", "visual_color": "#34D399", "show_background": false },
+      { "id": "vector", "kind": "spectrum", "label": "Stereo Vectorscope", "parameter": "output_level", "x": 72, "y": 34, "width": 360, "height": 180, "value": 0, "component_style": "css", "component_variant": "stereo-vectorscope", "visual_color": "#F59E0B", "show_background": false },
+      { "id": "bars", "kind": "spectrum", "label": "Bar Spectrum", "parameter": "output_level", "x": 50, "y": 72, "width": 640, "height": 180, "value": 0, "component_style": "css", "component_variant": "bar-spectrum-visualizer", "visual_color": "#38BDF8", "show_background": false },
+      { "id": "stomp", "kind": "button", "label": "Stomp", "off_label": "OFF", "on_label": "ON", "parameter": "mix", "x": 12, "y": 76, "width": 112, "height": 112, "value": 0, "component_style": "css", "component_variant": "stomp-footswitch", "show_background": false },
+      { "id": "toggle", "kind": "button", "label": "Toggle", "off_label": "OFF", "on_label": "ON", "parameter": "mix", "x": 88, "y": 76, "width": 100, "height": 132, "value": 0, "component_style": "css", "component_variant": "mechanical-toggle", "state_label_gap": 0, "show_background": false },
+      { "id": "tiny-led", "kind": "indicator", "label": "LED", "parameter": "visual", "x": 94, "y": 88, "width": 12, "height": 12, "value": 0, "component_style": "css", "component_variant": "round-indicator", "indicator_source_id": "stomp", "control_color": "#39FF88", "show_background": false }
     ]
   },
   "dsp_graph": {

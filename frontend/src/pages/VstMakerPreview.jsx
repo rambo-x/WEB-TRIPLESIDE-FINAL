@@ -211,6 +211,11 @@ const normalizeLabelGap = (value) => {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? Math.max(0, Math.min(24, Math.round(numeric))) : DEFAULT_LABEL_GAP;
 };
+const DEFAULT_MECHANICAL_STATE_LABEL_GAP = 5;
+const normalizeMechanicalStateLabelGap = (value) => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.max(0, Math.min(32, Math.round(numeric))) : DEFAULT_MECHANICAL_STATE_LABEL_GAP;
+};
 const normalizeComponentRotation = (value) => {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return 0;
@@ -421,6 +426,7 @@ const COMPONENT_VARIANTS = [
   { id: "capsule-led-label", category: "button", kind: "button", label: "Capsule LED Label", detail: "Capsule console key · editable text", style: "css", offLabel: "OFF", onLabel: "ON" },
   { id: "toggle", category: "button", kind: "button", label: "Toggle Switch", detail: "Saklar horizontal", style: "css" },
   { id: "mechanical-toggle", category: "button", kind: "button", label: "Mechanical Toggle", detail: "Tuas metal 3D · tanpa plat warna", style: "css", offLabel: "OFF", onLabel: "ON", width: 100, height: 132 },
+  { id: "stomp-footswitch", category: "button", kind: "button", label: "Stomp Footswitch", detail: "Push switch chrome · PNG realistis", style: "css", offLabel: "OFF", onLabel: "ON", width: 112, height: 112 },
   { id: "regent-switch", category: "button", kind: "button", label: "Regent Switch", detail: "Red square console key", style: "css" },
   { id: "regent-illuminated", category: "button", kind: "button", label: "Regent Illuminated", detail: "Light gray off · amber-orange on", style: "css" },
   { id: "solo-led", category: "button", kind: "solo", label: "Solo", detail: "Tombol solo kuning", style: "css" },
@@ -444,6 +450,7 @@ const COMPONENT_VARIANTS = [
   { id: "scale-arc", category: "visual", kind: "visual", label: "Scale Arc", detail: "Busur minimal · MIN / MAX", style: "css", color: "#C9CED3" },
   { id: "realtime-spectrum", category: "spectrum", kind: "spectrum", label: "Spectrum Analyzer", detail: "FFT output nyata · native live", style: "css", color: "#22D3EE", width: 640, height: 300 },
   { id: "realtime-waveform", category: "spectrum", kind: "spectrum", label: "Realtime Waveform", detail: "Gelombang output nyata · native live", style: "css", color: "#A78BFA", width: 640, height: 260 },
+  { id: "bar-spectrum-visualizer", category: "spectrum", kind: "spectrum", label: "Bar Spectrum Visualizer", detail: "48 band FFT simetris · real-time", style: "css", color: "#38BDF8", width: 640, height: 260, showBackground: false },
   { id: "pure-spectrum", category: "spectrum", kind: "spectrum", label: "Pure Spectrum Analyzer", detail: "FFT bergerak murni · tanpa band EQ", style: "css", color: "#34D399", width: 640, height: 300 },
   { id: "stereo-vectorscope", category: "spectrum", kind: "spectrum", label: "Stereo Vectorscope", detail: "Stereo phase scope · correlation −1 hingga +1", style: "css", color: "#F59E0B", width: 420, height: 320 },
   { id: "rubber", category: "pad", kind: "pad", label: "Rubber Pad", detail: "Pad sampler klasik", style: "css" },
@@ -842,6 +849,11 @@ const normalizeInterfaceControl = (control) => {
   const minimumHeight = control.kind === "keyboard" ? 112 : control.kind === "spectrum" ? 120 : compactIndicator ? 12 : control.kind === "text" ? 24 : 48;
   const labelPosition = normalizeLabelPosition(control.labelPosition ?? control.label_position);
   const labelGap = normalizeLabelGap(control.labelGap ?? control.label_gap);
+  const stateLabelGap = normalizeMechanicalStateLabelGap(
+    control.stateLabelGap
+      ?? control.state_label_gap
+      ?? (DEFAULT_MECHANICAL_STATE_LABEL_GAP + Number(control.labelY ?? control.label_y ?? 0)),
+  );
   const isTwoStateButton = control.kind === "button";
   const isMeter = ["gain_meter", "vu_meter"].includes(control.kind);
   const componentVariant = typeof control.component_variant === "string" ? control.component_variant.slice(0, 32) : undefined;
@@ -857,6 +869,7 @@ const normalizeInterfaceControl = (control) => {
     height: Number.isFinite(height) ? Math.max(minimumHeight, Math.min(1024, height)) : defaults.height,
     labelPosition,
     labelGap,
+    ...(control.kind === "button" && componentVariant === "mechanical-toggle" ? { stateLabelGap } : {}),
     showBackground: control.showBackground !== false && control.show_background !== false,
     show_correlation_meter: control.showCorrelationMeter !== false && control.show_correlation_meter !== false,
     opacity: Math.max(0, Math.min(100, Number(control.opacity ?? 100))),
@@ -1434,7 +1447,7 @@ const toProjectPayload = (project, samples) => {
   modulation_enabled: project.modulationEnabled === true,
   interface_controls: project.interfaceControls.map((rawControl) => {
     const normalized = normalizeInterfaceControl(rawControl);
-    const { notePitch, moduleId, keyCount, keyColors, key_colors: legacyKeyColors, showBackground, show_background: legacyShowBackground, labelPosition, label_position: legacyLabelPosition, labelGap, label_gap: legacyLabelGap, labelX, labelY, label_x: legacyLabelX, label_y: legacyLabelY, meterMode, meter_mode: legacyMeterMode, padColor, padActiveColor, pad_color: legacyPadColor, pad_active_color: legacyPadActiveColor, visualColor, visual_color: legacyVisualColor, spectrumBand, spectrum_band: legacySpectrumBand, prismControlMode, prism_control_mode: legacyPrismControlMode, prismContext, prism_context: legacyPrismContext, prismOwnerId, prism_owner_id: legacyPrismOwnerId, textFont, text_font: legacyTextFont, textColor, text_color: legacyTextColor, controlColor, control_color: legacyControlColor, indicatorSourceId, indicator_source_id: legacyIndicatorSourceId, midiSequenceId, midi_sequence_id: legacyMidiSequenceId, imageUrl, imageName, imageFit, imageOpacity, image_url: legacyImageUrl, image_name: legacyImageName, image_fit: legacyImageFit, image_opacity: legacyImageOpacity, parentPanelId, parent_panel_id: legacyParentPanelId, panelType, panel_type: legacyPanelType, panelX, panel_x: legacyPanelX, panelY, panel_y: legacyPanelY, panelWidth, panel_width: legacyPanelWidth, panelHeight, panel_height: legacyPanelHeight, ...control } = normalized;
+    const { notePitch, moduleId, keyCount, keyColors, key_colors: legacyKeyColors, showBackground, show_background: legacyShowBackground, labelPosition, label_position: legacyLabelPosition, labelGap, label_gap: legacyLabelGap, stateLabelGap, state_label_gap: legacyStateLabelGap, labelX, labelY, label_x: legacyLabelX, label_y: legacyLabelY, meterMode, meter_mode: legacyMeterMode, padColor, padActiveColor, pad_color: legacyPadColor, pad_active_color: legacyPadActiveColor, visualColor, visual_color: legacyVisualColor, spectrumBand, spectrum_band: legacySpectrumBand, prismControlMode, prism_control_mode: legacyPrismControlMode, prismContext, prism_context: legacyPrismContext, prismOwnerId, prism_owner_id: legacyPrismOwnerId, textFont, text_font: legacyTextFont, textColor, text_color: legacyTextColor, controlColor, control_color: legacyControlColor, indicatorSourceId, indicator_source_id: legacyIndicatorSourceId, midiSequenceId, midi_sequence_id: legacyMidiSequenceId, imageUrl, imageName, imageFit, imageOpacity, image_url: legacyImageUrl, image_name: legacyImageName, image_fit: legacyImageFit, image_opacity: legacyImageOpacity, parentPanelId, parent_panel_id: legacyParentPanelId, panelType, panel_type: legacyPanelType, panelX, panel_x: legacyPanelX, panelY, panel_y: legacyPanelY, panelWidth, panel_width: legacyPanelWidth, panelHeight, panel_height: legacyPanelHeight, ...control } = normalized;
     return {
       ...control,
       module_id: moduleId || null,
@@ -1442,6 +1455,11 @@ const toProjectPayload = (project, samples) => {
       show_background: (showBackground ?? legacyShowBackground) !== false,
       label_position: labelPosition ?? legacyLabelPosition ?? defaultLabelPosition(control.kind),
       label_gap: normalizeLabelGap(labelGap ?? legacyLabelGap),
+      label_x: Number(labelX ?? legacyLabelX ?? 0),
+      label_y: Number(labelY ?? legacyLabelY ?? 0),
+      ...(control.kind === "button" && control.component_variant === "mechanical-toggle" ? {
+        state_label_gap: normalizeMechanicalStateLabelGap(stateLabelGap ?? legacyStateLabelGap),
+      } : {}),
       parent_panel_id: parentPanelId || legacyParentPanelId || null,
       panel_type: control.kind === "panel_button" ? (panelType || legacyPanelType) : null,
       panel_x: panelX ?? legacyPanelX ?? 50,
@@ -2474,8 +2492,8 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
         audioContextRef.current = new AudioContextClass();
       }
       const analyser = audioContextRef.current.createAnalyser();
-      analyser.fftSize = 512;
-      analyser.smoothingTimeConstant = 0.72;
+      analyser.fftSize = 2048;
+      analyser.smoothingTimeConstant = 0;
       analyser.connect(audioContextRef.current.destination);
       attachStereoMeterTap(audioContextRef.current, analyser);
       meterAnalyserRef.current = analyser;
@@ -7865,7 +7883,6 @@ function PanelFeatureContent({ panel, controls, engineModules = [], presets, mid
             }));
             onFeatureChange({ samplerGroups: nextGroups, engineModules: nextModules });
             const sequence = midiSequences.find((item) => item.id === preset.midi_sequence_id);
-            if (playingSequenceId) stopMidi();
             if (sequence) {
               setSelectedSequenceId(sequence.id);
               onLivePatternConfigChange?.(sequence.generatorConfig
@@ -8694,7 +8711,7 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                 key={control.id}
                 data-vst-control={control.id}
                 className={`maker-canvas-control maker-canvas-control--${control.kind} maker-label-position--${normalizeLabelPosition(control.labelPosition ?? control.label_position)} ${control.parentPanelId ? "is-panel-child" : ""} ${["hit-effect", "diffuse-hit", "smooth-diffuse-hit"].includes(control.component_variant) ? "maker-canvas-control--hit-pad" : ""} ${projectTemplate === "neonpopdrums" && control.kind === "pad" && !["hit-effect", "diffuse-hit", "smooth-diffuse-hit"].includes(control.component_variant) ? "maker-canvas-control--drum-hotspot" : ""} ${selectedControlIdSet.has(control.id) ? "is-selected" : ""} ${selectedControlId === control.id ? "is-primary-selected" : ""} ${control.showBackground === false ? "is-background-hidden" : ""} ${PRISM_CONTEXT_PARAMETERS.has(control.parameter) && prismContextModeFor(control) !== "contextual" ? "is-prism-context-hidden" : ""} ${PRISM_CONTEXT_PARAMETERS.has(control.parameter) && !selectedPrismBandEnabled ? "is-prism-context-disabled" : ""}`}
-                style={{ left: `${canvasPosition.x}%`, top: `${canvasPosition.y}%`, width: `${control.width ?? CONTROL_DEFAULT_SIZES[control.kind]?.width ?? 112}px`, height: `${control.height ?? CONTROL_DEFAULT_SIZES[control.kind]?.height ?? 122}px`, zIndex: (control.parentPanelId ? 300 : 10) + (surfaceLayerIndex.get(control.id) || 0), "--maker-accent": accentColor, "--maker-label-gap": normalizeLabelGap(control.labelGap ?? control.label_gap), "--maker-component-opacity": Math.max(0, Math.min(100, Number(control.opacity ?? 100))) / 100, "--maker-component-rotation": `${normalizeComponentRotation(control.rotation)}deg` }}
+                style={{ left: `${canvasPosition.x}%`, top: `${canvasPosition.y}%`, width: `${control.width ?? CONTROL_DEFAULT_SIZES[control.kind]?.width ?? 112}px`, height: `${control.height ?? CONTROL_DEFAULT_SIZES[control.kind]?.height ?? 122}px`, zIndex: (control.parentPanelId ? 300 : 10) + (surfaceLayerIndex.get(control.id) || 0), "--maker-accent": accentColor, "--maker-label-gap": normalizeLabelGap(control.labelGap ?? control.label_gap), "--maker-state-label-gap": normalizeMechanicalStateLabelGap(control.stateLabelGap ?? (DEFAULT_MECHANICAL_STATE_LABEL_GAP + Number(control.labelY ?? control.label_y ?? 0))), "--maker-component-opacity": Math.max(0, Math.min(100, Number(control.opacity ?? 100))) / 100, "--maker-component-rotation": `${normalizeComponentRotation(control.rotation)}deg` }}
                 aria-selected={selectedControlIdSet.has(control.id)}
                 onPointerDownCapture={(event) => beginControlSelectionGesture(event, control)}
                 onPointerMoveCapture={updateControlSelectionGesture}
@@ -8853,6 +8870,8 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                     <StereoVectorscopeDisplay analyserRef={meterAnalyserRef} accentColor={control.visualColor ?? control.visual_color ?? accentColor} showCorrelationMeter={control.showCorrelationMeter !== false && control.show_correlation_meter !== false} />
                   ) : control.component_variant === "realtime-waveform" ? (
                     <RealtimeWaveformDisplay analyserRef={meterAnalyserRef} accentColor={control.visualColor ?? control.visual_color ?? accentColor} />
+                  ) : control.component_variant === "bar-spectrum-visualizer" ? (
+                    <BarSpectrumVisualizer analyserRef={meterAnalyserRef} accentColor={control.visualColor ?? control.visual_color ?? accentColor} />
                   ) : (
                     <PrismSpectrumDisplay
                       analyserRef={meterAnalyserRef}
@@ -9150,6 +9169,23 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                 <FieldLabel>Teks saat menyala (ON)</FieldLabel>
                 <input className="maker-input mt-2" value={selectedControl.on_label ?? "ON"} maxLength={24} onChange={(event) => onUpdate(selectedControl.id, { on_label: event.target.value })} />
               </label>
+              {selectedControl.component_variant === "mechanical-toggle" && <label className="md:col-span-2">
+                <FieldLabel>Jarak teks ON/OFF ke toggle · {normalizeMechanicalStateLabelGap(selectedControl.stateLabelGap ?? (DEFAULT_MECHANICAL_STATE_LABEL_GAP + Number(selectedControl.labelY ?? selectedControl.label_y ?? 0)))} px</FieldLabel>
+                <input
+                  className="maker-range mt-4 w-full"
+                  type="range"
+                  min="0"
+                  max="32"
+                  step="1"
+                  value={normalizeMechanicalStateLabelGap(selectedControl.stateLabelGap ?? (DEFAULT_MECHANICAL_STATE_LABEL_GAP + Number(selectedControl.labelY ?? selectedControl.label_y ?? 0)))}
+                  onChange={(event) => onUpdate(selectedControl.id, { stateLabelGap: Number(event.target.value) })}
+                  title="Atur jarak vertikal teks status ON/OFF terhadap mechanical toggle"
+                />
+              </label>}
+              {selectedControl.component_variant === "stomp-footswitch" && <div className="rounded-xl border border-amber-300/20 bg-amber-300/[0.05] px-3 py-2.5 md:col-span-2">
+                <FieldLabel>Status komponen</FieldLabel>
+                <span className="mt-1 block text-[10px] text-amber-100/70">PNG realistis OFF/ON aktif di preview dan hasil VST3 native Windows/macOS.</span>
+              </div>}
             </>
           )}
           {selectedControl.kind === "panel_button" ? (
@@ -9331,6 +9367,8 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                   ? "Stereo vectorscope real-time · phase correlation −1 sampai +1 · aktif pada preview browser dan hasil VST3 native"
                   : selectedControl.component_variant === "realtime-waveform"
                     ? "Waveform output real-time · bentuk gelombang bergerak mengikuti audio pada preview browser dan hasil VST3 native"
+                  : selectedControl.component_variant === "bar-spectrum-visualizer"
+                    ? "48 band FFT 2048-point · RMS/Peak LR-max · tilt 4,5 dB/oct · attack/release berbasis waktu · aktif pada preview browser dan hasil VST3 native"
                   : selectedControl.component_variant === "pure-spectrum"
                     ? "FFT output real-time murni tanpa node atau kontrol EQ · aktif pada preview browser dan hasil VST3 native"
                     : "FFT output real-time · aktif pada preview browser dan hasil VST3 native · band EQ yang ditambahkan dari analyzer sudah termasuk dan tidak menambah biaya komponen"}</span>
@@ -10065,7 +10103,7 @@ function ComponentThumbnail({ variant }) {
     preview = (
       <span className={`maker-gallery-button-stage maker-gallery-button-stage--${id} maker-canvas-control--${kind}`}>
         <span className={`maker-panel-button maker-button--${id} maker-css-control maker-panel-button--${kind}`}>
-          {kind === "solo" ? "S" : kind === "mute" ? "M" : <>{id === "mechanical-toggle" && <img className="maker-mechanical-toggle-image" src="/images/vst-buttons/mechanical-toggle-off-v4.png" alt="" aria-hidden="true" draggable="false" />}<span className="maker-panel-button__state-label">{id === "toggle" ? "" : "OFF"}</span></>}
+          {kind === "solo" ? "S" : kind === "mute" ? "M" : <>{id === "mechanical-toggle" && <img className="maker-mechanical-toggle-image" src="/images/vst-buttons/mechanical-toggle-off-v4.png" alt="" aria-hidden="true" draggable="false" />}{id === "stomp-footswitch" && <img className="maker-stomp-footswitch-image" src="/images/vst-buttons/stomp-footswitch-off-v1.png" alt="" aria-hidden="true" draggable="false" />}<span className="maker-panel-button__state-label">{["toggle", "stomp-footswitch"].includes(id) ? "" : "OFF"}</span></>}
         </span>
       </span>
     );
@@ -10100,6 +10138,8 @@ function ComponentThumbnail({ variant }) {
       ? <span className="maker-gallery-vectorscope"><i /><i /><b /><em /></span>
       : id === "realtime-waveform"
         ? <span className="maker-gallery-waveform"><i /><b /></span>
+        : id === "bar-spectrum-visualizer"
+          ? <span className="maker-gallery-bar-spectrum">{Array.from({ length: 17 }, (_, index) => <i key={index} />)}</span>
         : <span className={`maker-gallery-spectrum ${id === "pure-spectrum" ? "is-pure" : ""}`}><i /><i /><i /><i /><i /><b /></span>;
   } else if (kind === "visual") {
     preview = <ScaleRing variant={id} color={variant.color} />;
@@ -10187,7 +10227,7 @@ function FilmstripButton({ value, label, offLabel, onLabel, inverted = false, ki
         event.stopPropagation();
         onChange(inverted ? (active ? 100 : 0) : (active ? 0 : 100));
       }}
-    >{kind === "solo" ? (asset ? null : "S") : kind === "mute" ? (asset ? null : "M") : <>{variant === "mechanical-toggle" && <img className="maker-mechanical-toggle-image" src={`/images/vst-buttons/mechanical-toggle-${active ? "on" : "off"}-v4.png`} alt="" aria-hidden="true" draggable="false" />}<span className="maker-panel-button__state-label">{stateLabel}</span></>}</button>
+    >{kind === "solo" ? (asset ? null : "S") : kind === "mute" ? (asset ? null : "M") : <>{variant === "mechanical-toggle" && <img className="maker-mechanical-toggle-image" src={`/images/vst-buttons/mechanical-toggle-${active ? "on" : "off"}-v4.png`} alt="" aria-hidden="true" draggable="false" />}{variant === "stomp-footswitch" && <img className="maker-stomp-footswitch-image" src={`/images/vst-buttons/stomp-footswitch-${active ? "on" : "off"}-v1.png`} alt="" aria-hidden="true" draggable="false" />}<span className="maker-panel-button__state-label">{stateLabel}</span></>}</button>
   );
 }
 
@@ -10460,6 +10500,99 @@ function RealtimeWaveformDisplay({ analyserRef, accentColor }) {
     return () => window.cancelAnimationFrame(frame);
   }, [accentColor, analyserRef]);
   return <div className="maker-prism-spectrum maker-realtime-waveform" style={{ inset: 0, "--spectrum-color": isHexColor(accentColor) ? accentColor : "#A78BFA" }} aria-label="Realtime audio waveform"><canvas ref={canvasRef} className="maker-prism-spectrum__canvas" /></div>;
+}
+
+function BarSpectrumVisualizer({ analyserRef, accentColor }) {
+  const canvasRef = useRef(null);
+  useEffect(() => {
+    let frame = 0;
+    let lastDrawAt = 0;
+    let channelData = [];
+    let smoothed = [];
+    const draw = (timestamp = 0) => {
+      frame = window.requestAnimationFrame(draw);
+      if (timestamp - lastDrawAt < 32) return;
+      const elapsedSeconds = Math.max(0.016, Math.min(0.12, (timestamp - lastDrawAt) / 1000 || 0.032));
+      lastDrawAt = timestamp;
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const bounds = canvas.getBoundingClientRect();
+      const width = Math.max(1, bounds.width);
+      const height = Math.max(1, bounds.height);
+      const ratio = Math.min(1.5, window.devicePixelRatio || 1);
+      const pixelWidth = Math.round(width * ratio);
+      const pixelHeight = Math.round(height * ratio);
+      if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+        canvas.width = pixelWidth;
+        canvas.height = pixelHeight;
+      }
+      const context = canvas.getContext("2d");
+      context.setTransform(ratio, 0, 0, ratio, 0, 0);
+      context.clearRect(0, 0, width, height);
+
+      const analyser = analyserRef?.current;
+      const channels = analyser?._vstMeterChannels || (analyser ? [analyser] : []);
+      const barCount = 48;
+      if (smoothed.length !== barCount) smoothed = Array(barCount).fill(0);
+      const previousChannelData = channelData;
+      channelData = channels.slice(0, 2).map((channel, index) => {
+        const size = channel.frequencyBinCount || 0;
+        const data = previousChannelData[index]?.length === size ? previousChannelData[index] : new Float32Array(size);
+        if (size) channel.getFloatFrequencyData(data);
+        return data;
+      });
+
+      for (let bar = 0; bar < barCount; bar += 1) {
+        const frequencyRatio = 18000 / 35;
+        const startFrequency = 35 * (frequencyRatio ** (bar / barCount));
+        const endFrequency = 35 * (frequencyRatio ** ((bar + 1) / barCount));
+        const centerFrequency = Math.sqrt(startFrequency * endFrequency);
+        let measuredDb = -120;
+        channels.slice(0, 2).forEach((channel, channelIndex) => {
+          const data = channelData[channelIndex];
+          if (!data?.length) return;
+          const nyquist = (channel.context?.sampleRate || 48000) / 2;
+          const startBin = Math.max(1, Math.min(data.length - 1, Math.floor(startFrequency / nyquist * data.length)));
+          const endBin = Math.max(startBin, Math.min(data.length - 1, Math.ceil(endFrequency / nyquist * data.length)));
+          let power = 0;
+          let peakDb = -120;
+          let binCount = 0;
+          for (let bin = startBin; bin <= endBin; bin += 1) {
+            const db = Number.isFinite(data[bin]) ? data[bin] : -100;
+            power += 10 ** (db / 10);
+            peakDb = Math.max(peakDb, db);
+            binCount += 1;
+          }
+          const rmsDb = binCount ? 10 * Math.log10(Math.max(1e-12, power / binCount)) : -120;
+          measuredDb = Math.max(measuredDb, rmsDb, peakDb - 8);
+        });
+        const tiltedDb = measuredDb + (4.5 * Math.log2(centerFrequency / 1000));
+        const target = measuredDb <= -99 ? 0 : Math.max(0, Math.min(1, (tiltedDb + 90) / 90));
+        const timeConstant = target > smoothed[bar] ? 0.045 : 0.34;
+        const blend = 1 - Math.exp(-elapsedSeconds / timeConstant);
+        smoothed[bar] += (target - smoothed[bar]) * blend;
+        if (smoothed[bar] < 0.001) smoothed[bar] = 0;
+      }
+
+      const color = isHexColor(accentColor) ? accentColor : "#38BDF8";
+      const fill = context.createLinearGradient(0, 0, width, 0);
+      fill.addColorStop(0, hexColorWithAlpha(color, 0.98));
+      fill.addColorStop(0.55, hexColorWithAlpha(color, 0.72));
+      fill.addColorStop(1, "rgba(255,255,255,0.96)");
+      context.fillStyle = fill;
+      const slot = width / barCount;
+      const barWidth = Math.max(2, slot * 0.54);
+      smoothed.forEach((level, index) => {
+        const barHeight = level * height * 0.86;
+        if (barHeight < 1) return;
+        const x = (index * slot) + ((slot - barWidth) / 2);
+        context.fillRect(x, (height - barHeight) / 2, barWidth, barHeight);
+      });
+    };
+    frame = window.requestAnimationFrame(draw);
+    return () => window.cancelAnimationFrame(frame);
+  }, [accentColor, analyserRef]);
+  return <div className="maker-prism-spectrum maker-bar-spectrum-visualizer" style={{ inset: 0, "--spectrum-color": isHexColor(accentColor) ? accentColor : "#38BDF8" }} role="img" aria-label="Real-time symmetric bar spectrum visualizer"><canvas ref={canvasRef} className="maker-prism-spectrum__canvas" /></div>;
 }
 
 function PrismSpectrumDisplay({ analyserRef, prismModule, onParameterChange, onBandSelect, onBandDelete, selectedBandIndex = 1, accentColor, interactive = true, style }) {
