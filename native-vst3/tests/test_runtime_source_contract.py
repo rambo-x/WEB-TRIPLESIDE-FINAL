@@ -367,6 +367,10 @@ def test_visual_capture_rasterizes_panel_children_from_the_shared_preview():
     assert "Using native panel visual" not in capture
     assert "visual_panel_child.png" not in capture
 
+    assert "midiSequenceId: c.midi_sequence_id" in renderer
+    assert "generatorConfig: sequence.generator_config" in renderer
+    assert "livePatternConfig={livePatternConfig}" in renderer
+
     verifier = (SOURCE_DIR.parent / "tools" / "verify_visual_assets.py").read_text(encoding="utf-8")
     assert "if control.get('parent_panel_id')" in verifier
     assert "def verify_panels(spec_path)" in verifier

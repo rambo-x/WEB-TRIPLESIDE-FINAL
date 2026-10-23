@@ -136,6 +136,29 @@ def test_linked_indicator_verification_uses_source_state_and_capture_override():
     assert VERIFIER.control_frame_value(controls[1], controls, {"id": "led", "value": 100}) == 100
 
 
+def test_live_pattern_controls_and_linked_indicators_start_in_transient_off_state():
+    controls = [
+        {
+            "id": "pattern-button",
+            "kind": "button",
+            "value": 100,
+            "midi_sequence_id": "pattern-1",
+        },
+        {
+            "id": "pattern-led",
+            "kind": "indicator",
+            "value": 0,
+            "indicator_source_id": "pattern-button",
+        },
+    ]
+
+    assert VERIFIER.control_frame_value(controls[0], controls, {}) == 0
+    assert VERIFIER.control_frame_value(controls[1], controls, {}) == 0
+    active = {"id": "pattern-button", "value": 100}
+    assert VERIFIER.control_frame_value(controls[0], controls, active) == 100
+    assert VERIFIER.control_frame_value(controls[1], controls, active) == 100
+
+
 def test_windows_build_retries_visual_capture_once_only():
     script = (Path(__file__).parents[1] / "build-windows.ps1").read_text(encoding="utf-8")
     assert '$ErrorActionPreference = "Continue"' in script

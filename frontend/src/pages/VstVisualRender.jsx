@@ -34,6 +34,7 @@ export default function VstVisualRender() {
     panelX: c.panel_x, panelY: c.panel_y,
     panelWidth: c.panel_width, panelHeight: c.panel_height,
     indicatorSourceId: c.indicator_source_id,
+    midiSequenceId: c.midi_sequence_id,
     value: frame.id === c.id ? frame.value : c.value,
     captureLevel: frame.id === c.id ? frame.value / 100 : undefined,
   }));
@@ -41,7 +42,14 @@ export default function VstVisualRender() {
   const midiSequences = (spec.midi_sequences || []).map((sequence) => ({
     ...sequence,
     durationTicks: sequence.duration_ticks,
+    generatorConfig: sequence.generator_config,
   }));
+  const framedControl = controls.find((control) => control.id === frame.id);
+  const framedMidiSequenceId = framedControl?.midiSequenceId ?? "";
+  const framedMidiSequence = midiSequences.find((sequence) => sequence.id === framedMidiSequenceId);
+  const livePatternConfig = framedMidiSequence?.generatorConfig && Number(frame.value) >= 50
+    ? { ...framedMidiSequence.generatorConfig, enabled: true, sourceSequenceId: framedMidiSequence.id }
+    : null;
   return <InterfaceWorkspace
     visualOpenPanelId={frame.panelId ?? null}
     accentColor={ui.accent_color} uiColor={ui.ui_color} pluginName={spec.name} manufacturerName={brand.manufacturer_name}
@@ -60,6 +68,7 @@ export default function VstVisualRender() {
     controls={controls} engineModules={[]} selectedControlIds={[]}
     presets={spec.presets || []} midiSequences={midiSequences}
     samplerGroups={spec.sampler_groups || []} onFeatureChange={noop}
+    livePatternConfig={livePatternConfig} onLivePatternConfigChange={noop}
     onKeyboardKeysChange={noop} onCanvasChange={noop}
     onNoteOn={noop} onNoteOff={noop} onAdd={noop} onSelect={noop} onUpdate={noop}
     onUpdateMany={noop} onRemove={noop} onRemoveSelected={noop} onDrop={noop}

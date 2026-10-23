@@ -23,13 +23,18 @@ def control_frame_value(control, controls, state):
             return control.get('value', 0)
         if source.get('kind') == 'panel_button':
             return 100 if str(state.get('panelId') or '') == source_id else 0
+        if source.get('midi_sequence_id'):
+            return 100 if source.get('id') == state.get('id') and state.get('value', 0) >= 50 else 0
         if source.get('kind') == 'pad':
             return 100 if source.get('note_pitch', 60) in state.get('pitches', []) else 0
         source_value = state.get('value') if source.get('id') == state.get('id') else source.get('value', 0)
         if source.get('kind') == 'button' and source.get('parameter') == 'bypass':
             return 100 if source_value < 50 else 0
         return 100 if source_value >= 50 else 0
-    value = 0 if kind in {'gain_meter', 'vu_meter', 'pad', 'keyboard', 'visual', 'text'} else control.get('value', 50)
+    if control.get('midi_sequence_id'):
+        value = 0
+    else:
+        value = 0 if kind in {'gain_meter', 'vu_meter', 'pad', 'keyboard', 'visual', 'text'} else control.get('value', 50)
     return state.get('value', value) if control.get('id') == state.get('id') else value
 
 
