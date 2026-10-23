@@ -187,6 +187,7 @@ NSRect controlLayoutRect(const project::ControlInfo& control, const project::Vis
 
 using tripleside::native::NativeInstrument;
 using tripleside::native::LicenseRuntime;
+using tripleside::native::BarSpectrumAnalyzer;
 using tripleside::native::displayedValue;
 using tripleside::native::indicatorValue;
 using tripleside::native::displayedParameter;

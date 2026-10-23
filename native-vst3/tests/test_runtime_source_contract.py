@@ -748,3 +748,11 @@ def test_loading_native_presets_preserves_running_groove_transport():
     assert "stopMidiSequence" not in mac_user
     assert "selectedMidiSequence=p.midiSequenceIndex" in windows_factory
     assert "_selectedMidiSequence = preset.midiSequenceIndex" in mac_factory
+
+
+def test_macos_bar_spectrum_analyzer_uses_native_namespace():
+    source = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
+
+    assert "using tripleside::native::BarSpectrumAnalyzer;" in source
+    assert "BarSpectrumAnalyzer _barSpectrumAnalyzer;" in source
+    assert "BarSpectrumAnalyzer::fftSize" in source
