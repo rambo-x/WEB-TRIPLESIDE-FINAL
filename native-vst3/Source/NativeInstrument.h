@@ -113,6 +113,7 @@ private:
     std::array<int, project::kZones.size() * 128> roundRobin{};
     std::array<float, project::kGroups.size()> groupVolumes{}; std::array<float, project::kGroups.size()> groupPans{};
     std::array<bool, project::kGroups.size()> groupMutes{}, groupSolos{};
+    std::array<dsp::SmoothedValue, project::kGroups.size()> groupOutputGains{};
     std::array<std::atomic<float>, 2> peaks{}, rms{}; std::array<std::atomic<float>, project::kGroups.size()> groupPeaks{};
     std::array<std::atomic<float>, kAnalysisSampleCount> analysisSamplesLeft{},analysisSamplesRight{}; std::atomic<std::uint64_t> analysisWrite{0};
     std::array<std::atomic<float>, project::kDspModules.size()> compressorGainReductions{};

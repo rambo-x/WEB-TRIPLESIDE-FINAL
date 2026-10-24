@@ -12,6 +12,21 @@ def test_hidden_master_mute_and_solo_cannot_be_restored():
     assert 'v[5]=mute?1.f:0.f;v[6]=solo?1.f:0.f' in source
 
 
+def test_muted_sampler_groups_keep_voice_timeline_advancing_silently():
+    source = (SOURCE_DIR / "NativeInstrument.cpp").read_text(encoding="utf-8")
+    render_frame = source.split("void NativeInstrument::renderFrame", 1)[1].split(
+        "void NativeInstrument::configureGlobalTuning", 1
+    )[0]
+
+    assert "groupOutputGains[group].setTarget(!groupMutes[group]&&(!anySolo||groupSolos[group])?1.f:0.f)" in render_frame
+    assert "groupOutputLevels[group]=groupOutputGains[group].next()" in render_frame
+    assert "if(groupMutes[g]||(anySolo&&!groupSolos[g]))continue" not in render_frame
+    assert "gain=v.gain*groupVolumes[g]*v.envelope*trim*groupOutputLevels[g]" in render_frame
+    assert render_frame.index("renderTempoVoiceFrame") < render_frame.index("left+=l;right+=r")
+    assert render_frame.index("v.position+=v.increment*expressionRate") > render_frame.index("left+=l;right+=r")
+    assert "groupOutputGains[group].prepare(spec.sampleRate,5.0)" in source
+
+
 def test_native_view_uses_real_midi_activity_and_boolean_pad_state():
     header = (SOURCE_DIR / "NativeView.h").read_text(encoding="utf-8")
     source = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
