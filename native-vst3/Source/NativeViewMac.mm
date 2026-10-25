@@ -258,7 +258,7 @@ namespace project = tripleside::project;
 - (NSRect)panelChildRect:(NSInteger)index;
 - (NSInteger)panelControlAt:(NSPoint)point;
 - (void)drawPanelControl:(NSInteger)index;
-- (void)drawWaveformInRect:(NSRect)rect color:(unsigned)color;
+- (void)drawWaveformInRect:(NSRect)rect color:(unsigned)color lineWidth:(CGFloat)lineWidth;
 - (BOOL)panelMouseDown:(NSPoint)point;
 - (BOOL)importMidiPath:(NSString*)path;
 - (std::filesystem::path)exportMidiSequence:(NSInteger)index;
@@ -937,7 +937,7 @@ namespace project = tripleside::project;
              fraction:1 respectFlipped:YES hints:@{NSImageHintInterpolation: @(NSImageInterpolationHigh)}];
 }
 
-- (void)drawWaveformInRect:(NSRect)rect color:(unsigned)color {
+- (void)drawWaveformInRect:(NSRect)rect color:(unsigned)color lineWidth:(CGFloat)lineWidth {
     color = color ? color : project::kAccentRgb;
     constexpr std::size_t sampleCount = 2048;
     std::array<float, sampleCount> samples{};
@@ -951,7 +951,7 @@ namespace project = tripleside::project;
         const NSPoint location = NSMakePoint(NSMinX(rect) + NSWidth(rect) * point / std::max<NSInteger>(1, points - 1), NSMidY(rect) - std::clamp(samples[sample], -1.f, 1.f) * NSHeight(rect) * .43);
         if (!point) [trace moveToPoint:location]; else [trace lineToPoint:location];
     }
-    [rgbColor(color, .95) setStroke]; trace.lineWidth = 1.8; trace.lineJoinStyle = NSLineJoinStyleRound; [trace stroke];
+    [rgbColor(color, .95) setStroke]; trace.lineWidth = std::clamp<CGFloat>(lineWidth, .5, 8); trace.lineJoinStyle = NSLineJoinStyleRound; [trace stroke];
     strokeRounded(rect, 11.2, rgbColor(color, .22));
 }
 
@@ -993,7 +993,7 @@ namespace project = tripleside::project;
             NSAffineTransform* rotation = [NSAffineTransform transform];
             [rotation translateXBy:center.x yBy:center.y]; [rotation rotateByDegrees:control.rotation]; [rotation translateXBy:-center.x yBy:-center.y]; [rotation concat];
         }
-        [self drawWaveformInRect:waveform color:control.colorRgb];
+        [self drawWaveformInRect:waveform color:control.colorRgb lineWidth:control.waveformLineWidth];
         [NSGraphicsContext restoreGraphicsState];
         return;
     }
@@ -1067,7 +1067,7 @@ namespace project = tripleside::project;
                 NSAffineTransform* rotation = [NSAffineTransform transform];
                 [rotation translateXBy:center.x yBy:center.y]; [rotation rotateByDegrees:control.rotation]; [rotation translateXBy:-center.x yBy:-center.y]; [rotation concat];
             }
-            [self drawWaveformInRect:waveform color:control.colorRgb];
+            [self drawWaveformInRect:waveform color:control.colorRgb lineWidth:control.waveformLineWidth];
             [NSGraphicsContext restoreGraphicsState];
             continue;
         }

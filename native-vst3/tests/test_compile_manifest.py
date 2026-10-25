@@ -65,7 +65,7 @@ def test_compiles_linked_led_and_realtime_waveform_contract(tmp_path):
     spec["interface"]["controls"] = [
         {"id": "power", "kind": "button", "label": "Power", "parameter": "bypass", "value": 0},
         {"id": "power-led", "kind": "indicator", "label": "Power LED", "parameter": "visual", "value": 0, "indicator_source_id": "power", "control_color": "#39FF88", "component_variant": "round-indicator"},
-        {"id": "waveform", "kind": "spectrum", "label": "Waveform", "parameter": "visual", "value": 0, "visual_color": "#A78BFA", "component_variant": "realtime-waveform", "width": 480, "height": 180},
+        {"id": "waveform", "kind": "spectrum", "label": "Waveform", "parameter": "visual", "value": 0, "visual_color": "#A78BFA", "component_variant": "realtime-waveform", "waveform_line_width": 4.2, "width": 480, "height": 180},
     ]
     source = tmp_path / "project.json"
     output = tmp_path / "NativeProject.h"
@@ -79,6 +79,7 @@ def test_compiles_linked_led_and_realtime_waveform_contract(tmp_path):
     assert "0x39FF88" in result
     assert '"realtime-waveform"' in result
     assert "0xA78BFA" in result
+    assert "4.2f" in result
 
 
 def test_compiles_stomp_bar_spectrum_toggle_gap_and_tiny_led_contract(tmp_path):
@@ -148,8 +149,8 @@ def test_compiles_midi_sequence_loop_setting(tmp_path):
     result = output.read_text(encoding="utf-8")
     assert "bool loopEnabled" in result
     assert 'MidiSequenceInfo{"groove-1", "Main Groove", 480, 1920, true, 0, 2' in result
-    assert "triggerRootPitch; bool liveHold;" in result
-    assert "0, 1, 50, false}" in result
+    assert "triggerRootPitch; bool liveHold, relativeChord;" in result
+    assert "0, 1, 50, false, false}" in result
     assert result.count("MidiEventInfo{") == 2
     assert 'ControlInfo{"pattern-button", "button", "Pattern", "Pattern", "ON", "space", -1, -1, 0,' in result
     assert 'PresetInfo{"pattern-preset", "Pattern Preset", false, 0, 0, 0, 0, 0, 0, 0}' in result
@@ -174,7 +175,30 @@ def test_compiles_single_chord_as_held_live_pattern(tmp_path):
     MODULE.compile_manifest(source, output)
 
     result = output.read_text(encoding="utf-8")
-    assert 'MidiSequenceInfo{"held-chord", "Held Chord", 480, 480, false, 0, 2, 0, 1, 48, true}' in result
+    assert 'MidiSequenceInfo{"held-chord", "Held Chord", 480, 480, false, 0, 2, 0, 1, 48, true, false}' in result
+
+
+def test_compiles_relative_chord_degrees_for_native_live_trigger(tmp_path):
+    spec = project_spec()
+    spec["midi_sequences"] = [{
+        "id": "relative-chord", "name": "Relative Chord", "ppq": 480,
+        "duration_ticks": 480, "loop_enabled": True,
+        "events": [
+            {"tick": 0, "type": "note_on", "note": 48, "velocity": 100, "channel": 0, "relative_degree": 0},
+            {"tick": 360, "type": "note_off", "note": 48, "velocity": 0, "channel": 0, "relative_degree": 0},
+        ],
+        "tempos": [{"tick": 0, "bpm": 120}],
+        "generator_config": {"mode": "arpeggiator", "scale": "relative", "root": 0, "octave": 3},
+    }]
+    source = tmp_path / "project.json"
+    output = tmp_path / "NativeProject.h"
+    source.write_text(json.dumps(spec), encoding="utf-8")
+
+    MODULE.compile_manifest(source, output)
+
+    result = output.read_text(encoding="utf-8")
+    assert 'MidiSequenceInfo{"relative-chord", "Relative Chord", 480, 480, true, 0, 2, 0, 1, 48, false, true}' in result
+    assert "MidiEventInfo{0, true, 48, 100, 0, 0}" in result
 
 
 def test_compiles_customer_build_license_contract(tmp_path):
@@ -370,8 +394,8 @@ def test_compiles_mono_and_stereo_meter_modes(tmp_path):
     MODULE.compile_manifest(source, output)
 
     result = output.read_text(encoding="utf-8")
-    assert '"classic", "stereo", "space-grotesk", 0xF4F4F5, true, false, true}' in result
-    assert '"classic", "mono", "space-grotesk", 0xF4F4F5, true, false, true}' in result
+    assert '"classic", "stereo", "space-grotesk", 0xF4F4F5, true, 1.8f, false, true}' in result
+    assert '"classic", "mono", "space-grotesk", 0xF4F4F5, true, 1.8f, false, true}' in result
     assert "const char* meterMode;" in result
 
 
@@ -710,7 +734,7 @@ def test_compiles_static_knob_assets_and_variant(tmp_path):
 
     result = output.read_text(encoding="utf-8")
     assert 'ControlInfo{"spectrum", "knob", "Spectrum"' in result
-    assert '"modern-spectrum", "mono", "space-grotesk", 0xF4F4F5, true, false, true}' in result
+    assert '"modern-spectrum", "mono", "space-grotesk", 0xF4F4F5, true, 1.8f, false, true}' in result
     assert 'kModernSpectrumKnobFile = "modern-spectrum-knob-v2.png"' in result
     assert 'kStudioScallopKnobFile = "studio-scallop-knob-64x128-v2.png"' in result
     assert 'kBlackPrecisionKnobFile = "black-precision-knob-64x128-v1.png"' in result
@@ -793,23 +817,23 @@ def test_css_procedural_knobs_override_legacy_filmstrip_style(tmp_path):
     MODULE.compile_manifest(source, output)
 
     result = output.read_text(encoding="utf-8")
-    assert '"studio-scallop", "mono", "space-grotesk", 0xF4F4F5, true, false, false}' in result
-    assert '"graphite-ridge", "mono", "space-grotesk", 0xF4F4F5, true, false, false}' in result
-    assert '"chicken-head-clean", "mono", "space-grotesk", 0xF4F4F5, true, false, false}' in result
-    assert '"orbit-encoder", "mono", "space-grotesk", 0xF4F4F5, true, false, false}' in result
-    assert '"ivory-lever", "mono", "space-grotesk", 0xF4F4F5, true, false, false}' in result
-    assert '"pan-chicken-head-clean", "mono", "space-grotesk", 0xF4F4F5, true, false, false}' in result
-    assert '"pan-ivory-lever", "mono", "space-grotesk", 0xF4F4F5, true, false, false}' in result
-    assert '"pan-ring-chicken-head-clean", "mono", "space-grotesk", 0xF4F4F5, true, false, false}' in result
-    assert '"pan-ring-ivory-lever", "mono", "space-grotesk", 0xF4F4F5, true, false, false}' in result
-    assert '"black-dome", "mono", "space-grotesk", 0xF4F4F5, true, false, false}' in result
+    assert '"studio-scallop", "mono", "space-grotesk", 0xF4F4F5, true, 1.8f, false, false}' in result
+    assert '"graphite-ridge", "mono", "space-grotesk", 0xF4F4F5, true, 1.8f, false, false}' in result
+    assert '"chicken-head-clean", "mono", "space-grotesk", 0xF4F4F5, true, 1.8f, false, false}' in result
+    assert '"orbit-encoder", "mono", "space-grotesk", 0xF4F4F5, true, 1.8f, false, false}' in result
+    assert '"ivory-lever", "mono", "space-grotesk", 0xF4F4F5, true, 1.8f, false, false}' in result
+    assert '"pan-chicken-head-clean", "mono", "space-grotesk", 0xF4F4F5, true, 1.8f, false, false}' in result
+    assert '"pan-ivory-lever", "mono", "space-grotesk", 0xF4F4F5, true, 1.8f, false, false}' in result
+    assert '"pan-ring-chicken-head-clean", "mono", "space-grotesk", 0xF4F4F5, true, 1.8f, false, false}' in result
+    assert '"pan-ring-ivory-lever", "mono", "space-grotesk", 0xF4F4F5, true, 1.8f, false, false}' in result
+    assert '"black-dome", "mono", "space-grotesk", 0xF4F4F5, true, 1.8f, false, false}' in result
     for variant in (
         "regent-white", "regent-green", "regent-red", "regent-blue", "regent-brown", "regent-black", "regent-gray",
         "regent-white-green", "regent-white-red", "regent-white-blue", "regent-white-brown", "regent-white-black", "regent-white-gray",
     ):
-        assert f'"{variant}", "mono", "space-grotesk", 0xF4F4F5, true, false, false}}' in result
-    assert '"pan-black-dome", "mono", "space-grotesk", 0xF4F4F5, true, false, false}' in result
-    assert '"pan-ring-black-dome", "mono", "space-grotesk", 0xF4F4F5, true, false, false}' in result
+        assert f'"{variant}", "mono", "space-grotesk", 0xF4F4F5, true, 1.8f, false, false}}' in result
+    assert '"pan-black-dome", "mono", "space-grotesk", 0xF4F4F5, true, 1.8f, false, false}' in result
+    assert '"pan-ring-black-dome", "mono", "space-grotesk", 0xF4F4F5, true, 1.8f, false, false}' in result
 
 
 def test_uses_safe_master_headroom_without_a_volume_control(tmp_path):

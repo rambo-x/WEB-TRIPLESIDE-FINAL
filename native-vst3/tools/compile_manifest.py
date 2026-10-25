@@ -386,6 +386,7 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
             cpp_string(control.get("text_font") or "space-grotesk"),
             f"0x{text_color_rgb:06X}",
             cpp_bool(control.get("show_correlation_meter", True)),
+            cpp_float(clamp(control.get("waveform_line_width"), 0.5, 8, 1.8)),
             cpp_bool(control.get("spectrum_band", False)),
             cpp_bool(
                 control.get("component_variant") not in {"chicken-head-clean", "orbit-encoder", "studio-scallop", "graphite-ridge", "ivory-lever", "black-dome", "regent-cap", "regent-white", "regent-green", "regent-red", "regent-blue", "regent-brown", "regent-black", "regent-gray", "regent-white-green", "regent-white-red", "regent-white-blue", "regent-white-brown", "regent-white-black", "regent-white-gray", "pan-chicken-head-clean", "pan-ivory-lever", "pan-ring-chicken-head-clean", "pan-ring-ivory-lever", "pan-black-dome", "pan-ring-black-dome"}
@@ -463,6 +464,7 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
                 str(max(0, int(event.get("tick", 0)))), cpp_bool(event.get("type") == "note_on"),
                 str(max(0, min(127, int(event.get("note", 60))))), str(max(0, min(127, int(event.get("velocity", 0))))),
                 str(max(0, min(15, int(event.get("channel", 0))))),
+                str(max(-128, min(128, int(event.get("relative_degree")))) if event.get("relative_degree") is not None else -129),
             )) + "},")
         tempo_offset = len(midi_tempo_lines)
         tempos = sorted(sequence.get("tempos") or [{"tick": 0, "bpm": 120}], key=lambda tempo: int(tempo.get("tick", 0)))
@@ -471,16 +473,18 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
         generator_config = sequence.get("generator_config")
         trigger_root_pitch = -1
         live_hold = False
+        relative_chord = False
         if isinstance(generator_config, dict):
             generator_root = max(0, min(11, int(generator_config.get("root", 0))))
             generator_octave = max(1, min(6, int(generator_config.get("octave", 3))))
             trigger_root_pitch = max(0, min(127, 12 * (generator_octave + 1) + generator_root))
             live_hold = generator_config.get("mode") == "chord" and generator_config.get("chordMode") == "single"
+            relative_chord = generator_config.get("scale") == "relative"
         midi_sequence_lines.append("    MidiSequenceInfo{" + ", ".join((
             cpp_string(sequence.get("id") or f"midi-{len(midi_sequence_lines) + 1}"), cpp_string(sequence.get("name") or "MIDI"),
             str(max(24, min(9600, int(sequence.get("ppq", 480))))), str(max(0, int(sequence.get("duration_ticks", 0)))),
             cpp_bool(sequence.get("loop_enabled", False)), str(event_offset), str(len(midi_event_lines) - event_offset), str(tempo_offset), str(len(midi_tempo_lines) - tempo_offset),
-            str(trigger_root_pitch), cpp_bool(live_hold),
+            str(trigger_root_pitch), cpp_bool(live_hold), cpp_bool(relative_chord),
         )) + "},")
 
     name = str(spec.get("name") or "TripleSide Instrument").strip(); build = spec.get("build") or {}
@@ -548,7 +552,7 @@ namespace tripleside::project {{
 struct SampleInfo {{ const char* resourceFile; }};
 struct GroupInfo {{ const char* id; const char* name; float volume; float pan; bool mute; bool solo; }};
 struct ZoneInfo {{ int sampleIndex, groupIndex, articulationIndex, micIndex, roundRobinSet, rootPitch, lowPitch, highPitch, velocityLow, velocityHigh, roundRobin; float sampleStart, sampleEnd, loopStart, loopEnd, fadeInMs, fadeOutMs, loopCrossfadeMs; int tuneSemitones; float tuneCents, gainDb, pan; bool loopEnabled, tempoSync; float sourceBpm; std::array<int, 16> chokeTargetPitches; int chokeTargetCount; }};
-struct ControlInfo {{ const char* id; const char* kind; const char* label; const char* offLabel; const char* onLabel; const char* parameter; int moduleIndex; int indicatorSourceIndex; int midiSequenceIndex; float x, y; int width, height; float value, opacity, rotation; unsigned int colorRgb; bool showBackground; int notePitch, keyCount; const char* labelPosition; int labelGap, stateLabelGap; const char* variant; const char* meterMode; const char* textFont; unsigned int textColorRgb; bool showCorrelationMeter; bool spectrumBand; bool useFilmstrip; }};
+struct ControlInfo {{ const char* id; const char* kind; const char* label; const char* offLabel; const char* onLabel; const char* parameter; int moduleIndex; int indicatorSourceIndex; int midiSequenceIndex; float x, y; int width, height; float value, opacity, rotation; unsigned int colorRgb; bool showBackground; int notePitch, keyCount; const char* labelPosition; int labelGap, stateLabelGap; const char* variant; const char* meterMode; const char* textFont; unsigned int textColorRgb; bool showCorrelationMeter; float waveformLineWidth; bool spectrumBand; bool useFilmstrip; }};
 struct KeyColorInfo {{ int control, pitch; unsigned int colorRgb; }};
 struct PanelControlInfo {{ int parentPanelIndex; const char* panelType; float panelX, panelY, panelWidth, panelHeight; }};
 struct PresetInfo {{ const char* id; const char* name; bool factory; int valueOffset, valueCount, groupOffset, groupCount, moduleOffset, moduleCount, midiSequenceIndex; }};
@@ -557,8 +561,8 @@ struct PresetGroupInfo {{ int groupIndex; float volume, pan; bool mute, solo; }}
 struct PresetModuleInfo {{ int moduleIndex; bool bypassed; float mix; int parameterOffset, parameterCount; }};
 struct PresetModuleParameterInfo {{ int moduleIndex; const char* key; float value; }};
 struct MidiMappingInfo {{ bool note; int channel, sourceNumber, targetControlIndex; float minimum, maximum; bool inverted; }};
-struct MidiSequenceInfo {{ const char* id; const char* name; int ppq, durationTicks; bool loopEnabled; int eventOffset, eventCount, tempoOffset, tempoCount, triggerRootPitch; bool liveHold; }};
-struct MidiEventInfo {{ int tick; bool noteOn; int note, velocity, channel; }};
+struct MidiSequenceInfo {{ const char* id; const char* name; int ppq, durationTicks; bool loopEnabled; int eventOffset, eventCount, tempoOffset, tempoCount, triggerRootPitch; bool liveHold, relativeChord; }};
+struct MidiEventInfo {{ int tick; bool noteOn; int note, velocity, channel, relativeDegree; }};
 struct MidiTempoInfo {{ int tick; float bpm; }};
 struct DspModuleInfo {{ const char* id; const char* type; const char* name; int parentIndex, order; bool bypassed; float mix; int parameterOffset, parameterCount; }};
 struct DspParameterInfo {{ int moduleIndex; const char* key; float value; }};

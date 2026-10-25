@@ -275,6 +275,10 @@ def test_native_runtime_applies_global_tuning_to_sampler_and_wave_generator():
     assert "expressionSemitones=bendSemitones+vibratoSemitones+globalTuning" in source
     assert 'std::strcmp(parameter,"fine_tune")' in source
 
+    view = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+    assert 'equals(currentControlParameter,"tuning")' in view
+    assert 'equals(currentControlParameter,"fine_tune")' in view
+
 
 def test_native_css_controls_and_branding_follow_preview_tokens():
     header = (SOURCE_DIR / "NativeView.h").read_text(encoding="utf-8")
@@ -681,6 +685,20 @@ def test_shared_preview_live_waveform_and_linked_led_match_on_both_platforms():
     assert "indicatorValue" in windows
     assert "indicatorValue" in macos
     assert "'indicator'" in capture
+    assert "currentWaveformLineWidth" in windows
+    assert "control.waveformLineWidth" in macos
+
+
+def test_relative_live_patterns_track_all_held_chord_notes():
+    header = (SOURCE_DIR / "NativeInstrument.h").read_text(encoding="utf-8")
+    instrument = (SOURCE_DIR / "NativeInstrument.cpp").read_text(encoding="utf-8")
+    compiler = (SOURCE_DIR.parent / "tools" / "compile_manifest.py").read_text(encoding="utf-8")
+
+    assert "liveChordNotes" in header
+    assert "audioLiveChordPitches" in header
+    assert "pattern.relativeChord" in instrument
+    assert "event.relativeDegree" in instrument
+    assert 'generator_config.get("scale") == "relative"' in compiler
 
 
 def test_prism_contextual_bands_route_runtime_parameters_and_migrate_state_v4():

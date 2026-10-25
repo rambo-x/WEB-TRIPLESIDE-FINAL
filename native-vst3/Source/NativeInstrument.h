@@ -120,7 +120,9 @@ private:
     std::array<UiNote, 128> uiNotes{}; std::atomic<unsigned> uiWrite{0}, uiRead{0};
     std::atomic<int> grooveCommand{-2}, grooveActive{-1}; std::atomic<bool> grooveLoop{false};
     std::atomic<int> grooveTranspose{0}, grooveVelocity{127}, livePatternSequence{-1}, liveTriggerPitch{-1}; std::atomic<bool> grooveLiveTrigger{false};
+    std::array<std::atomic<unsigned>,128> liveChordNotes{};
     int audioGrooveIndex=-1, audioGrooveTranspose=0, audioGrooveVelocity=127; bool audioGrooveLiveTrigger=false; std::size_t grooveEventCursor=0, grooveTempoCursor=0; double grooveTick=0, grooveBpm=120;
+    std::array<int,128> audioLiveChordPitches{}; int audioLiveChordPitchCount=0;
     std::array<unsigned char,128> grooveHeldNotes{};
     std::array<std::atomic<unsigned>, 128> activeMidiNotes{};
     std::array<std::atomic<unsigned>, 128> noteTriggers{};
