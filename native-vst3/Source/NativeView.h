@@ -79,7 +79,7 @@ private:
     std::array<unsigned,128> padTriggerGenerations{}; std::array<std::uint64_t,128> padFlashUntil{};
     bool hitPadFlashActive(int pitch);
     bool comInitialized=false;
-    const char* currentControlVariant="classic"; const char* currentControlParameter=""; const char* currentLabelPosition="top-left"; int currentControlModuleIndex=-1,currentLabelGap=12,currentStateLabelGap=5; unsigned int currentControlColor=0; float currentWaveformLineWidth=1.8f;
+    const char* currentControlVariant="classic"; const char* currentControlParameter=""; const char* currentLabelPosition="top-left"; int currentControlModuleIndex=-1,currentLabelGap=12,currentStateLabelGap=5; unsigned int currentControlColor=0; float currentWaveformLineWidth=1.8f,currentBarWidthRatio=.54f;
 #elif defined(__APPLE__)
     void* cocoaView=nullptr;
 #endif

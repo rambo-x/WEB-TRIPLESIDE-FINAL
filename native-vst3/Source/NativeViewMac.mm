@@ -955,7 +955,7 @@ namespace project = tripleside::project;
     strokeRounded(rect, 11.2, rgbColor(color, .22));
 }
 
-- (void)drawBarSpectrumInRect:(NSRect)rect color:(unsigned)color {
+- (void)drawBarSpectrumInRect:(NSRect)rect color:(unsigned)color barWidthRatio:(CGFloat)barWidthRatio {
     color = color ? color : project::kAccentRgb;
     constexpr std::size_t sampleCount = BarSpectrumAnalyzer::fftSize;
     std::array<float, sampleCount> left{}, right{};
@@ -967,7 +967,7 @@ namespace project = tripleside::project;
     const auto& levels = _barSpectrumAnalyzer.process(left.data(), right.data(), sampleCount,
         static_cast<float>(_instrument->analysisSampleRate()), elapsed);
     const CGFloat slot = NSWidth(rect) / levels.size();
-    const CGFloat barWidth = std::max<CGFloat>(2, slot * .54);
+    const CGFloat barWidth = std::max<CGFloat>(.5, slot * std::clamp<CGFloat>(barWidthRatio, .1, 1));
     NSColor* startColor = rgbColor(color, .98);
     for (std::size_t index = 0; index < levels.size(); ++index) {
         const CGFloat barHeight = levels[index] * NSHeight(rect) * .86;
@@ -1006,7 +1006,7 @@ namespace project = tripleside::project;
             NSAffineTransform* rotation = [NSAffineTransform transform];
             [rotation translateXBy:center.x yBy:center.y]; [rotation rotateByDegrees:control.rotation]; [rotation translateXBy:-center.x yBy:-center.y]; [rotation concat];
         }
-        [self drawBarSpectrumInRect:spectrum color:control.colorRgb];
+        [self drawBarSpectrumInRect:spectrum color:control.colorRgb barWidthRatio:control.barWidthRatio];
         [NSGraphicsContext restoreGraphicsState];
         return;
     }
@@ -1080,7 +1080,7 @@ namespace project = tripleside::project;
                 NSAffineTransform* rotation = [NSAffineTransform transform];
                 [rotation translateXBy:center.x yBy:center.y]; [rotation rotateByDegrees:control.rotation]; [rotation translateXBy:-center.x yBy:-center.y]; [rotation concat];
             }
-            [self drawBarSpectrumInRect:spectrum color:control.colorRgb];
+            [self drawBarSpectrumInRect:spectrum color:control.colorRgb barWidthRatio:control.barWidthRatio];
             [NSGraphicsContext restoreGraphicsState];
             continue;
         }
