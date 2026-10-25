@@ -967,15 +967,20 @@ namespace project = tripleside::project;
     const auto& levels = _barSpectrumAnalyzer.process(left.data(), right.data(), sampleCount,
         static_cast<float>(_instrument->analysisSampleRate()), elapsed);
     const CGFloat slot = NSWidth(rect) / levels.size();
-    const CGFloat barWidth = std::max<CGFloat>(.5, slot * std::clamp<CGFloat>(barWidthRatio, .1, 1));
+    const CGFloat requestedBarWidth = std::max<CGFloat>(.5, slot * std::clamp<CGFloat>(barWidthRatio, .1, 1));
     NSColor* startColor = rgbColor(color, .98);
     for (std::size_t index = 0; index < levels.size(); ++index) {
         const CGFloat barHeight = levels[index] * NSHeight(rect) * .86;
         if (barHeight < 1) continue;
         const CGFloat fraction = static_cast<CGFloat>(index) / std::max<std::size_t>(1, levels.size() - 1);
         [[startColor blendedColorWithFraction:fraction ofColor:NSColor.whiteColor] setFill];
-        NSRectFill(NSMakeRect(NSMinX(rect) + index * slot + (slot - barWidth) * .5,
-            NSMidY(rect) - barHeight * .5, barWidth, barHeight));
+        NSRect bar = [self convertRectToBacking:NSMakeRect(
+            NSMinX(rect) + index * slot + (slot - requestedBarWidth) * .5,
+            NSMidY(rect) - barHeight * .5, requestedBarWidth, barHeight)];
+        const CGFloat barWidthPixels = std::max<CGFloat>(1, std::round(NSWidth(bar)));
+        bar.origin.x = std::round(NSMidX(bar) - barWidthPixels * .5);
+        bar.size.width = barWidthPixels;
+        NSRectFill([self convertRectFromBacking:bar]);
     }
 }
 

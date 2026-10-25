@@ -761,6 +761,10 @@ def test_native_stomp_and_bar_spectrum_are_live_on_both_platforms():
     assert 'equals(control.variant, "bar-spectrum-visualizer")' in mac
     assert "currentBarWidthRatio=c.barWidthRatio" in windows
     assert "barWidthRatio:control.barWidthRatio" in mac
+    assert "barWidthPixels=std::max(1.f,std::round(requestedBarWidth*pixelScale))" in windows
+    assert "std::round(centerPixel-barWidthPixels*.5f)/pixelScale" in windows
+    assert "convertRectToBacking:NSMakeRect" in mac
+    assert "bar.size.width = barWidthPixels" in mac
     assert 'loadBitmap(L"stomp-footswitch-off-v1.png",stompFootswitchOff)' in windows
     assert 'active?stompFootswitchOn.Get():stompFootswitchOff.Get()' in windows
     capture = (SOURCE_DIR.parent / "tools" / "render_visual_assets.py").read_text(encoding="utf-8")
