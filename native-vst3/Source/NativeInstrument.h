@@ -21,9 +21,10 @@ enum ParameterIds : Steinberg::Vst::ParamID {
     kInputId=109, kDriveId=110, kCompressId=111, kWidthId=112, kMixId=113,
     kOutputId=114, kBypassId=115, kSustainId=116, kPitchBendId=117, kModulationId=118, kPanId=119,
     kPrismFrequencyBaseId=200, kPrismQBaseId=210, kPrismGainBaseId=220, kPrismEnabledBaseId=230,
-    kGroupBaseId=1000, kModuleControlBaseId=10000
+    kGroupBaseId=1000, kGroupOutputBaseId=3000, kModuleControlBaseId=10000
 };
 inline Steinberg::Vst::ParamID groupParameterId(int group, int slot) { return kGroupBaseId + group * 4 + slot; }
+inline Steinberg::Vst::ParamID groupOutputParameterId(int group) { return kGroupOutputBaseId + group; }
 
 class NativeInstrument final : public Steinberg::Vst::SingleComponentEffect,
                                public Steinberg::Vst::IMidiMapping {
@@ -51,7 +52,7 @@ public:
     Steinberg::tresult PLUGIN_API queryInterface(const Steinberg::TUID, void**) override;
     REFCOUNT_METHODS(Steinberg::Vst::SingleComponentEffect)
 
-    void queueEditorNote(int pitch, int velocity, bool on) noexcept;
+    void queueEditorNote(int pitch, int velocity, bool on, int samplerGroup=-1) noexcept;
     void startGroove(int sequence, bool loop) noexcept;
     void stopGroove() noexcept;
     void setGrooveLoop(bool loop) noexcept;
@@ -62,10 +63,13 @@ public:
     unsigned noteTriggerCount(int pitch) const noexcept;
     float outputPeak(int channel) const noexcept { return peaks[static_cast<size_t>(channel)].load(std::memory_order_relaxed); }
     float outputRms(int channel) const noexcept { return rms[static_cast<size_t>(channel)].load(std::memory_order_relaxed); }
+    float groupOutputPeak(int group, int channel) const noexcept { return groupPeaksStereo[static_cast<size_t>(group)][static_cast<size_t>(channel)].load(std::memory_order_relaxed); }
+    float groupOutputRms(int group, int channel) const noexcept { return groupRmsStereo[static_cast<size_t>(group)][static_cast<size_t>(channel)].load(std::memory_order_relaxed); }
     float gainReduction(int moduleIndex = -1) const noexcept;
     float groupPeak(int group) const noexcept { return groupPeaks[static_cast<size_t>(group)].load(std::memory_order_relaxed); }
     static constexpr std::size_t kAnalysisSampleCount=2048;
     void copyAnalysisSamples(float*,std::size_t,int channel=-1) const noexcept;
+    void copyGroupAnalysisSamples(int group,float*,std::size_t,int channel=-1) const noexcept;
     double analysisSampleRate() const noexcept { return hostSampleRate; }
     Steinberg::Vst::ParamID parameterFor(const char*) const noexcept;
     Steinberg::Vst::ParamID parameterForControl(std::size_t) const noexcept;
@@ -91,7 +95,7 @@ private:
         std::array<float,2> filterState{}, filterInput{}; float gain=0, envelope=0, noteSeconds=0, pink=0, brown=0;
         int envelopeStage=0; std::uint32_t noiseState=1; std::uint64_t age=0;
     };
-    struct UiNote { int pitch=60, velocity=100; bool on=true; };
+    struct UiNote { int pitch=60, velocity=100; bool on=true; int samplerGroup=-1; };
     void loadResources(); void applyParameterChanges(Steinberg::Vst::IParameterChanges*);
     void applyParameterValue(Steinberg::Vst::ParamID, float) noexcept;
     void applyModuleControl(std::size_t, float) noexcept; void applyPrismRackParameter(int,int,float) noexcept;
@@ -100,10 +104,11 @@ private:
     bool routeLivePatternNote(int pitch, int velocity, bool on) noexcept;
     void setMidiNoteActive(int pitch, bool on) noexcept;
     void setSustain(bool on) noexcept;
-    void noteOn(int pitch, int velocity, Steinberg::int32 noteId); void noteOff(int pitch, Steinberg::int32 noteId);
-    void renderFrame(float&, float&, std::array<float, project::kGroups.size()>&);
+    void noteOn(int pitch, int velocity, Steinberg::int32 noteId, int samplerGroup=-1); void noteOff(int pitch, Steinberg::int32 noteId, int samplerGroup=-1);
+    void renderFrame(float&, float&, std::array<float, project::kGroups.size()>&, std::array<float, project::kGroups.size()>&, std::array<float, project::kGroups.size()>&);
     bool renderTempoVoiceFrame(Voice&, std::size_t, const project::ZoneInfo&, const WavFile&, float, float&, float&);
     void prepareTempoStretchers(); void applyMasterPan(float&, float&) noexcept; void setWavePitchTarget(OscVoice&,double,bool) noexcept;
+    void configureRack(dsp::EffectRack&, int, const dsp::ProcessSpec&); dsp::EffectRack& rackForModule(std::size_t) noexcept; const dsp::EffectRack& rackForModule(std::size_t) const noexcept;
     Voice& acquireVoice(); OscVoice& acquireOscVoice(); void configureGlobalTuning(); void configureWaveGenerator(); void resetDsp(); void applyCustomImpulses(); void applyToneAndSpace(float&, float&); void processEffectFrame(float, float, float&, float&); void updatePrismEq();
     std::vector<WavFile> samples;
     std::vector<WavFile> impulseResponses;
@@ -113,9 +118,12 @@ private:
     std::array<int, project::kZones.size() * 128> roundRobin{};
     std::array<float, project::kGroups.size()> groupVolumes{}; std::array<float, project::kGroups.size()> groupPans{};
     std::array<bool, project::kGroups.size()> groupMutes{}, groupSolos{};
+    std::array<int, project::kGroups.size()> groupOutputBuses{};
     std::array<dsp::SmoothedValue, project::kGroups.size()> groupOutputGains{};
     std::array<std::atomic<float>, 2> peaks{}, rms{}; std::array<std::atomic<float>, project::kGroups.size()> groupPeaks{};
     std::array<std::atomic<float>, kAnalysisSampleCount> analysisSamplesLeft{},analysisSamplesRight{}; std::atomic<std::uint64_t> analysisWrite{0};
+    std::array<std::array<std::atomic<float>,2>,project::kGroups.size()> groupPeaksStereo{},groupRmsStereo{};
+    std::array<std::array<std::atomic<float>,kAnalysisSampleCount>,project::kGroups.size()> groupAnalysisSamplesLeft{},groupAnalysisSamplesRight{}; std::atomic<std::uint64_t> groupAnalysisWrite{0};
     std::array<std::atomic<float>, project::kDspModules.size()> compressorGainReductions{};
     std::array<UiNote, 128> uiNotes{}; std::atomic<unsigned> uiWrite{0}, uiRead{0};
     std::atomic<int> grooveCommand{-2}, grooveActive{-1}; std::atomic<bool> grooveLoop{false};
@@ -140,6 +148,7 @@ private:
     dsp::DryWet effectMix{};
     dsp::StereoGain effectOutputTrim{dsp::GainLaw::OutputTrim};
     dsp::EffectRack effectRack{};
+    std::array<dsp::EffectRack, project::kGroups.size()> groupEffectRacks{};
     dsp::SmoothedValue effectBypassMix{};
     dsp::SmoothedValue masterPan{};
     std::array<float, project::kControls.size()> moduleControlValues{};

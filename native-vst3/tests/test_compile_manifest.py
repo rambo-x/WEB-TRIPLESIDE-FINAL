@@ -395,8 +395,8 @@ def test_compiles_mono_and_stereo_meter_modes(tmp_path):
     MODULE.compile_manifest(source, output)
 
     result = output.read_text(encoding="utf-8")
-    assert '"classic", "stereo", "space-grotesk", 0xF4F4F5, true, 1.8f, 0.54f, false, true}' in result
-    assert '"classic", "mono", "space-grotesk", 0xF4F4F5, true, 1.8f, 0.54f, false, true}' in result
+    assert '"classic", "stereo", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, true}' in result
+    assert '"classic", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, true}' in result
     assert "const char* meterMode;" in result
 
 
@@ -504,12 +504,63 @@ def test_compiles_panel_button_children_and_function_data(tmp_path):
     MODULE.compile_manifest(source, output)
 
     result = output.read_text(encoding="utf-8")
-    assert 'PanelControlInfo{-1, "preset_browser", 48.0f, 50.0f, 76.0f, 64.0f}' in result
-    assert 'PanelControlInfo{0, "", 50.0f, 52.0f, 88.0f, 78.0f}' in result
+    assert 'PanelControlInfo{-1, "preset_browser", 48.0f, 50.0f, 76.0f, 64.0f, true}' in result
+    assert 'PanelControlInfo{0, "", 50.0f, 52.0f, 88.0f, 78.0f, true}' in result
     assert 'PresetInfo{"bright", "Bright", true, 0, 1, 0, 0, 0, 1, -1}' in result
     assert 'PresetModuleInfo{0, true, 0.75f, 0, 1}' in result
     assert 'PresetModuleParameterInfo{0, "tone", 0.91f}' in result
     assert 'MidiMappingInfo{false, 0, 74, 1, 0.0f, 1.0f, false}' not in result
+
+
+def test_compiles_editable_mixer_children_against_their_sampler(tmp_path):
+    spec = project_spec()
+    spec["sampler_groups"] = [
+        {"id": "kick", "name": "Kick", "volume": 82, "pan": -0.4, "mute": False, "solo": True},
+        {"id": "snare", "name": "Snare", "volume": 64, "pan": 0.3, "mute": True, "solo": False},
+    ]
+    spec["interface"]["controls"] = [
+        {"id": "mixer", "kind": "panel_button", "label": "Mixer", "parameter": "visual", "panel_type": "mixer", "mixer_show_default_controls": False},
+        {"id": "snare-volume", "kind": "fader", "label": "Snare Volume", "parameter": "volume", "sampler_group_id": "snare", "parent_panel_id": "mixer", "value": 1},
+        {"id": "kick-pan", "kind": "knob", "label": "Kick Pan", "parameter": "pan", "sampler_group_id": "kick", "parent_panel_id": "mixer", "value": 1},
+        {"id": "snare-mute", "kind": "mute", "label": "Snare Mute", "parameter": "mute", "sampler_group_id": "snare", "parent_panel_id": "mixer", "value": 0},
+        {"id": "kick-solo", "kind": "solo", "label": "Kick Solo", "parameter": "solo", "sampler_group_id": "kick", "parent_panel_id": "mixer", "value": 0},
+    ]
+    source = tmp_path / "project.json"
+    output = tmp_path / "NativeProject.h"
+    source.write_text(json.dumps(spec), encoding="utf-8")
+
+    MODULE.compile_manifest(source, output)
+
+    result = output.read_text(encoding="utf-8")
+    assert 'PanelControlInfo{-1, "mixer", 50.0f, 52.0f, 88.0f, 78.0f, false}' in result
+    assert '"group_1_volume"' in result
+    assert '"group_0_pan"' in result
+    assert '"group_1_mute"' in result
+    assert '"group_0_solo"' in result
+    assert '"group_1_volume", -1, -1, -1, 1, 50.0f, 50.0f, 112, 122, 0.64f' in result
+    assert '"group_0_pan", -1, -1, -1, 0, 50.0f, 50.0f, 112, 122, 0.3f' in result
+
+
+def test_compiles_sampler_target_for_monitor_note_and_indicator_controls(tmp_path):
+    spec = project_spec()
+    spec["sampler_groups"] = [{"id": "kick", "name": "Kick"}, {"id": "snare", "name": "Snare", "mute": True}]
+    spec["interface"]["controls"] = [
+        {"id": "pad", "kind": "pad", "label": "", "parameter": "visual", "sampler_group_id": "snare"},
+        {"id": "keys", "kind": "keyboard", "label": "", "parameter": "visual", "sampler_group_id": "snare", "width": 560, "height": 150},
+        {"id": "meter", "kind": "gain_meter", "label": "", "parameter": "output_level", "sampler_group_id": "snare"},
+        {"id": "scope", "kind": "spectrum", "label": "", "parameter": "output_level", "sampler_group_id": "snare", "width": 320, "height": 160},
+        {"id": "led", "kind": "indicator", "label": "", "parameter": "mute", "sampler_group_id": "snare", "width": 24, "height": 24},
+    ]
+    source = tmp_path / "project.json"
+    output = tmp_path / "NativeProject.h"
+    source.write_text(json.dumps(spec), encoding="utf-8")
+
+    MODULE.compile_manifest(source, output)
+
+    controls = [line for line in output.read_text(encoding="utf-8").splitlines() if line.strip().startswith("ControlInfo{")]
+    assert len(controls) == 5
+    assert all(', -1, -1, -1, 1, ' in line for line in controls)
+    assert '"led", "indicator", "", "", "ON", "mute"' in controls[-1]
 
 
 def test_rejects_invalid_panel_references(tmp_path):
@@ -735,7 +786,7 @@ def test_compiles_static_knob_assets_and_variant(tmp_path):
 
     result = output.read_text(encoding="utf-8")
     assert 'ControlInfo{"spectrum", "knob", "Spectrum"' in result
-    assert '"modern-spectrum", "mono", "space-grotesk", 0xF4F4F5, true, 1.8f, 0.54f, false, true}' in result
+    assert '"modern-spectrum", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, true}' in result
     assert 'kModernSpectrumKnobFile = "modern-spectrum-knob-v2.png"' in result
     assert 'kStudioScallopKnobFile = "studio-scallop-knob-64x128-v2.png"' in result
     assert 'kBlackPrecisionKnobFile = "black-precision-knob-64x128-v1.png"' in result
@@ -818,23 +869,23 @@ def test_css_procedural_knobs_override_legacy_filmstrip_style(tmp_path):
     MODULE.compile_manifest(source, output)
 
     result = output.read_text(encoding="utf-8")
-    assert '"studio-scallop", "mono", "space-grotesk", 0xF4F4F5, true, 1.8f, 0.54f, false, false}' in result
-    assert '"graphite-ridge", "mono", "space-grotesk", 0xF4F4F5, true, 1.8f, 0.54f, false, false}' in result
-    assert '"chicken-head-clean", "mono", "space-grotesk", 0xF4F4F5, true, 1.8f, 0.54f, false, false}' in result
-    assert '"orbit-encoder", "mono", "space-grotesk", 0xF4F4F5, true, 1.8f, 0.54f, false, false}' in result
-    assert '"ivory-lever", "mono", "space-grotesk", 0xF4F4F5, true, 1.8f, 0.54f, false, false}' in result
-    assert '"pan-chicken-head-clean", "mono", "space-grotesk", 0xF4F4F5, true, 1.8f, 0.54f, false, false}' in result
-    assert '"pan-ivory-lever", "mono", "space-grotesk", 0xF4F4F5, true, 1.8f, 0.54f, false, false}' in result
-    assert '"pan-ring-chicken-head-clean", "mono", "space-grotesk", 0xF4F4F5, true, 1.8f, 0.54f, false, false}' in result
-    assert '"pan-ring-ivory-lever", "mono", "space-grotesk", 0xF4F4F5, true, 1.8f, 0.54f, false, false}' in result
-    assert '"black-dome", "mono", "space-grotesk", 0xF4F4F5, true, 1.8f, 0.54f, false, false}' in result
+    assert '"studio-scallop", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false}' in result
+    assert '"graphite-ridge", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false}' in result
+    assert '"chicken-head-clean", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false}' in result
+    assert '"orbit-encoder", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false}' in result
+    assert '"ivory-lever", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false}' in result
+    assert '"pan-chicken-head-clean", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false}' in result
+    assert '"pan-ivory-lever", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false}' in result
+    assert '"pan-ring-chicken-head-clean", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false}' in result
+    assert '"pan-ring-ivory-lever", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false}' in result
+    assert '"black-dome", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false}' in result
     for variant in (
         "regent-white", "regent-green", "regent-red", "regent-blue", "regent-brown", "regent-black", "regent-gray",
         "regent-white-green", "regent-white-red", "regent-white-blue", "regent-white-brown", "regent-white-black", "regent-white-gray",
     ):
-        assert f'"{variant}", "mono", "space-grotesk", 0xF4F4F5, true, 1.8f, 0.54f, false, false}}' in result
-    assert '"pan-black-dome", "mono", "space-grotesk", 0xF4F4F5, true, 1.8f, 0.54f, false, false}' in result
-    assert '"pan-ring-black-dome", "mono", "space-grotesk", 0xF4F4F5, true, 1.8f, 0.54f, false, false}' in result
+        assert f'"{variant}", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false}}' in result
+    assert '"pan-black-dome", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false}' in result
+    assert '"pan-ring-black-dome", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false}' in result
 
 
 def test_uses_safe_master_headroom_without_a_volume_control(tmp_path):
@@ -921,10 +972,80 @@ def test_compiles_versioned_dsp_rack_and_flattened_parameters(tmp_path):
     result = output.read_text(encoding="utf-8")
     assert "kDspGraphVersion = 2" in result
     assert 'kDspGraphMode = "ordered_rack"' in result
-    assert 'DspModuleInfo{"clip-a", "soft_clip", "Clip A", -1, 10, false, 0.75f, 0, 1}' in result
-    assert 'DspModuleInfo{"output-a", "output_trim", "Output A", 0, 20, true, 1.0f, 1, 1}' in result
+    assert 'DspModuleInfo{"clip-a", "soft_clip", "Clip A", -1, 10, -1, 0, false, 0.75f, 0, 1}' in result
+    assert 'DspModuleInfo{"output-a", "output_trim", "Output A", 0, 20, -1, 1, true, 1.0f, 1, 1}' in result
     assert 'DspParameterInfo{0, "drive", 0.6f}' in result
     assert 'DspParameterInfo{1, "gain_db", -1.5f}' in result
+
+
+def test_compiles_named_multi_output_busses_and_sampler_scoped_dsp(tmp_path):
+    spec = project_spec()
+    spec["sampler_groups"] = [
+        {"id": "kick", "name": "Kick", "output_bus": "separate"},
+        {"id": "snare", "name": "Snare", "output_bus": "master"},
+        {"id": "hat", "name": "Hi-Hat", "output_bus": "separate"},
+    ]
+    spec["sampler_map"][0]["groupName"] = "Kick"
+    spec["interface"]["controls"].append({
+        "id": "hat-output", "kind": "output_selector", "label": "Hat Output",
+        "parameter": "group_output", "sampler_group_id": "hat",
+        "x": 50, "y": 50, "value": 0, "width": 190, "height": 76,
+        "control_color": "#1A2233", "text_color": "#DDEEFF", "output_font_size": 17,
+    })
+    spec["dsp_graph"] = {
+        "version": 2,
+        "mode": "instrument_serial_rack",
+        "source": "project",
+        "modules": [
+            {"id": "master", "type": "output_trim", "name": "Master", "order": 0, "parameters": {"output": 0.5}},
+            {"id": "kick-eq", "type": "tone_shaper", "name": "Kick EQ", "order": 1, "samplerGroupId": "kick", "parameters": {"tone": 0.7}},
+            {"id": "kick-comp", "type": "linked_compressor", "name": "Kick Comp", "order": 2, "samplerGroupId": "kick", "parameters": {"compress": 0.6}},
+        ],
+    }
+    source = tmp_path / "project.json"
+    output = tmp_path / "NativeProject.h"
+    source.write_text(json.dumps(spec), encoding="utf-8")
+
+    MODULE.compile_manifest(source, output)
+
+    result = output.read_text(encoding="utf-8")
+    assert "kAudioOutputBusCount = 3" in result
+    assert 'GroupInfo{"kick", "Kick", 1.0f, 0.0f, false, false, 1}' in result
+    assert 'GroupInfo{"snare", "Snare", 1.0f, 0.0f, false, false, 0}' in result
+    assert 'GroupInfo{"hat", "Hi-Hat", 1.0f, 0.0f, false, false, 2}' in result
+    assert '"output_selector", "Hat Output"' in result
+    assert '"group_2_output"' in result
+    output_control = next(line for line in result.splitlines() if 'ControlInfo{"hat-output"' in line)
+    assert "0x1A2233" in output_control
+    assert "0xDDEEFF, 17" in output_control
+    assert 'DspModuleInfo{"kick-eq", "tone_shaper", "Kick EQ", -1, 1, 0, 0' in result
+    assert 'DspModuleInfo{"kick-comp", "linked_compressor", "Kick Comp", -1, 2, 0, 1' in result
+
+
+def test_output_selector_provisions_target_bus_while_preserving_master_default(tmp_path):
+    spec = project_spec()
+    spec["sampler_groups"] = [
+        {"id": "kick", "name": "Kick", "output_bus": "separate"},
+        {"id": "snare", "name": "Snare", "output_bus": "master"},
+        {"id": "hat", "name": "Hi-Hat", "output_bus": "separate"},
+    ]
+    spec["interface"]["controls"] = [{
+        "id": "snare-output", "kind": "output_selector", "label": "Snare Output",
+        "parameter": "group_output", "sampler_group_id": "snare", "value": 100,
+    }]
+    source = tmp_path / "project.json"
+    output = tmp_path / "NativeProject.h"
+    source.write_text(json.dumps(spec), encoding="utf-8")
+
+    MODULE.compile_manifest(source, output)
+
+    result = output.read_text(encoding="utf-8")
+    assert "kAudioOutputBusCount = 4" in result
+    assert 'GroupInfo{"snare", "Snare", 1.0f, 0.0f, false, false, 2}' in result
+    assert "kGroupOutputSeparateDefaults {{ true, false, true }}" in result
+    output_control = next(line for line in result.splitlines() if 'ControlInfo{"snare-output"' in line)
+    assert '"group_1_output"' in output_control
+    assert ", 0.0f, 1.0f," in output_control
 
 
 def test_rejects_unknown_or_out_of_range_parameters_for_native_modules(tmp_path):

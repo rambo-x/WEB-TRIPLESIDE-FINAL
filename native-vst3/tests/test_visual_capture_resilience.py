@@ -125,6 +125,20 @@ def test_live_analyzers_keep_the_shared_preview_contract():
     assert "spectrum" in RENDERER.SUPPORTED_CONTROL_KINDS
 
 
+def test_output_selector_capture_has_exactly_master_and_target_frames():
+    spec = {
+        "sampler_groups": [
+            {"id": "kick", "output_bus": "separate"},
+            {"id": "snare", "output_bus": "master"},
+            {"id": "hat", "output_bus": "separate"},
+        ]
+    }
+
+    assert "output_selector" in RENDERER.SUPPORTED_CONTROL_KINDS
+    assert RENDERER.control_frame_count("output_selector", spec) == 2
+    assert RENDERER.control_frame_count("knob", spec) == 101
+
+
 def test_linked_indicator_verification_uses_source_state_and_capture_override():
     controls = [
         {"id": "power", "kind": "button", "parameter": "bypass", "value": 0},

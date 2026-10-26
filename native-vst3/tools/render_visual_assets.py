@@ -23,6 +23,7 @@ TRANSIENT_EXIT_CODE = 75
 SUPPORTED_CONTROL_KINDS = {
     'knob', 'fader', 'vu_meter', 'gain_meter', 'keyboard', 'pad', 'button',
     'mute', 'solo', 'visual', 'text', 'image', 'panel_button', 'spectrum', 'indicator',
+    'output_selector',
 }
 TRANSIENT_PLAYWRIGHT_MARKERS = (
     'browser has been closed',
@@ -95,6 +96,17 @@ def hidden_prism_context(control, controls):
     owner = str(control.get('prism_owner_id') or '')
     analyzer = next((item for item in controls if str(item.get('id') or '') == owner), None)
     return not analyzer or analyzer.get('prism_control_mode') != 'contextual'
+
+
+def control_frame_count(kind, spec):
+    """Return the exact number of visual states needed by a control atlas."""
+    if kind == 'output_selector':
+        return 2  # Master plus the control's bound sampler output.
+    if kind in {'keyboard', 'visual', 'text', 'image', 'spectrum'}:
+        return 1
+    if kind in {'button', 'mute', 'solo', 'pad', 'panel_button', 'indicator'}:
+        return 2
+    return 101
 
 
 def render(spec_path, url, browser=None):
@@ -258,7 +270,7 @@ def render(spec_path, url, browser=None):
                 # Spectrum/vectorscope pixels stay live in NativeView. Capture
                 # one browser frame here to preserve exact measured geometry
                 # and to keep the static composition verifier authoritative.
-                frames = 1 if kind in {'keyboard', 'visual', 'text', 'image', 'spectrum'} else 2 if kind in {'button','mute','solo','pad','panel_button','indicator'} else 101
+                frames = control_frame_count(kind, spec)
                 columns = min(frames, max(1, 4096 // rect['width']))
                 atlas = Image.new('RGBA', (rect['width']*columns, rect['height']*math.ceil(frames/columns)))
                 if max(atlas.size) > 8192:

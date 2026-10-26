@@ -184,8 +184,10 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
         macro_module_indices[parameter] = next((
             index for index, module in enumerate(dsp_modules)
             if str(module.get("type") or "").strip() == module_type
+            and not (module.get("samplerGroupId") or module.get("sampler_group_id"))
         ), -1)
     dsp_module_lines, dsp_parameter_lines = [], []
+    rack_module_counts = {-1: 0}
     for index, module in enumerate(dsp_modules):
         module_type = str(module.get("type") or "").strip()
         if not re.fullmatch(r"[a-z][a-z0-9_]{0,79}", module_type):
@@ -194,6 +196,12 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
         if parent_id and str(parent_id) not in dsp_module_ids:
             fail("DSP module references an unknown parent")
         parent_index = dsp_module_ids.get(str(parent_id), -1) if parent_id else -1
+        sampler_group_id = module.get("samplerGroupId") or module.get("sampler_group_id")
+        group_index = next((group_index for group_index, group in enumerate(groups) if str(group.get("id") or "") == str(sampler_group_id)), -1) if sampler_group_id else -1
+        if sampler_group_id and group_index < 0:
+            fail("DSP module references an unknown sampler group")
+        rack_index = rack_module_counts.get(group_index, 0)
+        rack_module_counts[group_index] = rack_index + 1
         parameters = module.get("parameters") or {}
         if len(parameters) > MAX_DSP_PARAMETERS_PER_MODULE:
             fail("DSP module exceeds the supported parameter limit")
@@ -224,6 +232,8 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
                 cpp_string(module.get("name") or module_type),
                 str(parent_index),
                 str(int(module.get("order", index))),
+                str(group_index),
+                str(rack_index),
                 cpp_bool(module.get("bypassed", False)),
                 cpp_float(clamp(module.get("mix"), 0, 1, 1)),
                 str(parameter_offset),
@@ -262,10 +272,27 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
         sample_indices[sample_id] = index
         sample_lines.append(f"    SampleInfo{{{cpp_string(f'sample_{index:03d}{suffix}')}}},")
 
-    group_indices, group_lines = {}, []
+    output_selector_group_ids = {
+        str(control.get("sampler_group_id") or "")
+        for control in controls
+        if str(control.get("kind") or "") == "output_selector" and control.get("sampler_group_id")
+    }
+    group_indices, group_id_indices, group_output_bus_indices, group_output_defaults, group_lines = {}, {}, {}, [], []
+    output_bus_names = ["Master"]
+    next_output_bus = 1
     for index, group in enumerate(groups):
         name = str(group.get("name") or f"Sampler {index + 1}").strip(); group_indices[name.casefold()] = index
-        group_lines.append("    GroupInfo{" + ", ".join((cpp_string(group.get("id") or f"sampler-{index + 1}"), cpp_string(name), cpp_float(clamp(group.get("volume"), 0, 100, 100) / 100), cpp_float(clamp(group.get("pan"), -1, 1, 0)), cpp_bool(group.get("mute", False)), cpp_bool(group.get("solo", False)))) + "},")
+        group_id = str(group.get("id") or f"sampler-{index + 1}")
+        if group_id in group_id_indices: fail("group ids must be unique")
+        group_id_indices[group_id] = index
+        output_separate = str(group.get("output_bus") or "master") == "separate"
+        output_bus_index = next_output_bus if output_separate or group_id in output_selector_group_ids else 0
+        if output_bus_index:
+            next_output_bus += 1
+            output_bus_names.append(name)
+        group_output_bus_indices[group_id] = output_bus_index
+        group_output_defaults.append(output_separate)
+        group_lines.append("    GroupInfo{" + ", ".join((cpp_string(group_id), cpp_string(name), cpp_float(clamp(group.get("volume"), 0, 100, 100) / 100), cpp_float(clamp(group.get("pan"), -1, 1, 0)), cpp_bool(group.get("mute", False)), cpp_bool(group.get("solo", False)), str(output_bus_index))) + "},")
 
     articulation_names, mic_names = [], []
     for zone in zones:
@@ -336,17 +363,54 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
             fail("MIDI sequence binding is only valid for button and pad controls")
         if midi_sequence_id and midi_sequence_id not in midi_sequence_indices:
             fail("control references an unknown MIDI sequence")
+        sampler_group_id = str(control.get("sampler_group_id") or "")
+        if sampler_group_id:
+            if sampler_group_id not in group_id_indices:
+                fail("control references an unknown sampler group")
+            if control.get("module_id"):
+                fail("module and sampler bindings cannot be active together")
+            parameter = str(control.get("parameter") or "")
+            sampler_value_parameters = {
+                "knob": {"volume", "pan"}, "fader": {"volume", "pan"},
+                "button": {"mute", "solo"}, "solo": {"solo"}, "mute": {"mute"},
+            }
+            valid_sampler_binding = (
+                kind == "output_selector"
+                or kind in {"pad", "keyboard"}
+                or parameter in sampler_value_parameters.get(kind, set())
+                or (kind in {"gain_meter", "vu_meter", "spectrum"} and parameter == "output_level")
+                or (kind == "indicator" and parameter in {"volume", "pan", "mute", "solo"})
+            )
+            if not valid_sampler_binding:
+                fail("sampler group binding is incompatible with the control")
     control_lines, panel_lines, key_color_lines = [], [], []
     for index, control in enumerate(controls):
         label = "Control" if control.get("label") is None else control.get("label")
         off_label = label if control.get("off_label") is None else control.get("off_label")
         on_label = "ON" if control.get("on_label") is None else control.get("on_label")
-        color_value = control.get("visual_color") if str(control.get("kind") or "") == "spectrum" else control.get("control_color")
+        control_kind = str(control.get("kind") or "knob")
+        color_value = control.get("visual_color") if control_kind == "spectrum" else control.get("control_color")
         control_color_match = re.fullmatch(r"#?([0-9a-fA-F]{6})", str(color_value or ""))
-        control_color_rgb = int(control_color_match.group(1), 16) if control_color_match else 0
+        control_color_rgb = int(control_color_match.group(1), 16) if control_color_match else (0x111216 if control_kind == "output_selector" else 0)
         text_color_match = re.fullmatch(r"#?([0-9a-fA-F]{6})", str(control.get("text_color") or "#F4F4F5"))
         text_color_rgb = int(text_color_match.group(1), 16) if text_color_match else 0xF4F4F5
-        control_kind = str(control.get("kind") or "knob")
+        output_font_size = round(clamp(control.get("output_font_size"), 6, 32, 11))
+        control_parameter = str(control.get("parameter") or "tone")
+        control_value = clamp(control.get("value"), 0, 100, 50) / 100
+        sampler_group_index = group_id_indices.get(str(control.get("sampler_group_id") or ""), -1)
+        if control_kind == "output_selector":
+            control_parameter = f"group_{sampler_group_index}_output" if sampler_group_index >= 0 else ""
+            control_value = 1 if sampler_group_index >= 0 and str(groups[sampler_group_index].get("output_bus") or "master") == "separate" else 0
+        elif control.get("sampler_group_id") and control_kind in {"knob", "fader", "button", "solo", "mute"}:
+            target_group = group_id_indices[str(control.get("sampler_group_id"))]
+            target = groups[target_group]
+            control_parameter = f"group_{target_group}_{control_parameter}"
+            if str(control.get("parameter")) == "volume":
+                control_value = clamp(target.get("volume"), 0, 100, 100) / 100
+            elif str(control.get("parameter")) == "pan":
+                control_value = (clamp(target.get("pan"), -1, 1, 0) + 1) / 2
+            else:
+                control_value = 1 if target.get(str(control.get("parameter")), False) else 0
         if control_kind == "keyboard":
             parsed_key_colors = []
             for raw_pitch, raw_color in (control.get("key_colors") or {}).items():
@@ -365,14 +429,15 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
             cpp_string(control.get("id") or f"control-{index + 1}"),
             cpp_string(control.get("kind") or "knob"), cpp_string(label),
             cpp_string(off_label), cpp_string(on_label),
-            cpp_string(control.get("parameter") or "tone"), str(
+            cpp_string(control_parameter), str(
                 dsp_module_ids.get(str(control.get("module_id") or ""), macro_module_indices.get(str(control.get("parameter") or ""), -1))
             ),
             str(control_indices.get(str(control.get("indicator_source_id") or ""), -1)),
             str(midi_sequence_indices.get(str(control.get("midi_sequence_id") or ""), -1)),
+            str(sampler_group_index),
             cpp_float(clamp(control.get("x"), 0, 100, 50)),
             cpp_float(clamp(control.get("y"), 0, 100, 50)), str(max(minimum_width, min(2048, int(control.get("width", 112))))),
-            str(max(minimum_height, min(2048, int(control.get("height", 122))))), cpp_float(clamp(control.get("value"), 0, 100, 50) / 100),
+            str(max(minimum_height, min(2048, int(control.get("height", 122))))), cpp_float(control_value),
             cpp_float(clamp(control.get("opacity"), 0, 100, 100) / 100),
             cpp_float(clamp(control.get("rotation"), -180, 180, 0)),
             f"0x{control_color_rgb:06X}",
@@ -385,6 +450,7 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
             cpp_string(control.get("meter_mode") or ("stereo" if control.get("kind") == "gain_meter" else "mono")),
             cpp_string(control.get("text_font") or "space-grotesk"),
             f"0x{text_color_rgb:06X}",
+            str(output_font_size),
             cpp_bool(control.get("show_correlation_meter", True)),
             cpp_float(clamp(control.get("waveform_line_width"), 0.5, 8, 1.8)),
             cpp_float(clamp(control.get("bar_width_ratio"), 0.1, 1, 0.54)),
@@ -399,6 +465,7 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
             str(panel_indices.get(str(control.get("parent_panel_id") or ""), -1)), cpp_string(control.get("panel_type") or ""),
             cpp_float(clamp(control.get("panel_x"), 0, 100, 50)), cpp_float(clamp(control.get("panel_y"), 0, 100, 52)),
             cpp_float(clamp(control.get("panel_width"), 35, 96, 88)), cpp_float(clamp(control.get("panel_height"), 30, 92, 78)),
+            cpp_bool(control.get("mixer_show_default_controls", True)),
         )) + "},")
 
     preset_names = [" ".join(str(preset.get("name") or "Preset").split()).casefold() for preset in presets]
@@ -551,11 +618,11 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
 #define TS_PLUGIN_CID_D 0x{cid[3]:08X}
 namespace tripleside::project {{
 struct SampleInfo {{ const char* resourceFile; }};
-struct GroupInfo {{ const char* id; const char* name; float volume; float pan; bool mute; bool solo; }};
+struct GroupInfo {{ const char* id; const char* name; float volume; float pan; bool mute; bool solo; int outputBusIndex; }};
 struct ZoneInfo {{ int sampleIndex, groupIndex, articulationIndex, micIndex, roundRobinSet, rootPitch, lowPitch, highPitch, velocityLow, velocityHigh, roundRobin; float sampleStart, sampleEnd, loopStart, loopEnd, fadeInMs, fadeOutMs, loopCrossfadeMs; int tuneSemitones; float tuneCents, gainDb, pan; bool loopEnabled, tempoSync; float sourceBpm; std::array<int, 16> chokeTargetPitches; int chokeTargetCount; }};
-struct ControlInfo {{ const char* id; const char* kind; const char* label; const char* offLabel; const char* onLabel; const char* parameter; int moduleIndex; int indicatorSourceIndex; int midiSequenceIndex; float x, y; int width, height; float value, opacity, rotation; unsigned int colorRgb; bool showBackground; int notePitch, keyCount; const char* labelPosition; int labelGap, stateLabelGap; const char* variant; const char* meterMode; const char* textFont; unsigned int textColorRgb; bool showCorrelationMeter; float waveformLineWidth, barWidthRatio; bool spectrumBand; bool useFilmstrip; }};
+struct ControlInfo {{ const char* id; const char* kind; const char* label; const char* offLabel; const char* onLabel; const char* parameter; int moduleIndex; int indicatorSourceIndex; int midiSequenceIndex; int samplerGroupIndex; float x, y; int width, height; float value, opacity, rotation; unsigned int colorRgb; bool showBackground; int notePitch, keyCount; const char* labelPosition; int labelGap, stateLabelGap; const char* variant; const char* meterMode; const char* textFont; unsigned int textColorRgb; int outputFontSize; bool showCorrelationMeter; float waveformLineWidth, barWidthRatio; bool spectrumBand; bool useFilmstrip; }};
 struct KeyColorInfo {{ int control, pitch; unsigned int colorRgb; }};
-struct PanelControlInfo {{ int parentPanelIndex; const char* panelType; float panelX, panelY, panelWidth, panelHeight; }};
+struct PanelControlInfo {{ int parentPanelIndex; const char* panelType; float panelX, panelY, panelWidth, panelHeight; bool mixerShowDefaultControls; }};
 struct PresetInfo {{ const char* id; const char* name; bool factory; int valueOffset, valueCount, groupOffset, groupCount, moduleOffset, moduleCount, midiSequenceIndex; }};
 struct PresetValueInfo {{ int controlIndex; float value; }};
 struct PresetGroupInfo {{ int groupIndex; float volume, pan; bool mute, solo; }};
@@ -565,7 +632,7 @@ struct MidiMappingInfo {{ bool note; int channel, sourceNumber, targetControlInd
 struct MidiSequenceInfo {{ const char* id; const char* name; int ppq, durationTicks; bool loopEnabled; int eventOffset, eventCount, tempoOffset, tempoCount, triggerRootPitch; bool liveHold, relativeChord; }};
 struct MidiEventInfo {{ int tick; bool noteOn; int note, velocity, channel, relativeDegree; }};
 struct MidiTempoInfo {{ int tick; float bpm; }};
-struct DspModuleInfo {{ const char* id; const char* type; const char* name; int parentIndex, order; bool bypassed; float mix; int parameterOffset, parameterCount; }};
+struct DspModuleInfo {{ const char* id; const char* type; const char* name; int parentIndex, order, groupIndex, rackIndex; bool bypassed; float mix; int parameterOffset, parameterCount; }};
 struct DspParameterInfo {{ int moduleIndex; const char* key; float value; }};
 struct ImpulseResponseInfo {{ int moduleIndex; const char* resourceFile; bool normalize, autoTrim; float trimStart, trimEnd; bool polarityInverted; float phaseMs; }};
 struct VisualControl {{ const char* file; float x,y,w,h,hx,hy,hw,hh,mlx,mly,mlw,mlh,mrx,mry,mrw,mrh; int frames,columns; }};
@@ -574,6 +641,8 @@ inline constexpr const char* kVisualBackdrop = {cpp_string('visual_backdrop.png'
 inline constexpr std::array<VisualControl, {len(visual_controls)}> kVisualControls {{{{ {', '.join(visual_controls)} }}}};
 inline constexpr std::array<VisualKey, {len(visual_keys)}> kVisualKeys {{{{ {', '.join(visual_keys)} }}}};
 inline constexpr int kPolyphony = {min(128, max(8, int(instrument.get("polyphony", 32))))};
+inline constexpr int kAudioOutputBusCount = {max(1, next_output_bus)};
+inline constexpr std::array<const char*, {len(output_bus_names)}> kAudioOutputBusNames {{{{ {', '.join(cpp_string(name) for name in output_bus_names)} }}}};
 inline constexpr int kCanvasWidth = {visual.get('width') or max(320, min(1920, int(interface.get("canvas_width", 760))))};
 inline constexpr int kCanvasHeight = {visual.get('height') or max(240, min(1080, int(interface.get("canvas_height", 480))))};
 inline constexpr unsigned kAccentRgb = 0x{accent_rgb:06X};
@@ -666,6 +735,7 @@ inline constexpr float kBrandFontSize = {cpp_float(clamp(branding.get("font_size
 inline constexpr float kBrandX = {cpp_float(clamp(branding.get("x"), 0, 100, 18))}, kBrandY = {cpp_float(clamp(branding.get("y"), 0, 100, 13))};
 inline constexpr std::array<SampleInfo, {len(sample_lines)}> kSamples {{{{\n{chr(10).join(sample_lines)}\n}}}};
 inline constexpr std::array<GroupInfo, {len(group_lines)}> kGroups {{{{\n{chr(10).join(group_lines)}\n}}}};
+inline constexpr std::array<bool, {len(group_output_defaults)}> kGroupOutputSeparateDefaults {{{{ {', '.join(cpp_bool(value) for value in group_output_defaults)} }}}};
 inline constexpr std::array<ZoneInfo, {len(zone_lines)}> kZones {{{{\n{chr(10).join(zone_lines)}\n}}}};
 inline constexpr std::array<ControlInfo, {len(control_lines)}> kControls {{{{\n{chr(10).join(control_lines)}\n}}}};
 inline constexpr std::array<KeyColorInfo, {len(key_color_lines)}> kKeyColors {{{{\n{chr(10).join(key_color_lines)}\n}}}};

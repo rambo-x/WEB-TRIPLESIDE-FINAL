@@ -60,7 +60,7 @@ private:
     Microsoft::WRL::ComPtr<IDWriteInlineObject> panelEllipsis;
     Microsoft::WRL::ComPtr<IDWriteInMemoryFontFileLoader> brandFontLoader; std::vector<Microsoft::WRL::ComPtr<IDWriteFontFile>> embeddedFontFiles; Microsoft::WRL::ComPtr<IDWriteFontCollection1> brandFontCollection;
     Microsoft::WRL::ComPtr<IWICImagingFactory> wicFactory; Microsoft::WRL::ComPtr<ID2D1Bitmap> background,knobFilmstrip,pultecKnobFilmstrip,modernSpectrumKnob,studioScallopKnob,blackPrecisionKnob,crimsonWingKnob,blackCrimsonWingKnob,regentWhiteWingKnob,graphiteRidgeKnob,buttonFilmstrip,faderFilmstrip,meterFilmstrip,mechanicalToggleOff,mechanicalToggleOn,stompFootswitchOff,stompFootswitchOn;
-    int activeControl=-1,activeNote=-1,wheelControl=-1,wheelRemainder=0,selectedPrismBand=0,dragPrismBand=-1; float dragStartY=0,dragStartValue=0; D2D1_RECT_F currentLabelControlRect{};
+    int activeControl=-1,activeNote=-1,activeNoteSamplerGroup=-1,wheelControl=-1,wheelRemainder=0,selectedPrismBand=0,dragPrismBand=-1; float dragStartY=0,dragStartValue=0; D2D1_RECT_F currentLabelControlRect{};
     int openPanelIndex=-1, panelDragMode=0, mixerDragGroup=-1, mixerDragSlot=-1, selectedMidiSequence=-1, playingMidiSequence=-1, midiDragCandidate=-1, grooveScrollOffset=0, presetScrollOffset=0, selectedPresetRow=-1, hoveredPresetRow=-1; float panelRuntimeX=50,panelRuntimeY=52,panelRuntimeWidth=88,panelRuntimeHeight=78,panelDragX=0,panelDragY=0,midiDragX=0,midiDragY=0;
     std::map<int,std::array<float,4>> panelRuntimeBounds;
     struct UserPreset { std::wstring name; std::vector<float> values,groups,moduleValues; int midiSequenceIndex=-1; }; std::vector<UserPreset> userPresets; bool userPresetsLoaded=false;
@@ -79,7 +79,7 @@ private:
     std::array<unsigned,128> padTriggerGenerations{}; std::array<std::uint64_t,128> padFlashUntil{};
     bool hitPadFlashActive(int pitch);
     bool comInitialized=false;
-    const char* currentControlVariant="classic"; const char* currentControlParameter=""; const char* currentLabelPosition="top-left"; int currentControlModuleIndex=-1,currentLabelGap=12,currentStateLabelGap=5; unsigned int currentControlColor=0; float currentWaveformLineWidth=1.8f,currentBarWidthRatio=.54f;
+    const char* currentControlVariant="classic"; const char* currentControlParameter=""; const char* currentLabelPosition="top-left"; int currentControlModuleIndex=-1,currentControlSamplerGroupIndex=-1,currentLabelGap=12,currentStateLabelGap=5; unsigned int currentControlColor=0; float currentWaveformLineWidth=1.8f,currentBarWidthRatio=.54f;
 #elif defined(__APPLE__)
     void* cocoaView=nullptr;
 #endif

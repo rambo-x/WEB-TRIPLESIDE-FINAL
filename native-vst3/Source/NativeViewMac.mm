@@ -44,6 +44,7 @@ bool containsIgnoreCase(const char* value, const char* needle) {
 float neutralControlValue(const project::ControlInfo& control) {
     const auto* parameter = control.parameter ? control.parameter : "";
     if (containsIgnoreCase(control.label, "low cut") || (project::kIsPrismEq && equals(parameter, "tone"))) return 0.f;
+    if (startsWith(parameter, "group_") && std::strstr(parameter, "_volume")) return 1.f;
     if (control.moduleIndex >= 0 || startsWith(control.variant, "pan-") || (startsWith(parameter, "group_") && std::strstr(parameter, "_pan"))) return .5f;
     if (project::kIsPrismEq && (equals(parameter, "drive") || equals(parameter, "compress") || equals(parameter, "tone") || equals(parameter, "width") || equals(parameter, "space"))) return .5f;
     if (equals(parameter, "input") || equals(parameter, "tone") || equals(parameter, "width")) return .5f;
@@ -56,7 +57,7 @@ float neutralControlValue(const project::ControlInfo& control) {
 bool interactiveKind(const char* kind) {
     return equals(kind, "knob") || equals(kind, "fader") || equals(kind, "button")
         || equals(kind, "mute") || equals(kind, "solo") || equals(kind, "pad")
-        || equals(kind, "keyboard") || equals(kind, "panel_button");
+        || equals(kind, "keyboard") || equals(kind, "panel_button") || equals(kind, "output_selector");
 }
 
 struct RuntimeMidiEvent { int tick = 0, note = 60, velocity = 0, channel = 0; bool on = false; };
@@ -138,7 +139,10 @@ float displayedValue(NativeInstrument& instrument, std::size_t index, NSInteger 
     if (equals(control.kind, "gain_meter") || equals(control.kind, "vu_meter")) {
         if (control.meterMode && std::strcmp(control.meterMode, "gain_reduction") == 0)
             return std::clamp(instrument.gainReduction(control.moduleIndex), 0.f, 1.f);
-        return std::clamp(std::max(instrument.outputPeak(0), instrument.outputPeak(1)) * 1.5f, 0.f, 1.f);
+        const bool peak = equals(control.kind, "gain_meter");
+        const float left = control.samplerGroupIndex >= 0 ? (peak ? instrument.groupOutputPeak(control.samplerGroupIndex, 0) : instrument.groupOutputRms(control.samplerGroupIndex, 0)) : (peak ? instrument.outputPeak(0) : instrument.outputRms(0));
+        const float right = control.samplerGroupIndex >= 0 ? (peak ? instrument.groupOutputPeak(control.samplerGroupIndex, 1) : instrument.groupOutputRms(control.samplerGroupIndex, 1)) : (peak ? instrument.outputPeak(1) : instrument.outputRms(1));
+        return std::clamp(std::max(left, right) * 1.5f, 0.f, 1.f);
     }
     const auto parameter = displayedParameter(instrument, index, selectedPrismBand);
     return parameter == kNoParamId ? std::clamp(control.value, 0.f, 1.f)
@@ -148,6 +152,10 @@ float displayedValue(NativeInstrument& instrument, std::size_t index, NSInteger 
 float indicatorValue(NativeInstrument& instrument, std::size_t index, NSInteger selectedPrismBand, NSInteger openPanel, NSInteger activeNote, NSInteger playingMidiSequence) {
     if (index >= project::kControls.size()) return 0.f;
     const auto& indicator = project::kControls[index];
+    if (indicator.samplerGroupIndex >= 0) {
+        const auto parameter = instrument.parameterForControl(index);
+        return parameter == kNoParamId ? std::clamp(indicator.value, 0.f, 1.f) : static_cast<float>(instrument.getParamNormalized(parameter));
+    }
     const int sourceIndex = indicator.indicatorSourceIndex;
     if (sourceIndex < 0 || sourceIndex >= static_cast<int>(project::kControls.size())) return std::clamp(indicator.value, 0.f, 1.f);
     const auto& source = project::kControls[static_cast<std::size_t>(sourceIndex)];
@@ -222,6 +230,7 @@ namespace project = tripleside::project;
     CGFloat _dragStartY;
     float _dragStartValue;
     NSInteger _activeNote;
+    NSInteger _activeNoteSamplerGroup;
     NSInteger _selectedPrismBand;
     NSInteger _dragPrismBand;
     std::array<unsigned, 128> _padTriggerGenerations;
@@ -258,7 +267,10 @@ namespace project = tripleside::project;
 - (NSRect)panelChildRect:(NSInteger)index;
 - (NSInteger)panelControlAt:(NSPoint)point;
 - (void)drawPanelControl:(NSInteger)index;
-- (void)drawWaveformInRect:(NSRect)rect color:(unsigned)color lineWidth:(CGFloat)lineWidth;
+- (void)drawWaveformInRect:(NSRect)rect color:(unsigned)color lineWidth:(CGFloat)lineWidth samplerGroup:(int)samplerGroup;
+- (void)drawBarSpectrumInRect:(NSRect)rect color:(unsigned)color barWidthRatio:(CGFloat)barWidthRatio samplerGroup:(int)samplerGroup;
+- (void)drawSpectrumInRect:(NSRect)rect color:(unsigned)color samplerGroup:(int)samplerGroup;
+- (void)drawVectorscopeInRect:(NSRect)rect color:(unsigned)color samplerGroup:(int)samplerGroup showCorrelation:(BOOL)showCorrelation;
 - (BOOL)panelMouseDown:(NSPoint)point;
 - (BOOL)importMidiPath:(NSString*)path;
 - (std::filesystem::path)exportMidiSequence:(NSInteger)index;
@@ -280,6 +292,7 @@ namespace project = tripleside::project;
         _images = [NSMutableDictionary dictionary];
         _dragControl = -1;
         _activeNote = -1;
+        _activeNoteSamplerGroup = -1;
         _selectedPrismBand = 0;
         while (_selectedPrismBand < 5 && !_instrument->prismBandEnabled(static_cast<int>(_selectedPrismBand))) ++_selectedPrismBand;
         if (_selectedPrismBand >= 5) _selectedPrismBand = 0;
@@ -315,7 +328,7 @@ namespace project = tripleside::project;
 - (void)dealloc {
     [_timer invalidate];
     if (_instrument) _instrument->stopGroove();
-    if (_activeNote >= 0 && _instrument) _instrument->queueEditorNote(static_cast<int>(_activeNote), 0, false);
+    if (_activeNote >= 0 && _instrument) _instrument->queueEditorNote(static_cast<int>(_activeNote), 0, false, static_cast<int>(_activeNoteSamplerGroup));
 }
 
 - (BOOL)isFlipped { return YES; }
@@ -612,7 +625,7 @@ namespace project = tripleside::project;
         }
         if (!total) [@"Belum ada preset. Atur suara lalu simpan kondisi saat ini." drawInRect:NSMakeRect(left, top + 50, right - left, 100)
             withAttributes:panelTextAttributes(10, rgbColor(0x71717a), NSTextAlignmentCenter, NSFontWeightMedium)];
-    } else if (equals(panel.panelType, "mixer")) {
+    } else if (equals(panel.panelType, "mixer") && panel.mixerShowDefaultControls) {
         CGFloat x = left;
         for (std::size_t index = 0; index < project::kGroups.size() && x + 112 <= right; ++index, x += 122) {
             const NSRect channel = NSMakeRect(x, top, 112, std::max<CGFloat>(40, std::min<CGFloat>(159, NSMaxY(panelRect) - top - 16)));
@@ -829,7 +842,7 @@ namespace project = tripleside::project;
                 [self setNeedsDisplay:YES]; return YES;
             }
         }
-    } else if (equals(panel.panelType, "mixer")) {
+    } else if (equals(panel.panelType, "mixer") && panel.mixerShowDefaultControls) {
         const NSInteger group = static_cast<NSInteger>((point.x - left) / 122);
         if (group >= 0 && group < static_cast<NSInteger>(project::kGroups.size())) {
             const CGFloat localX = point.x - (left + group * 122), localY = point.y - top;
@@ -937,11 +950,11 @@ namespace project = tripleside::project;
              fraction:1 respectFlipped:YES hints:@{NSImageHintInterpolation: @(NSImageInterpolationHigh)}];
 }
 
-- (void)drawWaveformInRect:(NSRect)rect color:(unsigned)color lineWidth:(CGFloat)lineWidth {
+- (void)drawWaveformInRect:(NSRect)rect color:(unsigned)color lineWidth:(CGFloat)lineWidth samplerGroup:(int)samplerGroup {
     color = color ? color : project::kAccentRgb;
     constexpr std::size_t sampleCount = 2048;
     std::array<float, sampleCount> samples{};
-    _instrument->copyAnalysisSamples(samples.data(), samples.size());
+    if (samplerGroup >= 0) _instrument->copyGroupAnalysisSamples(samplerGroup, samples.data(), samples.size()); else _instrument->copyAnalysisSamples(samples.data(), samples.size());
     std::size_t start = 0;
     for (std::size_t index = 1; index < sampleCount / 2; ++index) if (samples[index - 1] <= 0.f && samples[index] > 0.f) { start = index; break; }
     const NSInteger points = std::clamp<NSInteger>(static_cast<NSInteger>(std::lround(NSWidth(rect))), 64, static_cast<NSInteger>(sampleCount));
@@ -955,12 +968,12 @@ namespace project = tripleside::project;
     strokeRounded(rect, 11.2, rgbColor(color, .22));
 }
 
-- (void)drawBarSpectrumInRect:(NSRect)rect color:(unsigned)color barWidthRatio:(CGFloat)barWidthRatio {
+- (void)drawBarSpectrumInRect:(NSRect)rect color:(unsigned)color barWidthRatio:(CGFloat)barWidthRatio samplerGroup:(int)samplerGroup {
     color = color ? color : project::kAccentRgb;
     constexpr std::size_t sampleCount = BarSpectrumAnalyzer::fftSize;
     std::array<float, sampleCount> left{}, right{};
-    _instrument->copyAnalysisSamples(left.data(), left.size(), 0);
-    _instrument->copyAnalysisSamples(right.data(), right.size(), 1);
+    if (samplerGroup >= 0) { _instrument->copyGroupAnalysisSamples(samplerGroup, left.data(), left.size(), 0); _instrument->copyGroupAnalysisSamples(samplerGroup, right.data(), right.size(), 1); }
+    else { _instrument->copyAnalysisSamples(left.data(), left.size(), 0); _instrument->copyAnalysisSamples(right.data(), right.size(), 1); }
     const double now = [NSDate timeIntervalSinceReferenceDate];
     const float elapsed = _barSpectrumUpdatedAt > 0 ? std::clamp(static_cast<float>(now - _barSpectrumUpdatedAt), .016f, .12f) : .032f;
     _barSpectrumUpdatedAt = now;
@@ -984,6 +997,38 @@ namespace project = tripleside::project;
     }
 }
 
+- (void)drawSpectrumInRect:(NSRect)rect color:(unsigned)color samplerGroup:(int)samplerGroup {
+    color = color ? color : project::kAccentRgb;
+    constexpr std::size_t sampleCount = BarSpectrumAnalyzer::fftSize;
+    std::array<float, sampleCount> left{}, right{};
+    if (samplerGroup >= 0) { _instrument->copyGroupAnalysisSamples(samplerGroup, left.data(), left.size(), 0); _instrument->copyGroupAnalysisSamples(samplerGroup, right.data(), right.size(), 1); }
+    else { _instrument->copyAnalysisSamples(left.data(), left.size(), 0); _instrument->copyAnalysisSamples(right.data(), right.size(), 1); }
+    const auto& levels = _barSpectrumAnalyzer.process(left.data(), right.data(), sampleCount, static_cast<float>(_instrument->analysisSampleRate()), .032f);
+    NSBezierPath* fill = [NSBezierPath bezierPath]; NSBezierPath* line = [NSBezierPath bezierPath];
+    [fill moveToPoint:NSMakePoint(NSMinX(rect), NSMinY(rect))];
+    for (std::size_t index = 0; index < levels.size(); ++index) {
+        const NSPoint point = NSMakePoint(NSMinX(rect) + NSWidth(rect) * index / std::max<std::size_t>(1, levels.size() - 1), NSMinY(rect) + levels[index] * NSHeight(rect) * .9);
+        if (!index) [line moveToPoint:point]; else [line lineToPoint:point]; [fill lineToPoint:point];
+    }
+    [fill lineToPoint:NSMakePoint(NSMaxX(rect), NSMinY(rect))]; [fill closePath]; [rgbColor(color, .20) setFill]; [fill fill];
+    [rgbColor(color, .9) setStroke]; line.lineWidth = 1.5; [line stroke]; strokeRounded(rect, 11.2, rgbColor(color, .18));
+}
+
+- (void)drawVectorscopeInRect:(NSRect)rect color:(unsigned)color samplerGroup:(int)samplerGroup showCorrelation:(BOOL)showCorrelation {
+    color = color ? color : project::kAccentRgb; constexpr std::size_t sampleCount = 512;
+    std::array<float, sampleCount> left{}, right{};
+    if (samplerGroup >= 0) { _instrument->copyGroupAnalysisSamples(samplerGroup, left.data(), left.size(), 0); _instrument->copyGroupAnalysisSamples(samplerGroup, right.data(), right.size(), 1); }
+    else { _instrument->copyAnalysisSamples(left.data(), left.size(), 0); _instrument->copyAnalysisSamples(right.data(), right.size(), 1); }
+    const CGFloat meterHeight = showCorrelation ? std::clamp<CGFloat>(NSHeight(rect) * .13, 25, 36) : 0, scopeHeight = NSHeight(rect) - meterHeight;
+    const NSPoint center = NSMakePoint(NSMidX(rect), NSMinY(rect) + scopeHeight * .5); const CGFloat radius = std::max<CGFloat>(8, std::min(NSWidth(rect), scopeHeight) * .43);
+    [rgbColor(color, .16) setStroke]; [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(center.x-radius, center.y-radius, radius*2, radius*2)] stroke];
+    NSBezierPath* trace = [NSBezierPath bezierPath]; float cross=0,leftEnergy=0,rightEnergy=0;
+    for (std::size_t index=0; index<sampleCount; index+=2) { const float l=left[index],r=right[index];cross+=l*r;leftEnergy+=l*l;rightEnergy+=r*r;const NSPoint point=NSMakePoint(center.x+(r-l)*radius*.72,center.y+(l+r)*radius*.72);if(!index)[trace moveToPoint:point];else[trace lineToPoint:point]; }
+    [rgbColor(color, .82) setStroke]; trace.lineWidth=1.15; [trace stroke];
+    if(showCorrelation){const float denominator=std::sqrt(leftEnergy*rightEnergy),correlation=denominator>1e-8f?std::clamp(cross/denominator,-1.f,1.f):0.f;const CGFloat barLeft=NSMinX(rect)+NSWidth(rect)*.1,barRight=NSMaxX(rect)-NSWidth(rect)*.1,barY=NSMaxY(rect)-meterHeight*.55,zero=(barLeft+barRight)*.5,valueX=zero+correlation*(barRight-barLeft)*.5;NSBezierPath*axis=[NSBezierPath bezierPath];[axis moveToPoint:NSMakePoint(barLeft,barY)];[axis lineToPoint:NSMakePoint(barRight,barY)];[rgbColor(color,.25)setStroke];[axis stroke];[rgbColor(color,1)setFill];[[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(valueX-4,barY-4,8,8)]fill];}
+    strokeRounded(rect,11.2,rgbColor(color,.18));
+}
+
 - (void)drawPanelControl:(NSInteger)index {
     if (index < 0 || static_cast<std::size_t>(index) >= project::kControls.size()
         || static_cast<std::size_t>(index) >= project::kVisualControls.size()) return;
@@ -998,7 +1043,7 @@ namespace project = tripleside::project;
             NSAffineTransform* rotation = [NSAffineTransform transform];
             [rotation translateXBy:center.x yBy:center.y]; [rotation rotateByDegrees:control.rotation]; [rotation translateXBy:-center.x yBy:-center.y]; [rotation concat];
         }
-        [self drawWaveformInRect:waveform color:control.colorRgb lineWidth:control.waveformLineWidth];
+        [self drawWaveformInRect:waveform color:control.colorRgb lineWidth:control.waveformLineWidth samplerGroup:control.samplerGroupIndex];
         [NSGraphicsContext restoreGraphicsState];
         return;
     }
@@ -1011,7 +1056,16 @@ namespace project = tripleside::project;
             NSAffineTransform* rotation = [NSAffineTransform transform];
             [rotation translateXBy:center.x yBy:center.y]; [rotation rotateByDegrees:control.rotation]; [rotation translateXBy:-center.x yBy:-center.y]; [rotation concat];
         }
-        [self drawBarSpectrumInRect:spectrum color:control.colorRgb barWidthRatio:control.barWidthRatio];
+        [self drawBarSpectrumInRect:spectrum color:control.colorRgb barWidthRatio:control.barWidthRatio samplerGroup:control.samplerGroupIndex];
+        [NSGraphicsContext restoreGraphicsState];
+        return;
+    }
+    if (equals(control.kind, "spectrum")) {
+        const NSRect spectrum = [self panelChildRect:index];
+        [NSGraphicsContext saveGraphicsState];
+        CGContextSetAlpha([[NSGraphicsContext currentContext] CGContext], std::clamp<CGFloat>(control.opacity, 0, 1));
+        if (equals(control.variant, "stereo-vectorscope")) [self drawVectorscopeInRect:spectrum color:control.colorRgb samplerGroup:control.samplerGroupIndex showCorrelation:control.showCorrelationMeter];
+        else [self drawSpectrumInRect:spectrum color:control.colorRgb samplerGroup:control.samplerGroupIndex];
         [NSGraphicsContext restoreGraphicsState];
         return;
     }
@@ -1072,7 +1126,7 @@ namespace project = tripleside::project;
                 NSAffineTransform* rotation = [NSAffineTransform transform];
                 [rotation translateXBy:center.x yBy:center.y]; [rotation rotateByDegrees:control.rotation]; [rotation translateXBy:-center.x yBy:-center.y]; [rotation concat];
             }
-            [self drawWaveformInRect:waveform color:control.colorRgb lineWidth:control.waveformLineWidth];
+            [self drawWaveformInRect:waveform color:control.colorRgb lineWidth:control.waveformLineWidth samplerGroup:control.samplerGroupIndex];
             [NSGraphicsContext restoreGraphicsState];
             continue;
         }
@@ -1085,7 +1139,16 @@ namespace project = tripleside::project;
                 NSAffineTransform* rotation = [NSAffineTransform transform];
                 [rotation translateXBy:center.x yBy:center.y]; [rotation rotateByDegrees:control.rotation]; [rotation translateXBy:-center.x yBy:-center.y]; [rotation concat];
             }
-            [self drawBarSpectrumInRect:spectrum color:control.colorRgb barWidthRatio:control.barWidthRatio];
+            [self drawBarSpectrumInRect:spectrum color:control.colorRgb barWidthRatio:control.barWidthRatio samplerGroup:control.samplerGroupIndex];
+            [NSGraphicsContext restoreGraphicsState];
+            continue;
+        }
+        if (equals(control.kind, "spectrum")) {
+            const NSRect spectrum = controlLayoutRect(control, visual);
+            [NSGraphicsContext saveGraphicsState];
+            CGContextSetAlpha([[NSGraphicsContext currentContext] CGContext], std::clamp<CGFloat>(control.opacity, 0, 1));
+            if (equals(control.variant, "stereo-vectorscope")) [self drawVectorscopeInRect:spectrum color:control.colorRgb samplerGroup:control.samplerGroupIndex showCorrelation:control.showCorrelationMeter];
+            else [self drawSpectrumInRect:spectrum color:control.colorRgb samplerGroup:control.samplerGroupIndex];
             [NSGraphicsContext restoreGraphicsState];
             continue;
         }
@@ -1106,6 +1169,35 @@ namespace project = tripleside::project;
                     operation:NSCompositingOperationSourceOver fraction:.68 respectFlipped:YES
                         hints:@{NSImageHintInterpolation: @(NSImageInterpolationHigh)}];
         } else [self drawAtlas:[self imageNamed:visual.file] file:visual frame:frame];
+    }
+
+    for (std::size_t index = 0; index < project::kControls.size(); ++index) {
+        const auto& control = project::kControls[index];
+        if (!equals(control.kind, "output_selector") || project::kPanelControls[index].parentPanelIndex >= 0 || !controlVisible(index)) continue;
+        if (index < project::kVisualControls.size()) {
+            const auto& visual = project::kVisualControls[index];
+            if (visual.file && *visual.file && visual.frames > 0) continue;
+        }
+        const NSRect rect = NSMakeRect(project::kCanvasWidth * control.x / 100. - control.width * .5, project::kCanvasHeight * control.y / 100. - control.height * .5, control.width, control.height);
+        const auto value = displayedValue(*_instrument, index, _selectedPrismBand);
+        const bool selected = value >= .5f;
+        const CGFloat inset = std::clamp<CGFloat>(NSHeight(rect) * .07, 3, 6);
+        const CGFloat header = std::clamp<CGFloat>(NSHeight(rect) * .24, 11, 22);
+        const NSRect box = NSMakeRect(NSMinX(rect) + inset, NSMinY(rect) + header + inset * .35,
+                                      std::max<CGFloat>(1, NSWidth(rect) - inset * 2),
+                                      std::max<CGFloat>(1, NSHeight(rect) - header - inset * 1.35));
+        fillRounded(box, std::clamp<CGFloat>(NSHeight(rect) * .12, 5, 9), rgbColor(control.colorRgb));
+        strokeRounded(box, std::clamp<CGFloat>(NSHeight(rect) * .12, 5, 9), [rgbColor(control.textColorRgb) colorWithAlphaComponent:.18], 1);
+        NSString* outputName = @"Master";
+        if (selected && control.samplerGroupIndex >= 0) {
+            NSString* samplerName = [NSString stringWithUTF8String:project::kGroups[static_cast<std::size_t>(control.samplerGroupIndex)].name] ?: @"Sampler";
+            outputName = [@"Output terpisah · " stringByAppendingString:samplerName];
+        }
+        const CGFloat fontSize = std::clamp<CGFloat>(std::min<CGFloat>(control.outputFontSize, std::min(NSHeight(rect) * .30, NSWidth(rect) * .12)), 6, 32);
+        const CGFloat leftPadding = std::clamp<CGFloat>(NSWidth(rect) * .05, 5, 12);
+        const CGFloat rightPadding = std::clamp<CGFloat>(NSWidth(rect) * .14, 20, 34);
+        [outputName drawInRect:NSMakeRect(NSMinX(box)+leftPadding, NSMinY(box), std::max<CGFloat>(1, NSWidth(box)-leftPadding-rightPadding), NSHeight(box)) withAttributes:panelTextAttributes(fontSize, rgbColor(control.textColorRgb), NSTextAlignmentLeft, NSFontWeightSemibold)];
+        [@"⌄" drawInRect:NSMakeRect(NSMaxX(box)-rightPadding, NSMidY(box)-10, rightPadding, 20) withAttributes:panelTextAttributes(std::min<CGFloat>(15, fontSize+4), rgbColor(project::kAccentRgb), NSTextAlignmentCenter, NSFontWeightBold)];
     }
 
     if constexpr (project::kIsPrismEq || project::kHasPrismModule) {
@@ -1287,6 +1379,27 @@ namespace project = tripleside::project;
     [self setNeedsDisplay:YES];
 }
 
+- (void)selectOutputMenuItem:(NSMenuItem*)item {
+    const NSInteger index = item.representedObject ? [item.representedObject integerValue] : -1;
+    [self setControl:index value:item.tag == 1 ? 1.f : 0.f];
+}
+
+- (void)showOutputMenuForControl:(NSInteger)index event:(NSEvent*)event {
+    if (index < 0 || static_cast<std::size_t>(index) >= project::kControls.size()) return;
+    const auto& control = project::kControls[static_cast<std::size_t>(index)];
+    const auto parameter = displayedParameter(*_instrument, static_cast<std::size_t>(index), _selectedPrismBand);
+    const bool selected = parameter != kNoParamId && _instrument->getParamNormalized(parameter) >= .5;
+    NSMenu* menu = [[NSMenu alloc] initWithTitle:@""];
+    NSMenuItem* master = [[NSMenuItem alloc] initWithTitle:@"Master" action:@selector(selectOutputMenuItem:) keyEquivalent:@""];
+    master.target = self; master.tag = 0; master.representedObject = @(index); master.state = selected ? NSControlStateValueOff : NSControlStateValueOn; [menu addItem:master];
+    if (control.samplerGroupIndex >= 0) {
+        NSString* name = [NSString stringWithUTF8String:project::kGroups[static_cast<std::size_t>(control.samplerGroupIndex)].name] ?: @"Sampler";
+        NSMenuItem* separate = [[NSMenuItem alloc] initWithTitle:[@"Output terpisah · " stringByAppendingString:name] action:@selector(selectOutputMenuItem:) keyEquivalent:@""];
+        separate.target = self; separate.tag = 1; separate.representedObject = @(index); separate.state = selected ? NSControlStateValueOn : NSControlStateValueOff; [menu addItem:separate];
+    }
+    [NSMenu popUpContextMenu:menu withEvent:event forView:self];
+}
+
 - (void)resetCursorRects {
     [super resetCursorRects];
     if (_openPanel < 0 || !equals(project::kPanelControls[static_cast<std::size_t>(_openPanel)].panelType, "midi_map")) return;
@@ -1347,7 +1460,10 @@ namespace project = tripleside::project;
     if (panelControl >= 0) {
         _dragControl = panelControl;
         const auto& control = project::kControls[static_cast<std::size_t>(_dragControl)];
-        if (event.clickCount >= 2 && (equals(control.kind, "knob") || equals(control.kind, "fader"))) {
+        if (equals(control.kind, "output_selector")) {
+            [self showOutputMenuForControl:_dragControl event:event];
+            _dragControl = -1;
+        } else if (event.clickCount >= 2 && (equals(control.kind, "knob") || equals(control.kind, "fader"))) {
             [self setControl:_dragControl value:neutralControlValue(control)];
             _dragControl = -1;
         } else if (control.midiSequenceIndex >= 0 && (equals(control.kind, "button") || equals(control.kind, "pad"))) {
@@ -1356,8 +1472,9 @@ namespace project = tripleside::project;
             _selectedMidiSequence = control.midiSequenceIndex;
             _dragControl = -1;
         } else if (equals(control.kind, "pad")) {
+            _activeNoteSamplerGroup = control.samplerGroupIndex;
             _activeNote = control.notePitch;
-            _instrument->queueEditorNote(static_cast<int>(_activeNote), 112, true);
+            _instrument->queueEditorNote(static_cast<int>(_activeNote), 112, true, static_cast<int>(_activeNoteSamplerGroup));
             _dragControl = -1;
         } else {
             const auto parameter = displayedParameter(*_instrument, static_cast<std::size_t>(_dragControl), _selectedPrismBand);
@@ -1371,7 +1488,7 @@ namespace project = tripleside::project;
         }
         return;
     }
-    if (event.clickCount >= 2 && _openPanel >= 0 && equals(project::kPanelControls[static_cast<std::size_t>(_openPanel)].panelType, "mixer")) {
+    if (event.clickCount >= 2 && _openPanel >= 0 && equals(project::kPanelControls[static_cast<std::size_t>(_openPanel)].panelType, "mixer") && project::kPanelControls[static_cast<std::size_t>(_openPanel)].mixerShowDefaultControls) {
         const NSRect panel = [self panelRect:_openPanel];
         const CGFloat left = NSMinX(panel) + 16, top = NSMinY(panel) + 60;
         const NSInteger group = static_cast<NSInteger>((point.x - left) / 122);
@@ -1407,7 +1524,10 @@ namespace project = tripleside::project;
     _dragControl = [self controlAt:point];
     if (_dragControl < 0) return;
     const auto& control = project::kControls[static_cast<std::size_t>(_dragControl)];
-    if (event.clickCount >= 2 && (equals(control.kind, "knob") || equals(control.kind, "fader"))) {
+    if (equals(control.kind, "output_selector")) {
+        [self showOutputMenuForControl:_dragControl event:event];
+        _dragControl = -1;
+    } else if (event.clickCount >= 2 && (equals(control.kind, "knob") || equals(control.kind, "fader"))) {
         [self setControl:_dragControl value:neutralControlValue(control)];
         _dragControl = -1;
     } else if (equals(control.kind, "panel_button")) {
@@ -1419,12 +1539,14 @@ namespace project = tripleside::project;
         _selectedMidiSequence = control.midiSequenceIndex;
         _dragControl = -1;
     } else if (equals(control.kind, "keyboard")) {
+        _activeNoteSamplerGroup = control.samplerGroupIndex;
         _activeNote = [self keyboardPitchAt:point control:_dragControl];
-        if (_activeNote >= 0) _instrument->queueEditorNote(static_cast<int>(_activeNote), 108, true);
+        if (_activeNote >= 0) _instrument->queueEditorNote(static_cast<int>(_activeNote), 108, true, static_cast<int>(_activeNoteSamplerGroup));
         _dragControl = -1;
     } else if (equals(control.kind, "pad")) {
+        _activeNoteSamplerGroup = control.samplerGroupIndex;
         _activeNote = control.notePitch;
-        _instrument->queueEditorNote(static_cast<int>(_activeNote), 112, true);
+        _instrument->queueEditorNote(static_cast<int>(_activeNote), 112, true, static_cast<int>(_activeNoteSamplerGroup));
         _dragControl = -1;
     } else {
         const auto parameter = displayedParameter(*_instrument, static_cast<std::size_t>(_dragControl), _selectedPrismBand);
@@ -1485,8 +1607,9 @@ namespace project = tripleside::project;
 - (void)mouseUp:(NSEvent*)event {
     (void)event;
     if (_activeNote >= 0) {
-        _instrument->queueEditorNote(static_cast<int>(_activeNote), 0, false);
+        _instrument->queueEditorNote(static_cast<int>(_activeNote), 0, false, static_cast<int>(_activeNoteSamplerGroup));
         _activeNote = -1;
+        _activeNoteSamplerGroup = -1;
     }
     _dragControl = -1;
     _dragPrismBand = -1;
@@ -1565,7 +1688,7 @@ namespace project = tripleside::project;
                 _presetScrollOffset = std::clamp(_presetScrollOffset + direction, static_cast<NSInteger>(0), maxOffset);
                 [self setNeedsDisplay:YES]; return;
             }
-            if (equals(panelInfo.panelType, "mixer")) {
+            if (equals(panelInfo.panelType, "mixer") && panelInfo.mixerShowDefaultControls) {
                 const CGFloat left = NSMinX(panel) + 16, top = NSMinY(panel) + 60;
                 const NSInteger group = static_cast<NSInteger>((point.x - left) / 122);
                 if (group >= 0 && group < static_cast<NSInteger>(project::kGroups.size())) {

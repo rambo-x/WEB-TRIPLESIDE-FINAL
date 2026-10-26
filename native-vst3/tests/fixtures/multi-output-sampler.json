@@ -1,0 +1,88 @@
+{
+  "name": "TripleSide Multi Output Smoke",
+  "build": {
+    "company_name": "TripleSide Studio",
+    "version": "0.1.0"
+  },
+  "sample_packaging": {
+    "monolith": false
+  },
+  "instrument": {
+    "polyphony": 32
+  },
+  "interface": {
+    "controls": [
+      { "id": "volume", "kind": "knob", "label": "Volume", "parameter": "volume", "value": 80 },
+      { "id": "kick-output", "kind": "output_selector", "label": "Kick Output", "parameter": "group_output", "sampler_group_id": "kick", "value": 50, "x": 50, "y": 50, "width": 190, "height": 118, "control_color": "#1A2233", "text_color": "#DDEEFF", "output_font_size": 17 }
+    ]
+  },
+  "samples": [
+    { "id": "smoke-sine", "name": "smoke-sine.wav" }
+  ],
+  "sampler_groups": [
+    { "id": "kick", "name": "Kick", "volume": 100, "pan": 0, "mute": false, "solo": false, "output_bus": "separate" },
+    { "id": "snare", "name": "Snare", "volume": 100, "pan": 0, "mute": false, "solo": false, "output_bus": "master" },
+    { "id": "hat", "name": "Hi-Hat", "volume": 100, "pan": 0, "mute": false, "solo": false, "output_bus": "separate" }
+  ],
+  "sampler_map": [
+    {
+      "id": "kick-zone",
+      "sampleId": "smoke-sine",
+      "groupName": "Kick",
+      "rootPitch": 36,
+      "lowPitch": 0,
+      "highPitch": 48,
+      "velocityLow": 1,
+      "velocityHigh": 127,
+      "sampleStart": 0.0,
+      "sampleEnd": 1.0,
+      "tuneSemitones": 0,
+      "tuneCents": 0,
+      "gainDb": -6.0,
+      "pan": 0.0
+    },
+    {
+      "id": "snare-zone",
+      "sampleId": "smoke-sine",
+      "groupName": "Snare",
+      "rootPitch": 60,
+      "lowPitch": 49,
+      "highPitch": 72,
+      "velocityLow": 1,
+      "velocityHigh": 127,
+      "sampleStart": 0.0,
+      "sampleEnd": 1.0,
+      "tuneSemitones": 0,
+      "tuneCents": 0,
+      "gainDb": -6.0,
+      "pan": 0.0
+    },
+    {
+      "id": "hat-zone",
+      "sampleId": "smoke-sine",
+      "groupName": "Hi-Hat",
+      "rootPitch": 84,
+      "lowPitch": 73,
+      "highPitch": 127,
+      "velocityLow": 1,
+      "velocityHigh": 127,
+      "sampleStart": 0.0,
+      "sampleEnd": 1.0,
+      "tuneSemitones": 0,
+      "tuneCents": 0,
+      "gainDb": -6.0,
+      "pan": 0.0
+    }
+  ],
+  "dsp_graph": {
+    "version": 2,
+    "mode": "instrument_serial_rack",
+    "source": "smoke_fixture",
+    "modules": [
+      { "id": "master-output", "type": "output_trim", "name": "Master Output", "order": 0, "bypassed": false, "mix": 1, "parameters": { "output": 0.75 } },
+      { "id": "kick-tone", "type": "tone_shaper", "name": "Kick Tone", "order": 1, "samplerGroupId": "kick", "bypassed": false, "mix": 1, "parameters": { "tone": 0.7 } },
+      { "id": "kick-compressor", "type": "linked_compressor", "name": "Kick Compressor", "order": 2, "samplerGroupId": "kick", "bypassed": false, "mix": 1, "parameters": { "compress": 0.6 } },
+      { "id": "hat-delay", "type": "cross_delay", "name": "Hat Delay", "order": 3, "samplerGroupId": "hat", "bypassed": false, "mix": 1, "parameters": { "space": 0.25 } }
+    ]
+  }
+}

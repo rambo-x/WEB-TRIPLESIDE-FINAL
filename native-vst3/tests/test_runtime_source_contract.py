@@ -22,9 +22,64 @@ def test_muted_sampler_groups_keep_voice_timeline_advancing_silently():
     assert "groupOutputLevels[group]=groupOutputGains[group].next()" in render_frame
     assert "if(groupMutes[g]||(anySolo&&!groupSolos[g]))continue" not in render_frame
     assert "gain=v.gain*groupVolumes[g]*v.envelope*trim*groupOutputLevels[g]" in render_frame
-    assert render_frame.index("renderTempoVoiceFrame") < render_frame.index("left+=l;right+=r")
-    assert render_frame.index("v.position+=v.increment*expressionRate") > render_frame.index("left+=l;right+=r")
+    assert render_frame.index("renderTempoVoiceFrame") < render_frame.index("groupLeft[static_cast<size_t>(g)]+=l")
+    assert render_frame.index("v.position+=v.increment*expressionRate") > render_frame.index("groupLeft[static_cast<size_t>(g)]+=l")
     assert "groupOutputGains[group].prepare(spec.sampleRate,5.0)" in source
+
+
+def test_sampler_audio_uses_named_exclusive_output_busses_and_scoped_racks():
+    source = (SOURCE_DIR / "NativeInstrument.cpp").read_text(encoding="utf-8")
+    process = source.split("tresult PLUGIN_API NativeInstrument::process(ProcessData&data)", 1)[1].split(
+        "void NativeInstrument::copyAnalysisSamples", 1
+    )[0]
+
+    assert 'addAudioOutput(STR16("Master"), SpeakerArr::kStereo)' in source
+    assert "String name(group.name,kCP_Utf8)" in source
+    assert "addAudioOutput(name.text16(),SpeakerArr::kStereo,kAux,BusInfo::kDefaultActive)" in source
+    assert "no==project::kAudioOutputBusCount" in source
+    assert "groupLeft[static_cast<size_t>(g)]+=l" in source
+    assert "groupRight[static_cast<size_t>(g)]+=r" in source
+    assert "if(groupEffectRacks[group].size())groupEffectRacks[group].processFrame(gl,gr)" in process
+    assert "if(bus==0){sl+=gl;sr+=gr;}else if(bus<outL.size())" in process
+    assert "if(outL[bus])outL[bus][i]+=gl" in process
+    assert "if(outR[bus])outR[bus][i]+=gr" in process
+    assert process.index("groupEffectRacks[group].processFrame(gl,gr)") < process.index("if(bus==0){sl+=gl;sr+=gr;}")
+    assert process.index("if(bus==0){sl+=gl;sr+=gr;}") < process.index("if(instrumentUsesDspRack)effectRack.processFrame(sl,sr)")
+    assert "for(size_t bus=0;bus<outL.size();++bus)" in process
+    assert "if constexpr(project::kLicenseRequired){if(!LicenseRuntime::isLicensed()){for(int32 bus=0;bus<availableOutputs;++bus)" in process
+
+
+def test_output_selector_is_automatable_stateful_and_uses_captured_bus_frames():
+    instrument = (SOURCE_DIR / "NativeInstrument.cpp").read_text(encoding="utf-8")
+    windows = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+    macos = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
+    capture = (SOURCE_DIR.parent / "tools" / "render_visual_assets.py").read_text(encoding="utf-8")
+
+    assert "StringListParameter(outputName.text16(),groupOutputParameterId" in instrument
+    assert "groupOutputBuses[group]" in instrument
+    assert "for(int bus:groupOutputBuses)" in instrument
+    assert 'equals(c.kind,"output_selector")' in windows
+    assert "c.outputFontSize" in windows
+    assert "rgb(c.colorRgb,.98f)" in windows
+    assert "rgb(c.textColorRgb)" in windows
+    assert "TrackPopupMenu" in windows
+    assert 'equals(control.kind, "output_selector")' in macos
+    assert "control.outputFontSize" in macos
+    assert "rgbColor(control.colorRgb)" in macos
+    assert "rgbColor(control.textColorRgb)" in macos
+    assert "showOutputMenuForControl" in macos
+    assert "control_frame_count(kind, spec)" in capture
+
+
+def test_mixer_defaults_can_be_hidden_while_sampler_bound_children_stay_native():
+    windows = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+    macos = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
+
+    assert 'equals(panelInfo.panelType,"mixer")&&panelInfo.mixerShowDefaultControls' in windows
+    assert 'equals(panel.panelType,"mixer")&&panel.mixerShowDefaultControls' in windows
+    assert 'endsWith(parameter,"_volume"))return 1.f' in windows
+    assert 'equals(panel.panelType, "mixer") && panel.mixerShowDefaultControls' in macos
+    assert 'std::strstr(parameter, "_volume")) return 1.f' in macos
 
 
 def test_native_view_uses_real_midi_activity_and_boolean_pad_state():
@@ -67,7 +122,7 @@ def test_windows_groove_transport_loops_smoothly_and_survives_panel_close():
 
     assert "SetTimer(hwnd,2,10,nullptr)" not in source
     assert "processGrooveSample()" in instrument_header
-    assert "processGrooveSample();renderFrame" in instrument_source
+    assert "processGrooveSample();std::array<float,project::kGroups.size()>groupLeft{},groupRight{};renderFrame" in instrument_source
     assert "grooveCommand.exchange" in instrument_source
     assert "grooveTick+=" in instrument_source
     assert "playingMidiSequence" in header
@@ -161,8 +216,8 @@ def test_instrument_bypass_buttons_register_toggle_and_bypass_only_the_dsp_chain
     assert 'if(hasControlParameter("bypass"))parameters.addParameter' in instrument_source
     assert "const float dryL=sl,dryR=sr" in instrument_source
     assert "sl+=(dryL-sl)*bypassMix" in instrument_source
-    assert "version>6" in instrument_source
-    assert "b.writeInt32u(6)" in instrument_source
+    assert "version>7" in instrument_source
+    assert "b.writeInt32u(7)" in instrument_source
     assert "project::kVisualKeys.rbegin()" in mac_source
 
 
@@ -199,8 +254,8 @@ def test_native_runtime_applies_and_persists_master_pan():
     assert "applyMasterPan(float&, float&)" in instrument_header
     assert "masterPan.next()*2.f-1.f" in instrument_source
     assert "applyMasterPan(sl,sr)" in instrument_source
-    assert "version>6" in instrument_source
-    assert "writeInt32u(6)" in instrument_source
+    assert "version>7" in instrument_source
+    assert "writeInt32u(7)" in instrument_source
     assert "b.writeFloat(pan)" in instrument_source
 
 
@@ -596,7 +651,8 @@ def test_customer_build_runtime_requires_machine_bound_activation():
 
     assert "LicenseRuntime::initialize()" in instrument
     assert "!LicenseRuntime::isLicensed()" in instrument
-    assert "std::fill(l,l+data.numSamples,0)" in instrument
+    assert "std::fill(outL[bus],outL[bus]+data.numSamples,0)" in instrument
+    assert "for(int32 bus=0;bus<availableOutputs;++bus)data.outputs[bus].silenceFlags" in instrument
     assert "Masukkan serial lisensi" in view
     assert 'auto eyebrow=L"AKTIVASI PRODUK"' in view
     assert "TRIPLESIDE STUDIO · AKTIVASI PRODUK" not in view
@@ -660,8 +716,8 @@ def test_shared_preview_live_overlays_support_pure_fft_and_stereo_vectorscope():
     assert "analysisSamplesLeft" in header
     assert "analysisSamplesRight" in header
     assert "copyAnalysisSamples(float*,std::size_t,int channel=-1)" in header
-    assert "analysisSamplesLeft[analysisSlot].store(sl" in instrument
-    assert "analysisSamplesRight[analysisSlot].store(sr" in instrument
+    assert "analysisSamplesLeft[analysisSlot].store(analysisL" in instrument
+    assert "analysisSamplesRight[analysisSlot].store(analysisR" in instrument
     assert 'equals(currentControlVariant,"stereo-vectorscope")' in view
     assert 'equals(currentControlVariant,"pure-spectrum")' in view
     assert "drawVectorscope" in view
@@ -713,8 +769,8 @@ def test_prism_contextual_bands_route_runtime_parameters_and_migrate_state_v4():
     assert "kPrismEnabledBaseId=230" in header
     assert "id>=kPrismFrequencyBaseId&&id<kPrismFrequencyBaseId+5" in instrument
     assert "id>=kPrismQBaseId&&id<kPrismQBaseId+5" in instrument
-    assert "version>6" in instrument
-    assert "b.writeInt32u(6)" in instrument
+    assert "version>7" in instrument
+    assert "b.writeInt32u(7)" in instrument
     assert "else prismFrequencies[0]=tone" in instrument
     assert "applyPrismRackParameter" in instrument
     assert "isPrismContextParameter(control.parameter)" in instrument
@@ -795,3 +851,26 @@ def test_macos_bar_spectrum_analyzer_uses_native_namespace():
     assert "using tripleside::native::BarSpectrumAnalyzer;" in source
     assert "BarSpectrumAnalyzer _barSpectrumAnalyzer;" in source
     assert "BarSpectrumAnalyzer::fftSize" in source
+
+
+def test_sampler_bound_native_controls_use_group_notes_analysis_and_two_output_choices():
+    instrument_header = (SOURCE_DIR / "NativeInstrument.h").read_text(encoding="utf-8")
+    instrument = (SOURCE_DIR / "NativeInstrument.cpp").read_text(encoding="utf-8")
+    windows = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+    mac = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
+
+    assert "groupOutputPeak" in instrument_header
+    assert "groupOutputRms" in instrument_header
+    assert "copyGroupAnalysisSamples" in instrument_header
+    assert "groupAnalysisSamplesLeft" in instrument_header
+    assert 'outputParameter->appendString(STR16("Master"))' in instrument
+    assert 'String separateName(STR16("Output terpisah · "))' in instrument
+    assert "v>=.5f?project::kGroups" in instrument
+    assert "n.samplerGroup" in instrument
+    assert "targetGroup<0||z.groupIndex==targetGroup" in instrument
+    assert "c.samplerGroupIndex" in windows
+    assert "copyGroupAnalysisSamples" in windows
+    assert 'std::wstring(L"Output terpisah · ")+wide(project::kGroups' in windows
+    assert "control.samplerGroupIndex" in mac
+    assert "copyGroupAnalysisSamples" in mac
+    assert '[@"Output terpisah · " stringByAppendingString:samplerName]' in mac
