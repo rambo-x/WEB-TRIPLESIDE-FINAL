@@ -35,14 +35,15 @@ def test_sampler_audio_uses_named_exclusive_output_busses_and_scoped_racks():
 
     assert 'addAudioOutput(STR16("Master"), SpeakerArr::kStereo)' in source
     assert "String name(group.name,kCP_Utf8)" in source
-    assert "addAudioOutput(name.text16(),SpeakerArr::kStereo,kAux,BusInfo::kDefaultActive)" in source
+    assert "addAudioOutput(name.text16(),SpeakerArr::kMono,kAux,BusInfo::kDefaultActive)" in source
     assert "no==project::kAudioOutputBusCount" in source
+    assert "out[index]==(index==0?SpeakerArr::kStereo:SpeakerArr::kMono)" in source
     assert "groupLeft[static_cast<size_t>(g)]+=l" in source
     assert "groupRight[static_cast<size_t>(g)]+=r" in source
     assert "if(groupEffectRacks[group].size())groupEffectRacks[group].processFrame(gl,gr)" in process
-    assert "if(bus==0){sl+=gl;sr+=gr;}else if(bus<outL.size())" in process
-    assert "if(outL[bus])outL[bus][i]+=gl" in process
-    assert "if(outR[bus])outR[bus][i]+=gr" in process
+    assert "if(bus==0){sl+=gl;sr+=gr;}else if(bus<outL.size()&&outL[bus])" in process
+    assert "if(outR[bus]==outL[bus])outL[bus][i]+=(gl+gr)*.5f" in process
+    assert "else{outL[bus][i]+=gl;if(outR[bus])outR[bus][i]+=gr;}" in process
     assert process.index("groupEffectRacks[group].processFrame(gl,gr)") < process.index("if(bus==0){sl+=gl;sr+=gr;}")
     assert process.index("if(bus==0){sl+=gl;sr+=gr;}") < process.index("if(instrumentUsesDspRack)effectRack.processFrame(sl,sr)")
     assert "for(size_t bus=0;bus<outL.size();++bus)" in process
@@ -62,12 +63,20 @@ def test_output_selector_is_automatable_stateful_and_uses_captured_bus_frames():
     assert "c.outputFontSize" in windows
     assert "rgb(c.colorRgb,.98f)" in windows
     assert "rgb(c.textColorRgb)" in windows
-    assert "TrackPopupMenu" in windows
+    assert "outputMenuControl" in windows
+    assert "drawOutputMenu" in windows
+    assert "handleOutputMenuMouseDown" in windows
+    assert "TrackPopupMenu" not in windows
+    assert "CreatePopupMenu" not in windows
     assert 'equals(control.kind, "output_selector")' in macos
     assert "control.outputFontSize" in macos
     assert "rgbColor(control.colorRgb)" in macos
     assert "rgbColor(control.textColorRgb)" in macos
-    assert "showOutputMenuForControl" in macos
+    assert "_outputMenuControl" in macos
+    assert "drawOutputMenu" in macos
+    assert "handleOutputMenuMouseDown" in macos
+    assert "NSMenu" not in macos
+    assert "popUpContextMenu" not in macos
     assert "control_frame_count(kind, spec)" in capture
 
 
@@ -946,13 +955,13 @@ def test_sampler_bound_native_controls_use_group_notes_analysis_and_two_output_c
     assert "c.samplerGroupIndex" in windows
     assert "copyGroupAnalysisSamples" in windows
     assert 'valueLabel=wide(project::kGroups' in windows
-    assert 'std::wstring(L"Out")+std::to_wstring(group.outputBusIndex)' in windows
+    assert 'std::wstring(L"Out")+std::to_wstring(project::kGroups' in windows
     assert 'selected?rgb(project::kAccentRgb):rgb(c.textColorRgb,.18f)' in windows
     assert 'selected?rgb(project::kAccentRgb):rgb(c.textColorRgb,.45f)' in windows
     assert 'if(selected){target->DrawLine' in windows
     assert "control.samplerGroupIndex" in mac
     assert "copyGroupAnalysisSamples" in mac
     assert 'outputName = [NSString stringWithUTF8String:samplerGroup.name]' in mac
-    assert 'stringWithFormat:@"Out%d", samplerGroup.outputBusIndex' in mac
+    assert 'stringWithFormat:@"Out%ld", static_cast<long>(bus)' in mac
     assert 'selected ? rgbColor(project::kAccentRgb) : [rgbColor(control.textColorRgb) colorWithAlphaComponent:.18]' in mac
     assert '(selected ? @"›" : @"⌄")' in mac

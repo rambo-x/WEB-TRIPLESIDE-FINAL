@@ -253,6 +253,7 @@ namespace project = tripleside::project;
     NSInteger _selectedPresetRow;
     NSInteger _hoveredPresetRow;
     NSInteger _hoveredControl;
+    NSInteger _outputMenuControl;
     NSTrackingArea* _trackingArea;
     CGFloat _panelX, _panelY, _panelWidth, _panelHeight;
     CGFloat _panelDragX, _panelDragY, _midiDragX, _midiDragY;
@@ -271,6 +272,10 @@ namespace project = tripleside::project;
 - (void)updateMidiPlayback;
 - (NSRect)panelRect:(NSInteger)index;
 - (NSRect)panelChildRect:(NSInteger)index;
+- (NSRect)runtimeControlRect:(NSInteger)index;
+- (NSRect)outputMenuRect:(NSInteger)index;
+- (void)drawOutputMenu;
+- (BOOL)handleOutputMenuMouseDown:(NSPoint)point;
 - (NSInteger)panelControlAt:(NSPoint)point;
 - (void)drawPanelControl:(NSInteger)index;
 - (void)drawWaveformInRect:(NSRect)rect color:(unsigned)color lineWidth:(CGFloat)lineWidth samplerGroup:(int)samplerGroup;
@@ -317,6 +322,7 @@ namespace project = tripleside::project;
         _selectedPresetRow = -1;
         _hoveredPresetRow = -1;
         _hoveredControl = -1;
+        _outputMenuControl = -1;
         _presetNameFocused = NO;
         _panelX = 50;
         _panelY = 52;
@@ -484,6 +490,83 @@ namespace project = tripleside::project;
     const CGFloat left = std::clamp(centerX - width * .5, NSMinX(panel) + 8, NSMaxX(panel) - 8 - width);
     const CGFloat top = std::clamp(centerY - height * .5, contentTop, NSMaxY(panel) - 8 - height);
     return NSMakeRect(left, top, width, height);
+}
+
+- (NSRect)runtimeControlRect:(NSInteger)index {
+    if (index < 0 || static_cast<std::size_t>(index) >= project::kControls.size()) return NSZeroRect;
+    if (project::kPanelControls[static_cast<std::size_t>(index)].parentPanelIndex >= 0) return [self panelChildRect:index];
+    const auto& control = project::kControls[static_cast<std::size_t>(index)];
+    if (static_cast<std::size_t>(index) < project::kVisualControls.size()) {
+        const auto& visual = project::kVisualControls[static_cast<std::size_t>(index)];
+        if (visual.hw > 0 && visual.hh > 0) return controlLayoutRect(control, visual);
+    }
+    return NSMakeRect(project::kCanvasWidth * control.x / 100. - control.width * .5,
+                      project::kCanvasHeight * control.y / 100. - control.height * .5,
+                      control.width, control.height);
+}
+
+- (NSRect)outputMenuRect:(NSInteger)index {
+    const NSRect anchor = [self runtimeControlRect:index];
+    const CGFloat width = std::min<CGFloat>(std::max<CGFloat>(96, NSWidth(anchor)), project::kCanvasWidth - 8);
+    const CGFloat height = 64;
+    const CGFloat left = std::clamp<CGFloat>(NSMinX(anchor), 4, project::kCanvasWidth - width - 4);
+    CGFloat top = NSMaxY(anchor) + 4;
+    if (top + height > project::kCanvasHeight - 4) top = std::max<CGFloat>(4, NSMinY(anchor) - height - 4);
+    return NSMakeRect(left, top, width, height);
+}
+
+- (void)drawOutputMenu {
+    if (_outputMenuControl < 0 || static_cast<std::size_t>(_outputMenuControl) >= project::kControls.size()
+        || !controlVisible(static_cast<std::size_t>(_outputMenuControl))) return;
+    const auto& control = project::kControls[static_cast<std::size_t>(_outputMenuControl)];
+    if (!equals(control.kind, "output_selector")) return;
+    const NSRect menu = [self outputMenuRect:_outputMenuControl];
+    const CGFloat rowHeight = (NSHeight(menu) - 8) * .5;
+    const auto parameter = displayedParameter(*_instrument, static_cast<std::size_t>(_outputMenuControl), _selectedPrismBand);
+    const BOOL selected = parameter != kNoParamId && _instrument->getParamNormalized(parameter) >= .5;
+    fillRounded(menu, 8, rgbColor(0x09090b, .99));
+    strokeRounded(NSInsetRect(menu, .5, .5), 8, rgbColor(0xffffff, .14));
+    for (NSInteger row = 0; row < 2; ++row) {
+        const NSRect item = NSMakeRect(NSMinX(menu) + 4, NSMinY(menu) + 4 + row * rowHeight, NSWidth(menu) - 8, rowHeight);
+        const BOOL active = row == (selected ? 1 : 0);
+        if (active) fillRounded(item, 5, rgbColor(project::kAccentRgb, .16));
+        NSString* label = @"Master";
+        if (row) {
+            NSInteger bus = 1;
+            if (control.samplerGroupIndex >= 0) bus = project::kGroups[static_cast<std::size_t>(control.samplerGroupIndex)].outputBusIndex;
+            label = [NSString stringWithFormat:@"Out%ld", static_cast<long>(bus)];
+        }
+        [label drawInRect:NSMakeRect(NSMinX(item) + 9, NSMinY(item), NSWidth(item) - 31, NSHeight(item))
+           withAttributes:panelTextAttributes(10, active ? rgbColor(project::kAccentRgb) : rgbColor(control.textColorRgb), NSTextAlignmentLeft, NSFontWeightSemibold)];
+        if (active) {
+            [rgbColor(project::kAccentRgb) setFill];
+            [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(NSMaxX(item) - 14.5, NSMidY(item) - 2.5, 5, 5)] fill];
+        }
+    }
+}
+
+- (BOOL)handleOutputMenuMouseDown:(NSPoint)point {
+    if (_outputMenuControl < 0) return NO;
+    const NSInteger index = _outputMenuControl;
+    const NSRect menu = [self outputMenuRect:index];
+    if (NSPointInRect(point, menu)) {
+        const CGFloat rowHeight = (NSHeight(menu) - 8) * .5;
+        const NSInteger row = std::clamp<NSInteger>(static_cast<NSInteger>((point.y - NSMinY(menu) - 4) / std::max<CGFloat>(1, rowHeight)), 0, 1);
+        [self setControl:index value:row ? 1.f : 0.f];
+        _outputMenuControl = -1;
+        _dragControl = -1;
+        [self setNeedsDisplay:YES];
+        return YES;
+    }
+    if (NSPointInRect(point, [self runtimeControlRect:index])) {
+        _outputMenuControl = -1;
+        _dragControl = -1;
+        [self setNeedsDisplay:YES];
+        return YES;
+    }
+    _outputMenuControl = -1;
+    [self setNeedsDisplay:YES];
+    return NO;
 }
 
 - (NSInteger)panelControlAt:(NSPoint)point {
@@ -1366,6 +1449,7 @@ namespace project = tripleside::project;
     }
 
     [self drawOpenPanel];
+    [self drawOutputMenu];
 
     if constexpr (project::kLicenseRequired) {
         if (!LicenseRuntime::isLicensed()) {
@@ -1478,28 +1562,6 @@ namespace project = tripleside::project;
     [self setNeedsDisplay:YES];
 }
 
-- (void)selectOutputMenuItem:(NSMenuItem*)item {
-    const NSInteger index = item.representedObject ? [item.representedObject integerValue] : -1;
-    [self setControl:index value:item.tag == 1 ? 1.f : 0.f];
-}
-
-- (void)showOutputMenuForControl:(NSInteger)index event:(NSEvent*)event {
-    if (index < 0 || static_cast<std::size_t>(index) >= project::kControls.size()) return;
-    const auto& control = project::kControls[static_cast<std::size_t>(index)];
-    const auto parameter = displayedParameter(*_instrument, static_cast<std::size_t>(index), _selectedPrismBand);
-    const bool selected = parameter != kNoParamId && _instrument->getParamNormalized(parameter) >= .5;
-    NSMenu* menu = [[NSMenu alloc] initWithTitle:@""];
-    NSMenuItem* master = [[NSMenuItem alloc] initWithTitle:@"Master" action:@selector(selectOutputMenuItem:) keyEquivalent:@""];
-    master.target = self; master.tag = 0; master.representedObject = @(index); master.state = selected ? NSControlStateValueOff : NSControlStateValueOn; [menu addItem:master];
-    if (control.samplerGroupIndex >= 0) {
-        const auto& samplerGroup = project::kGroups[static_cast<std::size_t>(control.samplerGroupIndex)];
-        NSString* separateName = [NSString stringWithFormat:@"Out%d", samplerGroup.outputBusIndex];
-        NSMenuItem* separate = [[NSMenuItem alloc] initWithTitle:separateName action:@selector(selectOutputMenuItem:) keyEquivalent:@""];
-        separate.target = self; separate.tag = 1; separate.representedObject = @(index); separate.state = selected ? NSControlStateValueOn : NSControlStateValueOff; [menu addItem:separate];
-    }
-    [NSMenu popUpContextMenu:menu withEvent:event forView:self];
-}
-
 - (void)resetCursorRects {
     [super resetCursorRects];
     if (_openPanel < 0 || !equals(project::kPanelControls[static_cast<std::size_t>(_openPanel)].panelType, "midi_map")) return;
@@ -1560,12 +1622,14 @@ namespace project = tripleside::project;
             return;
         }
     }
+    if ([self handleOutputMenuMouseDown:point]) return;
     const NSInteger panelControl = [self panelControlAt:point];
     if (panelControl >= 0) {
         _dragControl = panelControl;
         const auto& control = project::kControls[static_cast<std::size_t>(_dragControl)];
         if (equals(control.kind, "output_selector")) {
-            [self showOutputMenuForControl:_dragControl event:event];
+            _outputMenuControl = _dragControl;
+            [self setNeedsDisplay:YES];
             _dragControl = -1;
         } else if (event.clickCount >= 2 && (equals(control.kind, "knob") || equals(control.kind, "fader"))) {
             [self setControl:_dragControl value:neutralControlValue(control)];
@@ -1629,7 +1693,8 @@ namespace project = tripleside::project;
     if (_dragControl < 0) return;
     const auto& control = project::kControls[static_cast<std::size_t>(_dragControl)];
     if (equals(control.kind, "output_selector")) {
-        [self showOutputMenuForControl:_dragControl event:event];
+        _outputMenuControl = _dragControl;
+        [self setNeedsDisplay:YES];
         _dragControl = -1;
     } else if (event.clickCount >= 2 && (equals(control.kind, "knob") || equals(control.kind, "fader"))) {
         [self setControl:_dragControl value:neutralControlValue(control)];
