@@ -254,6 +254,13 @@ def render(spec_path, url, browser=None):
                 })""")
                 meter_channels = []
                 meter_mode = control.get('meter_mode') or ('stereo' if kind == 'gain_meter' else 'mono')
+                if kind == 'fader' and control.get('fader_meter_enabled', True):
+                    inline_meter = element.locator('.maker-fader-inline-meter .maker-gain-meter__channels > i')
+                    if inline_meter.count():
+                        meter_hit = inline_meter.first.bounding_box()
+                        if meter_hit is None:
+                            raise ValueError(f'Fader meter geometry is missing: {control.get("id")}')
+                        meter_channels = [meter_hit]
                 if kind in {'gain_meter', 'vu_meter'} and meter_mode == 'stereo':
                     channel_selector = (
                         '.maker-filmstrip-meter-group.is-stereo .maker-filmstrip-meter'

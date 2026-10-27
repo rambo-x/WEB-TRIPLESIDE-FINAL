@@ -335,8 +335,8 @@ def test_native_runtime_applies_global_tuning_to_sampler_and_wave_generator():
     assert 'project::kDspModules[moduleIndex].type,"tuning"' in source
 
     view = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
-    assert 'equals(currentControlParameter,"tuning")' in view
-    assert 'equals(currentControlParameter,"fine_tune")' in view
+    assert 'equals(c.parameter,"tuning")' in view
+    assert 'equals(c.parameter,"fine_tune")' in view
 
 
 def test_native_tuning_targets_override_master_per_sampler_without_double_counting():
@@ -366,6 +366,43 @@ def test_native_inline_fader_meter_uses_saved_layout_color_and_sampler_analysis(
         assert "groupOutputPeak" in source
         assert "outputPeak" in source
         assert "drawInlineFaderMeter" in source
+
+    assert "s.mlw>0&&s.mlh>0" in windows
+    assert "visual.mlw > 0 && visual.mlh > 0" in mac
+    assert "rgb(0xffffff,.035f)" in windows
+    assert "rgbColor(0xffffff, .035)" in mac
+    assert "faderMeterColorRgb,.22f" not in windows
+    assert "faderMeterColorRgb, .22" not in mac
+
+
+def test_native_value_readouts_follow_hover_for_atlas_and_fallback_controls():
+    header = (SOURCE_DIR / "NativeView.h").read_text(encoding="utf-8")
+    windows = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+    mac = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
+
+    assert "hoveredControl" in header
+    assert windows.count("drawControlValue(") >= 3
+    assert "_hoveredControl" in mac
+    assert mac.count("drawControlValue:") >= 4
+    for source in (windows, mac):
+        assert '"tuning"' in source
+        assert '"fine_tune"' in source
+        assert '"pan-"' in source
+        assert '"input"' in source
+        assert '"output"' in source
+
+
+def test_native_sampler_mute_and_solo_are_exclusive_while_multi_solo_remains_valid():
+    instrument = (SOURCE_DIR / "NativeInstrument.cpp").read_text(encoding="utf-8")
+    windows = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+    mac = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
+
+    assert "if(groupMutes[g])groupSolos[g]=false" in instrument
+    assert "groupSolos[g]=v>=.5f&&!groupMutes[g]" in instrument
+    assert "groupSolos[g]=!groupMutes[g]&&values[3]>=.5f" in instrument
+    assert "std::any_of(groupSolos.begin(),groupSolos.end()" in instrument
+    assert "slot==2||slot==3" in windows
+    assert "slot == 2 || slot == 3" in mac
 
 
 def test_native_css_controls_and_branding_follow_preview_tokens():
@@ -412,6 +449,7 @@ def test_native_knobs_and_faders_support_preview_neutral_reset_and_mouse_wheel()
     assert "value:1.f" in mac_source
     assert "value:.5f" in mac_source
     assert "current+steps*.01f" in source
+    assert "const auto panelControl=hitPanelChild(point.x,point.y)" in source
 
 
 def test_windows_double_click_retriggers_pad_and_keyboard_note_down():

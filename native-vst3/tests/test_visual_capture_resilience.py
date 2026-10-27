@@ -125,6 +125,14 @@ def test_live_analyzers_keep_the_shared_preview_contract():
     assert "spectrum" in RENDERER.SUPPORTED_CONTROL_KINDS
 
 
+def test_fader_capture_records_the_live_inline_meter_track_geometry():
+    source = MODULE_PATH.read_text(encoding="utf-8")
+
+    assert "kind == 'fader' and control.get('fader_meter_enabled', True)" in source
+    assert "'.maker-fader-inline-meter .maker-gain-meter__channels > i'" in source
+    assert "meter_channels = [meter_hit]" in source
+
+
 def test_output_selector_capture_has_exactly_master_and_target_frames():
     spec = {
         "sampler_groups": [

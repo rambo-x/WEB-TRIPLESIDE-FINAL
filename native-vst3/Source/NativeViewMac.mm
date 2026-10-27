@@ -250,6 +250,7 @@ namespace project = tripleside::project;
     NSInteger _presetScrollOffset;
     NSInteger _selectedPresetRow;
     NSInteger _hoveredPresetRow;
+    NSInteger _hoveredControl;
     NSTrackingArea* _trackingArea;
     CGFloat _panelX, _panelY, _panelWidth, _panelHeight;
     CGFloat _panelDragX, _panelDragY, _midiDragX, _midiDragY;
@@ -274,7 +275,8 @@ namespace project = tripleside::project;
 - (void)drawBarSpectrumInRect:(NSRect)rect color:(unsigned)color barWidthRatio:(CGFloat)barWidthRatio samplerGroup:(int)samplerGroup;
 - (void)drawSpectrumInRect:(NSRect)rect color:(unsigned)color samplerGroup:(int)samplerGroup;
 - (void)drawVectorscopeInRect:(NSRect)rect color:(unsigned)color samplerGroup:(int)samplerGroup showCorrelation:(BOOL)showCorrelation;
-- (void)drawInlineFaderMeter:(std::size_t)index rect:(NSRect)rect;
+- (void)drawInlineFaderMeter:(std::size_t)index rect:(NSRect)rect exact:(BOOL)exact;
+- (void)drawControlValue:(std::size_t)index rect:(NSRect)rect value:(float)value;
 - (BOOL)panelMouseDown:(NSPoint)point;
 - (BOOL)importMidiPath:(NSString*)path;
 - (std::filesystem::path)exportMidiSequence:(NSInteger)index;
@@ -312,6 +314,7 @@ namespace project = tripleside::project;
         _presetScrollOffset = 0;
         _selectedPresetRow = -1;
         _hoveredPresetRow = -1;
+        _hoveredControl = -1;
         _presetNameFocused = NO;
         _panelX = 50;
         _panelY = 52;
@@ -357,7 +360,7 @@ namespace project = tripleside::project;
     return std::clamp(smoothed, 0.f, 1.f);
 }
 
-- (void)drawInlineFaderMeter:(std::size_t)index rect:(NSRect)rect {
+- (void)drawInlineFaderMeter:(std::size_t)index rect:(NSRect)rect exact:(BOOL)exact {
     if (index >= project::kControls.size()) return;
     const auto& control = project::kControls[index];
     if (!control.faderMeterEnabled) return;
@@ -371,19 +374,37 @@ namespace project = tripleside::project;
     auto& smoothed = _visualMeterLevels[index];
     const auto alpha = 1. - std::exp(-elapsedMs / (measured > smoothed ? 28. : 320.));
     smoothed += static_cast<float>(alpha * (measured - smoothed));
-    const CGFloat layoutWidth = std::max<CGFloat>(1, NSWidth(rect) - 8), contentTop = NSMinY(rect) + 18, contentBottom = NSMaxY(rect) - 4;
-    const CGFloat contentHeight = std::max<CGFloat>(1, contentBottom - contentTop), meterWidth = std::min<CGFloat>(control.faderMeterWidth, layoutWidth);
-    const CGFloat gap = std::min<CGFloat>(control.faderMeterGap, std::max<CGFloat>(0, layoutWidth - meterWidth));
-    const CGFloat faderWidth = std::max<CGFloat>(1, std::min({layoutWidth * .72, contentHeight, layoutWidth - meterWidth - gap}));
-    const CGFloat groupWidth = faderWidth + gap + meterWidth, start = NSMidX(rect) - groupWidth * .5;
-    const CGFloat meterLeft = equals(control.faderMeterPosition, "left") ? start : start + faderWidth + gap;
-    const CGFloat meterHeight = contentHeight * std::clamp(control.faderMeterHeight / 100., .2, 1.);
-    const NSRect track = NSMakeRect(meterLeft, contentTop + (contentHeight - meterHeight) * .5, meterWidth, meterHeight);
-    fillRounded(track, meterWidth * .5, rgbColor(0x050706, .96));
-    strokeRounded(track, meterWidth * .5, rgbColor(control.faderMeterColorRgb, .22));
-    const CGFloat inset = std::min<CGFloat>(2, meterWidth * .18), innerHeight = std::max<CGFloat>(0, NSHeight(track) - inset * 2);
+    NSRect track = rect;
+    if (!exact) {
+        const CGFloat layoutWidth = std::max<CGFloat>(1, NSWidth(rect) - 8), contentTop = NSMinY(rect) + 18, contentBottom = NSMaxY(rect) - 4;
+        const CGFloat contentHeight = std::max<CGFloat>(1, contentBottom - contentTop), meterWidth = std::min<CGFloat>(control.faderMeterWidth, layoutWidth);
+        const CGFloat gap = std::min<CGFloat>(control.faderMeterGap, std::max<CGFloat>(0, layoutWidth - meterWidth));
+        const CGFloat faderWidth = std::max<CGFloat>(1, std::min({layoutWidth * .72, contentHeight, layoutWidth - meterWidth - gap}));
+        const CGFloat groupWidth = faderWidth + gap + meterWidth, start = NSMidX(rect) - groupWidth * .5;
+        const CGFloat meterLeft = equals(control.faderMeterPosition, "left") ? start : start + faderWidth + gap;
+        const CGFloat meterHeight = contentHeight * std::clamp(control.faderMeterHeight / 100., .2, 1.);
+        track = NSMakeRect(meterLeft, contentTop + (contentHeight - meterHeight) * .5, meterWidth, meterHeight);
+    }
+    if (!exact) fillRounded(track, NSWidth(track) * .5, rgbColor(0xffffff, .035));
+    const CGFloat inset = std::min<CGFloat>(1, NSWidth(track) * .18), innerHeight = std::max<CGFloat>(0, NSHeight(track) - inset * 2);
     const CGFloat fillHeight = innerHeight * std::clamp<CGFloat>(smoothed, 0, 1);
-    if (fillHeight > 0) fillRounded(NSMakeRect(NSMinX(track) + inset, NSMaxY(track) - inset - fillHeight, std::max<CGFloat>(1, meterWidth - inset * 2), fillHeight), std::max<CGFloat>(1, (meterWidth - inset * 2) * .5), rgbColor(control.faderMeterColorRgb));
+    if (fillHeight > 0) {
+        const NSRect fill = NSMakeRect(NSMinX(track) + inset, NSMaxY(track) - inset - fillHeight, std::max<CGFloat>(1, NSWidth(track) - inset * 2), fillHeight);
+        NSBezierPath* path = [NSBezierPath bezierPathWithRoundedRect:fill xRadius:std::max<CGFloat>(1, NSWidth(fill) * .5) yRadius:std::max<CGFloat>(1, NSWidth(fill) * .5)];
+        const unsigned color = control.faderMeterColorRgb; const CGFloat red = ((color >> 16) & 255) / 255., green = ((color >> 8) & 255) / 255., blue = (color & 255) / 255.;
+        NSGradient* gradient = [[NSGradient alloc] initWithColorsAndLocations:[NSColor colorWithCalibratedRed:red * .76 green:green * .76 blue:blue * .76 alpha:1], 0., [NSColor colorWithCalibratedRed:red green:green blue:blue alpha:1], .72, [NSColor colorWithCalibratedRed:red + (1-red) * .28 green:green + (1-green) * .28 blue:blue + (1-blue) * .28 alpha:1], 1., nil];
+        [gradient drawInBezierPath:path angle:90];
+    }
+}
+
+- (void)drawControlValue:(std::size_t)index rect:(NSRect)rect value:(float)value {
+    if (index >= project::kControls.size()) return; const auto& control = project::kControls[index]; const NSInteger percent = std::lround(std::clamp(value, 0.f, 1.f) * 100); NSString* text = nil;
+    if (control.moduleIndex >= 0 && equals(control.parameter, "tuning")) { const NSInteger amount = std::lround(value * 48) - 24; text = [NSString stringWithFormat:amount >= 0 ? @"+%ld st" : @"%ld st", (long)amount]; }
+    else if (control.moduleIndex >= 0 && equals(control.parameter, "fine_tune")) { const NSInteger amount = std::lround(value * 200) - 100; text = [NSString stringWithFormat:amount >= 0 ? @"+%ld ct" : @"%ld ct", (long)amount]; }
+    else if (equals(control.parameter, "pan") || startsWith(control.variant, "pan-")) text = percent == 50 ? @"C" : percent < 50 ? [NSString stringWithFormat:@"L%ld", (long)(100-percent*2)] : [NSString stringWithFormat:@"R%ld", (long)((percent-50)*2)];
+    else if (equals(control.kind, "fader") && (equals(control.parameter, "input") || equals(control.parameter, "output"))) { const CGFloat db = equals(control.parameter, "input") ? value * 24 - 12 : value * 16 - 12; text = std::abs(db) < .05 ? @"0 dB" : [NSString stringWithFormat:db > 0 ? @"+%.1f dB" : @"%.1f dB", db]; }
+    else text = [NSString stringWithFormat:equals(control.kind, "fader") ? @"%ld%%" : @"%ld", (long)percent];
+    NSFont* font = [NSFont monospacedSystemFontOfSize:8 weight:NSFontWeightHeavy]; NSDictionary* attributes = @{NSFontAttributeName:font, NSForegroundColorAttributeName:equals(control.kind, "fader") ? rgbColor(0xf4f4f5) : rgbColor(0xf3e4be)}; const NSSize size = [text sizeWithAttributes:attributes]; const CGFloat width = std::max<CGFloat>(24, size.width + 10), height = 14; const BOOL fader = equals(control.kind, "fader"); const CGFloat center = fader ? NSMidX(rect) : NSMaxX(rect) - NSWidth(rect) * .08 - width * .5, bottom = fader ? NSMaxY(rect) - 2 : NSMaxY(rect) - NSHeight(rect) * .07; const NSRect pill = NSMakeRect(center - width * .5, bottom - height, width, height); fillRounded(pill, 7, rgbColor(0x050505, fader ? .84 : .78)); [text drawInRect:NSMakeRect(NSMinX(pill)+5, NSMinY(pill)+2, NSWidth(pill)-10, NSHeight(pill)-2) withAttributes:attributes];
 }
 
 - (void)updateTrackingAreas {
@@ -477,6 +498,10 @@ namespace project = tripleside::project;
 - (void)setParameter:(ParamID)parameter value:(float)value {
     if (parameter == kNoParamId) return;
     value = std::clamp(value, 0.f, 1.f);
+    if (value >= .5f && parameter >= kGroupBaseId && parameter < kGroupBaseId + project::kGroups.size() * 4) {
+        const int slot = (parameter - kGroupBaseId) % 4;
+        if (slot == 2 || slot == 3) { const auto opposite = parameter + (slot == 2 ? 1 : -1); _instrument->beginEdit(opposite); _instrument->setParamNormalized(opposite, 0); _instrument->performEdit(opposite, 0); _instrument->endEdit(opposite); }
+    }
     _instrument->beginEdit(parameter);
     _instrument->setParamNormalized(parameter, value);
     _instrument->performEdit(parameter, value);
@@ -1140,7 +1165,12 @@ namespace project = tripleside::project;
     [image drawInRect:destination fromRect:NSMakeRect(column * visual.w, sourceY, visual.w, visual.h)
              operation:NSCompositingOperationSourceOver fraction:1 respectFlipped:YES
                  hints:@{NSImageHintInterpolation: @(NSImageInterpolationHigh)}];
-    if (equals(control.kind, "fader") && control.faderMeterEnabled) [self drawInlineFaderMeter:static_cast<std::size_t>(index) rect:hit];
+    if (equals(control.kind, "fader") && control.faderMeterEnabled) {
+        NSRect meterRect = hit; BOOL exact = NO;
+        if (visual.mlw > 0 && visual.mlh > 0) { exact = YES; meterRect = NSMakeRect(NSMinX(hit) + (visual.mlx - visual.hx) * scaleX, NSMinY(hit) + (visual.mly - visual.hy) * scaleY, visual.mlw * scaleX, visual.mlh * scaleY); }
+        [self drawInlineFaderMeter:static_cast<std::size_t>(index) rect:meterRect exact:exact];
+    }
+    if ((_hoveredControl == index || _dragControl == index) && (equals(control.kind, "knob") || equals(control.kind, "fader"))) [self drawControlValue:static_cast<std::size_t>(index) rect:hit value:value];
 }
 
 - (void)drawRect:(NSRect)dirtyRect {
@@ -1230,7 +1260,16 @@ namespace project = tripleside::project;
         const NSRect rect = index < project::kVisualControls.size()
             ? controlLayoutRect(control, project::kVisualControls[index])
             : NSMakeRect(project::kCanvasWidth * control.x / 100. - control.width * .5, project::kCanvasHeight * control.y / 100. - control.height * .5, control.width, control.height);
-        [self drawInlineFaderMeter:index rect:rect];
+        NSRect meterRect = rect; BOOL exact = NO;
+        if (index < project::kVisualControls.size()) { const auto& visual = project::kVisualControls[index]; if (visual.mlw > 0 && visual.mlh > 0) { meterRect = NSMakeRect(visual.mlx, visual.mly, visual.mlw, visual.mlh); exact = YES; } }
+        [self drawInlineFaderMeter:index rect:meterRect exact:exact];
+    }
+
+    for (std::size_t index = 0; index < project::kControls.size(); ++index) {
+        const auto& control = project::kControls[index];
+        if ((_hoveredControl != static_cast<NSInteger>(index) && _dragControl != static_cast<NSInteger>(index)) || (!equals(control.kind, "knob") && !equals(control.kind, "fader")) || project::kPanelControls[index].parentPanelIndex >= 0 || !controlVisible(index)) continue;
+        const NSRect rect = index < project::kVisualControls.size() ? controlLayoutRect(control, project::kVisualControls[index]) : NSMakeRect(project::kCanvasWidth * control.x / 100. - control.width * .5, project::kCanvasHeight * control.y / 100. - control.height * .5, control.width, control.height);
+        [self drawControlValue:index rect:rect value:[self displayedValueForControl:index]];
     }
 
     for (std::size_t index = 0; index < project::kControls.size(); ++index) {
@@ -1433,11 +1472,7 @@ namespace project = tripleside::project;
     if (index < 0 || static_cast<std::size_t>(index) >= project::kControls.size()) return;
     const auto parameter = displayedParameter(*_instrument, static_cast<std::size_t>(index), _selectedPrismBand);
     if (parameter == kNoParamId) return;
-    value = std::clamp(value, 0.f, 1.f);
-    _instrument->beginEdit(parameter);
-    _instrument->setParamNormalized(parameter, value);
-    _instrument->performEdit(parameter, value);
-    _instrument->endEdit(parameter);
+    [self setParameter:parameter value:std::clamp(value, 0.f, 1.f)];
     [self setNeedsDisplay:YES];
 }
 
@@ -1480,6 +1515,10 @@ namespace project = tripleside::project;
 
 - (void)mouseMoved:(NSEvent*)event {
     const NSPoint point = [self designPoint:[self convertPoint:event.locationInWindow fromView:nil]];
+    NSInteger nextHoveredControl = [self panelControlAt:point];
+    if (nextHoveredControl < 0) { const BOOL insidePanel = _openPanel >= 0 && NSPointInRect(point, [self panelRect:_openPanel]); if (!insidePanel) nextHoveredControl = [self controlAt:point]; }
+    if (nextHoveredControl >= 0) { const auto& control = project::kControls[static_cast<std::size_t>(nextHoveredControl)]; if (!equals(control.kind, "knob") && !equals(control.kind, "fader")) nextHoveredControl = -1; }
+    if (nextHoveredControl != _hoveredControl) { _hoveredControl = nextHoveredControl; [self setNeedsDisplay:YES]; }
     NSInteger nextHovered = -1;
     if (_openPanel >= 0 && equals(project::kPanelControls[static_cast<std::size_t>(_openPanel)].panelType, "preset_browser")) {
         const NSRect panel = [self panelRect:_openPanel];
@@ -1499,7 +1538,7 @@ namespace project = tripleside::project;
 
 - (void)mouseExited:(NSEvent*)event {
     (void)event;
-    if (_hoveredPresetRow >= 0) { _hoveredPresetRow = -1; [self setNeedsDisplay:YES]; }
+    if (_hoveredPresetRow >= 0 || _hoveredControl >= 0) { _hoveredPresetRow = -1; _hoveredControl = -1; [self setNeedsDisplay:YES]; }
 }
 
 - (void)mouseDown:(NSEvent*)event {

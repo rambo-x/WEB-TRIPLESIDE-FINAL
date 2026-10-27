@@ -31,7 +31,7 @@ private:
 #if defined(_WIN32)
     static LRESULT CALLBACK windowProc(HWND,UINT,WPARAM,LPARAM); LRESULT handleMessage(UINT,WPARAM,LPARAM);
     bool createResources(); bool loadBitmap(const wchar_t*,Microsoft::WRL::ComPtr<ID2D1Bitmap>&); void discardResources(); void paint(); void paintFallback(HDC,const RECT&); void drawBranding(); void drawControl(size_t); void drawLicenseOverlay(); bool licenseButtonHit(float,float) const; bool licenseInputHit(float,float) const;
-    void drawKnob(const D2D1_RECT_F&,float,const wchar_t*,bool); void drawMeter(const D2D1_RECT_F&,float,float,bool,bool,const wchar_t*,bool=false); void drawSpectrum(const D2D1_RECT_F&); void drawBarSpectrum(const D2D1_RECT_F&); void drawWaveform(const D2D1_RECT_F&); void drawVectorscope(const D2D1_RECT_F&);
+    void drawKnob(const D2D1_RECT_F&,float,const wchar_t*,bool); void drawControlValue(size_t,const D2D1_RECT_F&,float); void drawMeter(const D2D1_RECT_F&,float,float,bool,bool,const wchar_t*,bool=false); void drawSpectrum(const D2D1_RECT_F&); void drawBarSpectrum(const D2D1_RECT_F&); void drawWaveform(const D2D1_RECT_F&); void drawVectorscope(const D2D1_RECT_F&);
     void drawButton(const D2D1_RECT_F&,bool,const wchar_t*); void drawFilmstrip(ID2D1Bitmap*,const D2D1_RECT_F&,int,int,int,int);
     void drawKeyboard(const D2D1_RECT_F&,int,size_t); void drawPad(const D2D1_RECT_F&,bool,const wchar_t*);
     int hitControl(float,float) const; int hitPanelChild(float,float) const; int keyboardNote(const D2D1_RECT_F&,float,float,int) const; D2D1_RECT_F designRect() const; D2D1_RECT_F controlRect(size_t) const; D2D1_POINT_2F controlPoint(size_t,float,float) const; D2D1_RECT_F labelRect(const D2D1_RECT_F&) const;
@@ -48,7 +48,7 @@ private:
     HWND hwnd=nullptr; Microsoft::WRL::ComPtr<ID2D1Factory> factory; Microsoft::WRL::ComPtr<ID2D1RenderTarget> target;
     void drawVisualCanvas();
     D2D1_RECT_F panelRect(int) const; bool controlVisible(size_t) const; void drawOpenPanel(); bool panelMouseDown(float,float);
-    void drawInlineFaderMeter(size_t,const D2D1_RECT_F&);
+    void drawInlineFaderMeter(size_t,const D2D1_RECT_F&,bool=false);
     void openPanel(int); void closePanel(); void applyFactoryPreset(int); void saveUserPreset(); void applyUserPreset(int); void overwriteUserPreset(int); void deleteUserPreset(int);
     UserPreset captureUserPreset(const std::wstring&) const; std::wstring userPresetPath() const; void loadUserPresets(); void persistUserPresets() const;
     void startMidiSequence(int); void stopMidiSequence(); void updateMidiPlayback(); bool midiSequenceLoopEnabled(int) const; void toggleMidiSequenceLoop(int); bool importMidiFile(const wchar_t*);
@@ -61,7 +61,7 @@ private:
     Microsoft::WRL::ComPtr<IDWriteInlineObject> panelEllipsis;
     Microsoft::WRL::ComPtr<IDWriteInMemoryFontFileLoader> brandFontLoader; std::vector<Microsoft::WRL::ComPtr<IDWriteFontFile>> embeddedFontFiles; Microsoft::WRL::ComPtr<IDWriteFontCollection1> brandFontCollection;
     Microsoft::WRL::ComPtr<IWICImagingFactory> wicFactory; Microsoft::WRL::ComPtr<ID2D1Bitmap> background,knobFilmstrip,pultecKnobFilmstrip,modernSpectrumKnob,studioScallopKnob,blackPrecisionKnob,crimsonWingKnob,blackCrimsonWingKnob,regentWhiteWingKnob,graphiteRidgeKnob,buttonFilmstrip,faderFilmstrip,meterFilmstrip,mechanicalToggleOff,mechanicalToggleOn,stompFootswitchOff,stompFootswitchOn;
-    int activeControl=-1,activeNote=-1,activeNoteSamplerGroup=-1,wheelControl=-1,wheelRemainder=0,selectedPrismBand=0,dragPrismBand=-1; float dragStartY=0,dragStartValue=0; D2D1_RECT_F currentLabelControlRect{};
+    int activeControl=-1,hoveredControl=-1,activeNote=-1,activeNoteSamplerGroup=-1,wheelControl=-1,wheelRemainder=0,selectedPrismBand=0,dragPrismBand=-1; float dragStartY=0,dragStartValue=0; D2D1_RECT_F currentLabelControlRect{};
     int openPanelIndex=-1, panelDragMode=0, mixerDragGroup=-1, mixerDragSlot=-1, selectedMidiSequence=-1, playingMidiSequence=-1, midiDragCandidate=-1, grooveScrollOffset=0, presetScrollOffset=0, selectedPresetRow=-1, hoveredPresetRow=-1; float panelRuntimeX=50,panelRuntimeY=52,panelRuntimeWidth=88,panelRuntimeHeight=78,panelDragX=0,panelDragY=0,midiDragX=0,midiDragY=0;
     std::map<int,std::array<float,4>> panelRuntimeBounds;
     struct UserPreset { std::wstring name; std::vector<float> values,groups,moduleValues; int midiSequenceIndex=-1; }; std::vector<UserPreset> userPresets; bool userPresetsLoaded=false;
