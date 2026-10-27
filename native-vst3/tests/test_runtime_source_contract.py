@@ -35,15 +35,15 @@ def test_sampler_audio_uses_named_exclusive_output_busses_and_scoped_racks():
 
     assert 'addAudioOutput(STR16("Master"), SpeakerArr::kStereo)' in source
     assert "String name(group.name,kCP_Utf8)" in source
-    assert "addAudioOutput(name.text16(),SpeakerArr::kMono,kAux,BusInfo::kDefaultActive)" in source
+    assert "addAudioOutput(name.text16(),SpeakerArr::kStereo,kAux,BusInfo::kDefaultActive)" in source
     assert "no==project::kAudioOutputBusCount" in source
-    assert "out[index]==(index==0?SpeakerArr::kStereo:SpeakerArr::kMono)" in source
+    assert "out[index]==SpeakerArr::kStereo" in source
     assert "groupLeft[static_cast<size_t>(g)]+=l" in source
     assert "groupRight[static_cast<size_t>(g)]+=r" in source
     assert "if(groupEffectRacks[group].size())groupEffectRacks[group].processFrame(gl,gr)" in process
-    assert "if(bus==0){sl+=gl;sr+=gr;}else if(bus<outL.size()&&outL[bus])" in process
-    assert "if(outR[bus]==outL[bus])outL[bus][i]+=(gl+gr)*.5f" in process
-    assert "else{outL[bus][i]+=gl;if(outR[bus])outR[bus][i]+=gr;}" in process
+    assert "if(bus==0){sl+=gl;sr+=gr;}else if(bus<outL.size())" in process
+    assert "if(outL[bus])outL[bus][i]+=gl" in process
+    assert "if(outR[bus])outR[bus][i]+=gr" in process
     assert process.index("groupEffectRacks[group].processFrame(gl,gr)") < process.index("if(bus==0){sl+=gl;sr+=gr;}")
     assert process.index("if(bus==0){sl+=gl;sr+=gr;}") < process.index("if(instrumentUsesDspRack)effectRack.processFrame(sl,sr)")
     assert "for(size_t bus=0;bus<outL.size();++bus)" in process
