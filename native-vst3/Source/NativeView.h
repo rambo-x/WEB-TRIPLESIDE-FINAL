@@ -48,6 +48,7 @@ private:
     HWND hwnd=nullptr; Microsoft::WRL::ComPtr<ID2D1Factory> factory; Microsoft::WRL::ComPtr<ID2D1RenderTarget> target;
     void drawVisualCanvas();
     D2D1_RECT_F panelRect(int) const; bool controlVisible(size_t) const; void drawOpenPanel(); bool panelMouseDown(float,float);
+    void drawInlineFaderMeter(size_t,const D2D1_RECT_F&);
     void openPanel(int); void closePanel(); void applyFactoryPreset(int); void saveUserPreset(); void applyUserPreset(int); void overwriteUserPreset(int); void deleteUserPreset(int);
     UserPreset captureUserPreset(const std::wstring&) const; std::wstring userPresetPath() const; void loadUserPresets(); void persistUserPresets() const;
     void startMidiSequence(int); void stopMidiSequence(); void updateMidiPlayback(); bool midiSequenceLoopEnabled(int) const; void toggleMidiSequenceLoop(int); bool importMidiFile(const wchar_t*);

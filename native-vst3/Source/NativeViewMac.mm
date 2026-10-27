@@ -274,6 +274,7 @@ namespace project = tripleside::project;
 - (void)drawBarSpectrumInRect:(NSRect)rect color:(unsigned)color barWidthRatio:(CGFloat)barWidthRatio samplerGroup:(int)samplerGroup;
 - (void)drawSpectrumInRect:(NSRect)rect color:(unsigned)color samplerGroup:(int)samplerGroup;
 - (void)drawVectorscopeInRect:(NSRect)rect color:(unsigned)color samplerGroup:(int)samplerGroup showCorrelation:(BOOL)showCorrelation;
+- (void)drawInlineFaderMeter:(std::size_t)index rect:(NSRect)rect;
 - (BOOL)panelMouseDown:(NSPoint)point;
 - (BOOL)importMidiPath:(NSString*)path;
 - (std::filesystem::path)exportMidiSequence:(NSInteger)index;
@@ -354,6 +355,35 @@ namespace project = tripleside::project;
     const auto alpha = 1. - std::exp(-elapsedMs / timeConstantMs);
     smoothed += static_cast<float>(alpha * (measured - smoothed));
     return std::clamp(smoothed, 0.f, 1.f);
+}
+
+- (void)drawInlineFaderMeter:(std::size_t)index rect:(NSRect)rect {
+    if (index >= project::kControls.size()) return;
+    const auto& control = project::kControls[index];
+    if (!control.faderMeterEnabled) return;
+    const float left = control.samplerGroupIndex >= 0 ? _instrument->groupOutputPeak(control.samplerGroupIndex, 0) : _instrument->outputPeak(0);
+    const float right = control.samplerGroupIndex >= 0 ? _instrument->groupOutputPeak(control.samplerGroupIndex, 1) : _instrument->outputPeak(1);
+    const float measured = std::clamp(std::max(left, right) * 1.5f, 0.f, 1.f);
+    const auto now = NSProcessInfo.processInfo.systemUptime;
+    auto& updatedAt = _visualMeterUpdatedAt[index];
+    const auto elapsedMs = updatedAt > 0 ? std::clamp((now - updatedAt) * 1000., 1., 250.) : (1000. / 30.);
+    updatedAt = now;
+    auto& smoothed = _visualMeterLevels[index];
+    const auto alpha = 1. - std::exp(-elapsedMs / (measured > smoothed ? 28. : 320.));
+    smoothed += static_cast<float>(alpha * (measured - smoothed));
+    const CGFloat layoutWidth = std::max<CGFloat>(1, NSWidth(rect) - 8), contentTop = NSMinY(rect) + 18, contentBottom = NSMaxY(rect) - 4;
+    const CGFloat contentHeight = std::max<CGFloat>(1, contentBottom - contentTop), meterWidth = std::min<CGFloat>(control.faderMeterWidth, layoutWidth);
+    const CGFloat gap = std::min<CGFloat>(control.faderMeterGap, std::max<CGFloat>(0, layoutWidth - meterWidth));
+    const CGFloat faderWidth = std::max<CGFloat>(1, std::min({layoutWidth * .72, contentHeight, layoutWidth - meterWidth - gap}));
+    const CGFloat groupWidth = faderWidth + gap + meterWidth, start = NSMidX(rect) - groupWidth * .5;
+    const CGFloat meterLeft = equals(control.faderMeterPosition, "left") ? start : start + faderWidth + gap;
+    const CGFloat meterHeight = contentHeight * std::clamp(control.faderMeterHeight / 100., .2, 1.);
+    const NSRect track = NSMakeRect(meterLeft, contentTop + (contentHeight - meterHeight) * .5, meterWidth, meterHeight);
+    fillRounded(track, meterWidth * .5, rgbColor(0x050706, .96));
+    strokeRounded(track, meterWidth * .5, rgbColor(control.faderMeterColorRgb, .22));
+    const CGFloat inset = std::min<CGFloat>(2, meterWidth * .18), innerHeight = std::max<CGFloat>(0, NSHeight(track) - inset * 2);
+    const CGFloat fillHeight = innerHeight * std::clamp<CGFloat>(smoothed, 0, 1);
+    if (fillHeight > 0) fillRounded(NSMakeRect(NSMinX(track) + inset, NSMaxY(track) - inset - fillHeight, std::max<CGFloat>(1, meterWidth - inset * 2), fillHeight), std::max<CGFloat>(1, (meterWidth - inset * 2) * .5), rgbColor(control.faderMeterColorRgb));
 }
 
 - (void)updateTrackingAreas {
@@ -1110,6 +1140,7 @@ namespace project = tripleside::project;
     [image drawInRect:destination fromRect:NSMakeRect(column * visual.w, sourceY, visual.w, visual.h)
              operation:NSCompositingOperationSourceOver fraction:1 respectFlipped:YES
                  hints:@{NSImageHintInterpolation: @(NSImageInterpolationHigh)}];
+    if (equals(control.kind, "fader") && control.faderMeterEnabled) [self drawInlineFaderMeter:static_cast<std::size_t>(index) rect:hit];
 }
 
 - (void)drawRect:(NSRect)dirtyRect {
@@ -1191,6 +1222,15 @@ namespace project = tripleside::project;
                     operation:NSCompositingOperationSourceOver fraction:.68 respectFlipped:YES
                         hints:@{NSImageHintInterpolation: @(NSImageInterpolationHigh)}];
         } else [self drawAtlas:[self imageNamed:visual.file] file:visual frame:frame];
+    }
+
+    for (std::size_t index = 0; index < project::kControls.size(); ++index) {
+        const auto& control = project::kControls[index];
+        if (!equals(control.kind, "fader") || !control.faderMeterEnabled || project::kPanelControls[index].parentPanelIndex >= 0 || !controlVisible(index)) continue;
+        const NSRect rect = index < project::kVisualControls.size()
+            ? controlLayoutRect(control, project::kVisualControls[index])
+            : NSMakeRect(project::kCanvasWidth * control.x / 100. - control.width * .5, project::kCanvasHeight * control.y / 100. - control.height * .5, control.width, control.height);
+        [self drawInlineFaderMeter:index rect:rect];
     }
 
     for (std::size_t index = 0; index < project::kControls.size(); ++index) {

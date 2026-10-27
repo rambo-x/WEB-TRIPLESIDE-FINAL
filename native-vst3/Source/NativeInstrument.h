@@ -159,6 +159,7 @@ private:
     bool mute=false, solo=false, sustain=project::kDefaultSustain; int articulation=0, mic=0; std::uint64_t voiceAge=0;
     float pitchBend=.5f, smoothedPitchBend=.5f, modulation=0; double modulationPhase=0;
     int tuningModule=-1; bool globalTuningEnabled=false; float globalTuneSemitones=0, globalFineCents=0;
+    std::array<float,project::kGroups.size()> groupTuningSemitones{};
     int waveGeneratorModule=-1, waveShape=0, waveOctave=0, waveSemitone=0, waveOsc2Shape=0, waveOsc2Octave=0, waveNoiseColor=1, waveUnisonVoices=1;
     float waveFineCents=0, waveLevel=.65f, wavePulseWidth=.5f, waveMix=1, waveAttack=0, waveDecay=.2f, waveSustain=1, waveRelease=.18f;
     float waveVelocitySensitivity=1, waveVelocityCurve=1, waveVelocityMinLevel=0;

@@ -23,7 +23,7 @@ def test_muted_sampler_groups_keep_voice_timeline_advancing_silently():
     assert "if(groupMutes[g]||(anySolo&&!groupSolos[g]))continue" not in render_frame
     assert "gain=v.gain*groupVolumes[g]*v.envelope*trim*groupOutputLevels[g]" in render_frame
     assert render_frame.index("renderTempoVoiceFrame") < render_frame.index("groupLeft[static_cast<size_t>(g)]+=l")
-    assert render_frame.index("v.position+=v.increment*expressionRate") > render_frame.index("groupLeft[static_cast<size_t>(g)]+=l")
+    assert render_frame.index("v.position+=v.increment*groupExpressionRate") > render_frame.index("groupLeft[static_cast<size_t>(g)]+=l")
     assert "groupOutputGains[group].prepare(spec.sampleRate,5.0)" in source
 
 
@@ -236,7 +236,7 @@ def test_native_runtime_maps_pitch_bend_and_modulation_with_expression_dsp():
     assert "smoothedPitchBend+=bendAlpha*(pitchBend-smoothedPitchBend)" in instrument_source
     assert "-1./(.003*hostSampleRate)" in instrument_source
     assert "std::sin(modulationPhase)*modulation*.5f" in instrument_source
-    assert "v.position+=v.increment*expressionRate" in instrument_source
+    assert "v.position+=v.increment*groupExpressionRate" in instrument_source
     assert 'equals(project::kControls[activeControl].parameter,"pitch_bend")' in view_source
     assert "setParameter(kPitchBendId,.5f)" in view_source
     assert 'equals(currentControlVariant,"pitch-bend-led")' in view_source
@@ -329,14 +329,43 @@ def test_native_runtime_applies_global_tuning_to_sampler_and_wave_generator():
 
     assert "configureGlobalTuning()" in header
     assert 'std::strcmp(module.type,"tuning")' in source
-    assert 'projectModuleParameter(tuningModule,"tuning",.5f)' in source
-    assert 'projectModuleParameter(tuningModule,"fine_tune",.5f)' in source
+    assert 'modulePresetValue(index,"tuning")' in source
+    assert 'modulePresetValue(index,"fine_tune")' in source
     assert "expressionSemitones=bendSemitones+vibratoSemitones+globalTuning" in source
-    assert 'std::strcmp(parameter,"fine_tune")' in source
+    assert 'project::kDspModules[moduleIndex].type,"tuning"' in source
 
     view = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
     assert 'equals(currentControlParameter,"tuning")' in view
     assert 'equals(currentControlParameter,"fine_tune")' in view
+
+
+def test_native_tuning_targets_override_master_per_sampler_without_double_counting():
+    header = (SOURCE_DIR / "NativeInstrument.h").read_text(encoding="utf-8")
+    source = (SOURCE_DIR / "NativeInstrument.cpp").read_text(encoding="utf-8")
+
+    assert "groupTuningSemitones" in header
+    assert "groupTuningSemitones.fill(masterTuning)" in source
+    assert 'std::strcmp(module.type,"tuning")||module.groupIndex<0' in source
+    assert "groupTuningSemitones[static_cast<size_t>(module.groupIndex)]=" in source
+    assert "bendSemitones+vibratoSemitones+groupTuningSemitones" in source
+    assert "renderTempoVoiceFrame(v,voiceIndex,z,s,groupExpressionSemitones" in source
+    assert "v.position+=v.increment*groupExpressionRate" in source
+
+
+def test_native_inline_fader_meter_uses_saved_layout_color_and_sampler_analysis():
+    windows = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+    mac = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
+
+    for source in (windows, mac):
+        assert "faderMeterEnabled" in source
+        assert "faderMeterPosition" in source
+        assert "faderMeterColorRgb" in source
+        assert "faderMeterGap" in source
+        assert "faderMeterWidth" in source
+        assert "faderMeterHeight" in source
+        assert "groupOutputPeak" in source
+        assert "outputPeak" in source
+        assert "drawInlineFaderMeter" in source
 
 
 def test_native_css_controls_and_branding_follow_preview_tokens():

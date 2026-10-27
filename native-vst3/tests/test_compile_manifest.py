@@ -288,14 +288,19 @@ def test_compiles_complete_wave_generator_parameter_contract(tmp_path):
     assert 'DspParameterInfo{0, "vibrato_delay", 0.5f}' in result
 
 
-def test_compiles_global_tuning_and_fine_tune_parameters(tmp_path):
+def test_compiles_master_and_sampler_tuning_targets_with_fine_tune_parameters(tmp_path):
     spec = project_spec()
+    spec["sampler_groups"] = [{"id": "kick", "name": "Kick"}, {"id": "snare", "name": "Snare"}]
     spec["dsp_graph"] = {
         "version": 2, "mode": "instrument_sources", "source": "project",
         "modules": [{
             "id": "global-tuning", "type": "tuning", "name": "Tuning & Fine Tune",
             "bypassed": False, "mix": 1,
             "parameters": {"tuning": 0.75, "fine_tune": 0.25},
+        }, {
+            "id": "snare-tuning", "type": "tuning", "name": "Snare Tune",
+            "samplerGroupId": "snare", "bypassed": False, "mix": 1,
+            "parameters": {"tuning": 0.5, "fine_tune": 0.6},
         }],
     }
     source = tmp_path / "project.json"
@@ -305,9 +310,34 @@ def test_compiles_global_tuning_and_fine_tune_parameters(tmp_path):
     MODULE.compile_manifest(source, output)
 
     result = output.read_text(encoding="utf-8")
-    assert 'DspModuleInfo{"global-tuning", "tuning"' in result
+    assert 'DspModuleInfo{"global-tuning", "tuning", "Tuning & Fine Tune", -1, 0, -1, 0' in result
+    assert 'DspModuleInfo{"snare-tuning", "tuning", "Snare Tune", -1, 1, 1, 0' in result
     assert 'DspParameterInfo{0, "tuning", 0.75f}' in result
     assert 'DspParameterInfo{0, "fine_tune", 0.25f}' in result
+    assert 'DspParameterInfo{1, "tuning", 0.5f}' in result
+    assert 'DspParameterInfo{1, "fine_tune", 0.6f}' in result
+
+
+def test_compiles_integrated_fader_meter_native_contract(tmp_path):
+    spec = project_spec()
+    spec["sampler_groups"] = [{"id": "kick", "name": "Kick"}]
+    spec["interface"]["controls"] = [{
+        "id": "kick-volume", "kind": "fader", "label": "Kick", "parameter": "volume",
+        "sampler_group_id": "kick", "value": 75, "fader_meter_enabled": True,
+        "fader_meter_position": "left", "fader_meter_color": "#12ABEF",
+        "fader_meter_gap": 9, "fader_meter_width": 14, "fader_meter_height": 72,
+    }]
+    source = tmp_path / "project.json"
+    output = tmp_path / "NativeProject.h"
+    source.write_text(json.dumps(spec), encoding="utf-8")
+
+    MODULE.compile_manifest(source, output)
+
+    result = output.read_text(encoding="utf-8")
+    assert "bool faderMeterEnabled;" in result
+    assert "unsigned int faderMeterColorRgb;" in result
+    control = next(line for line in result.splitlines() if 'ControlInfo{"kick-volume"' in line)
+    assert 'true, "left", 0x12ABEF, 9, 14, 72}' in control
 
 
 def test_native_manifest_rejects_more_than_bounded_dsp_parameter_limit(tmp_path):
@@ -395,8 +425,8 @@ def test_compiles_mono_and_stereo_meter_modes(tmp_path):
     MODULE.compile_manifest(source, output)
 
     result = output.read_text(encoding="utf-8")
-    assert '"classic", "stereo", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, true}' in result
-    assert '"classic", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, true}' in result
+    assert '"classic", "stereo", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, true, false, "right", 0x22C55E, 4, 10, 100}' in result
+    assert '"classic", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, true, false, "right", 0x22C55E, 4, 10, 100}' in result
     assert "const char* meterMode;" in result
 
 
@@ -786,7 +816,7 @@ def test_compiles_static_knob_assets_and_variant(tmp_path):
 
     result = output.read_text(encoding="utf-8")
     assert 'ControlInfo{"spectrum", "knob", "Spectrum"' in result
-    assert '"modern-spectrum", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, true}' in result
+    assert '"modern-spectrum", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, true, false, "right", 0x22C55E, 4, 10, 100}' in result
     assert 'kModernSpectrumKnobFile = "modern-spectrum-knob-v2.png"' in result
     assert 'kStudioScallopKnobFile = "studio-scallop-knob-64x128-v2.png"' in result
     assert 'kBlackPrecisionKnobFile = "black-precision-knob-64x128-v1.png"' in result
@@ -869,23 +899,23 @@ def test_css_procedural_knobs_override_legacy_filmstrip_style(tmp_path):
     MODULE.compile_manifest(source, output)
 
     result = output.read_text(encoding="utf-8")
-    assert '"studio-scallop", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false}' in result
-    assert '"graphite-ridge", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false}' in result
-    assert '"chicken-head-clean", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false}' in result
-    assert '"orbit-encoder", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false}' in result
-    assert '"ivory-lever", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false}' in result
-    assert '"pan-chicken-head-clean", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false}' in result
-    assert '"pan-ivory-lever", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false}' in result
-    assert '"pan-ring-chicken-head-clean", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false}' in result
-    assert '"pan-ring-ivory-lever", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false}' in result
-    assert '"black-dome", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false}' in result
+    assert '"studio-scallop", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100}' in result
+    assert '"graphite-ridge", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100}' in result
+    assert '"chicken-head-clean", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100}' in result
+    assert '"orbit-encoder", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100}' in result
+    assert '"ivory-lever", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100}' in result
+    assert '"pan-chicken-head-clean", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100}' in result
+    assert '"pan-ivory-lever", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100}' in result
+    assert '"pan-ring-chicken-head-clean", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100}' in result
+    assert '"pan-ring-ivory-lever", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100}' in result
+    assert '"black-dome", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100}' in result
     for variant in (
         "regent-white", "regent-green", "regent-red", "regent-blue", "regent-brown", "regent-black", "regent-gray",
         "regent-white-green", "regent-white-red", "regent-white-blue", "regent-white-brown", "regent-white-black", "regent-white-gray",
     ):
-        assert f'"{variant}", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false}}' in result
-    assert '"pan-black-dome", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false}' in result
-    assert '"pan-ring-black-dome", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false}' in result
+        assert f'"{variant}", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100}}' in result
+    assert '"pan-black-dome", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100}' in result
+    assert '"pan-ring-black-dome", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100}' in result
 
 
 def test_uses_safe_master_headroom_without_a_volume_control(tmp_path):
@@ -1241,7 +1271,7 @@ def test_compiles_prism_eq_native_dsp_profile(tmp_path):
     assert "kPrismBandFrequencies" in result
     assert "kPrismBandQs" in result
     assert "kPrismBandEnabled" in result
-    assert 'true, true}' in next(line for line in result.splitlines() if 'ControlInfo{"low-cut"' in line)
+    assert 'true, true, false, "right", 0x22C55E, 4, 10, 100}' in next(line for line in result.splitlines() if 'ControlInfo{"low-cut"' in line)
 
 
 def test_explicit_prism_module_enables_contextual_native_routing(tmp_path):

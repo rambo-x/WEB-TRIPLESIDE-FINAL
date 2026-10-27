@@ -394,6 +394,8 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
         control_color_rgb = int(control_color_match.group(1), 16) if control_color_match else (0x111216 if control_kind == "output_selector" else 0)
         text_color_match = re.fullmatch(r"#?([0-9a-fA-F]{6})", str(control.get("text_color") or "#F4F4F5"))
         text_color_rgb = int(text_color_match.group(1), 16) if text_color_match else 0xF4F4F5
+        fader_meter_color_match = re.fullmatch(r"#?([0-9a-fA-F]{6})", str(control.get("fader_meter_color") or "#22C55E"))
+        fader_meter_color_rgb = int(fader_meter_color_match.group(1), 16) if fader_meter_color_match else 0x22C55E
         output_font_size = round(clamp(control.get("output_font_size"), 6, 32, 11))
         control_parameter = str(control.get("parameter") or "tone")
         control_value = clamp(control.get("value"), 0, 100, 50) / 100
@@ -459,6 +461,12 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
                 control.get("component_variant") not in {"chicken-head-clean", "orbit-encoder", "studio-scallop", "graphite-ridge", "ivory-lever", "black-dome", "regent-cap", "regent-white", "regent-green", "regent-red", "regent-blue", "regent-brown", "regent-black", "regent-gray", "regent-white-green", "regent-white-red", "regent-white-blue", "regent-white-brown", "regent-white-black", "regent-white-gray", "pan-chicken-head-clean", "pan-ivory-lever", "pan-ring-chicken-head-clean", "pan-ring-ivory-lever", "pan-black-dome", "pan-ring-black-dome"}
                 and (control.get("component_style") if control.get("component_style") in ("css", "filmstrip") else interface.get("component_style") or "filmstrip") == "filmstrip"
             ),
+            cpp_bool(control_kind == "fader" and control.get("fader_meter_enabled") is not False),
+            cpp_string("left" if control.get("fader_meter_position") == "left" else "right"),
+            f"0x{fader_meter_color_rgb:06X}",
+            str(round(clamp(control.get("fader_meter_gap"), 0, 32, 4))),
+            str(round(clamp(control.get("fader_meter_width"), 4, 32, 10))),
+            str(round(clamp(control.get("fader_meter_height"), 20, 100, 100))),
         )
         control_lines.append("    ControlInfo{" + ", ".join(fields) + "},")
         panel_lines.append("    PanelControlInfo{" + ", ".join((
@@ -620,7 +628,7 @@ namespace tripleside::project {{
 struct SampleInfo {{ const char* resourceFile; }};
 struct GroupInfo {{ const char* id; const char* name; float volume; float pan; bool mute; bool solo; int outputBusIndex; }};
 struct ZoneInfo {{ int sampleIndex, groupIndex, articulationIndex, micIndex, roundRobinSet, rootPitch, lowPitch, highPitch, velocityLow, velocityHigh, roundRobin; float sampleStart, sampleEnd, loopStart, loopEnd, fadeInMs, fadeOutMs, loopCrossfadeMs; int tuneSemitones; float tuneCents, gainDb, pan; bool loopEnabled, tempoSync; float sourceBpm; std::array<int, 16> chokeTargetPitches; int chokeTargetCount; }};
-struct ControlInfo {{ const char* id; const char* kind; const char* label; const char* offLabel; const char* onLabel; const char* parameter; int moduleIndex; int indicatorSourceIndex; int midiSequenceIndex; int samplerGroupIndex; float x, y; int width, height; float value, opacity, rotation; unsigned int colorRgb; bool showBackground; int notePitch, keyCount; const char* labelPosition; int labelGap, stateLabelGap; const char* variant; const char* meterMode; const char* textFont; unsigned int textColorRgb; int outputFontSize; bool showCorrelationMeter; float waveformLineWidth, barWidthRatio; bool spectrumBand; bool useFilmstrip; }};
+struct ControlInfo {{ const char* id; const char* kind; const char* label; const char* offLabel; const char* onLabel; const char* parameter; int moduleIndex; int indicatorSourceIndex; int midiSequenceIndex; int samplerGroupIndex; float x, y; int width, height; float value, opacity, rotation; unsigned int colorRgb; bool showBackground; int notePitch, keyCount; const char* labelPosition; int labelGap, stateLabelGap; const char* variant; const char* meterMode; const char* textFont; unsigned int textColorRgb; int outputFontSize; bool showCorrelationMeter; float waveformLineWidth, barWidthRatio; bool spectrumBand; bool useFilmstrip; bool faderMeterEnabled; const char* faderMeterPosition; unsigned int faderMeterColorRgb; int faderMeterGap, faderMeterWidth, faderMeterHeight; }};
 struct KeyColorInfo {{ int control, pitch; unsigned int colorRgb; }};
 struct PanelControlInfo {{ int parentPanelIndex; const char* panelType; float panelX, panelY, panelWidth, panelHeight; bool mixerShowDefaultControls; }};
 struct PresetInfo {{ const char* id; const char* name; bool factory; int valueOffset, valueCount, groupOffset, groupCount, moduleOffset, moduleCount, midiSequenceIndex; }};
