@@ -449,6 +449,10 @@ def test_native_knobs_and_faders_support_preview_neutral_reset_and_mouse_wheel()
     assert "value:1.f" in mac_source
     assert "value:.5f" in mac_source
     assert "current+steps*.01f" in source
+    assert 'equals(c.parameter,"tuning")' in source
+    assert "(semitones+24)/48.f" in source
+    assert 'equals(control.parameter, "tuning")' in mac_source
+    assert "static_cast<float>(semitones + 24) / 48.f" in mac_source
     assert "const auto panelControl=hitPanelChild(point.x,point.y)" in source
 
 

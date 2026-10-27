@@ -1766,7 +1766,12 @@ namespace project = tripleside::project;
             const auto parameter = displayedParameter(*_instrument, static_cast<std::size_t>(panelControl), _selectedPrismBand);
             if (parameter != kNoParamId) {
                 const auto current = static_cast<float>(_instrument->getParamNormalized(parameter));
-                [self setControl:panelControl value:current + (event.scrollingDeltaY > 0 ? .02f : -.02f)];
+                float next = current + (event.scrollingDeltaY > 0 ? .02f : -.02f);
+                if (control.moduleIndex >= 0 && equals(control.parameter, "tuning")) {
+                    const NSInteger semitones = std::clamp<NSInteger>(std::lround(current * 48.f) - 24 + (event.scrollingDeltaY > 0 ? 1 : -1), -24, 24);
+                    next = static_cast<float>(semitones + 24) / 48.f;
+                }
+                [self setControl:panelControl value:next];
                 return;
             }
         }
@@ -1820,10 +1825,16 @@ namespace project = tripleside::project;
     }
     const NSInteger index = [self controlAt:point];
     if (index < 0 || (!equals(project::kControls[static_cast<std::size_t>(index)].kind, "knob") && !equals(project::kControls[static_cast<std::size_t>(index)].kind, "fader"))) return;
+    const auto& control = project::kControls[static_cast<std::size_t>(index)];
     const auto parameter = displayedParameter(*_instrument, static_cast<std::size_t>(index), _selectedPrismBand);
     if (parameter == kNoParamId) return;
     const auto current = static_cast<float>(_instrument->getParamNormalized(parameter));
-    [self setControl:index value:current + static_cast<float>(event.scrollingDeltaY * .01)];
+    float next = current + static_cast<float>(event.scrollingDeltaY * .01);
+    if (control.moduleIndex >= 0 && equals(control.parameter, "tuning")) {
+        const NSInteger semitones = std::clamp<NSInteger>(std::lround(current * 48.f) - 24 + (event.scrollingDeltaY > 0 ? 1 : -1), -24, 24);
+        next = static_cast<float>(semitones + 24) / 48.f;
+    }
+    [self setControl:index value:next];
 }
 @end
 
