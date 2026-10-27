@@ -267,7 +267,7 @@ tresult PLUGIN_API NativeInstrument::initialize(FUnknown* context) {
         parameters.addParameter(muteName.text16(),nullptr,1,project::kGroups[i].mute?1:0,ParameterInfo::kCanAutomate,groupParameterId(static_cast<int>(i),2));
         parameters.addParameter(soloName.text16(),nullptr,1,project::kGroups[i].solo?1:0,ParameterInfo::kCanAutomate,groupParameterId(static_cast<int>(i),3));
         String outputName(name); outputName.append(STR16(" Output")); auto* outputParameter=new StringListParameter(outputName.text16(),groupOutputParameterId(static_cast<int>(i)),nullptr,ParameterInfo::kCanAutomate);
-        outputParameter->appendString(STR16("Master"));String separateName(STR16("Output terpisah · "));separateName.append(name.text16());outputParameter->appendString(separateName.text16());
+        outputParameter->appendString(STR16("Master"));const auto separateLabel=std::string("Out")+std::to_string(project::kGroups[i].outputBusIndex);String separateName(separateLabel.c_str(),kCP_Utf8);outputParameter->appendString(separateName.text16());
         const auto outputDefault=project::kGroupOutputSeparateDefaults[i]?1.:0.;outputParameter->getInfo().defaultNormalizedValue=outputDefault;outputParameter->setNormalized(outputDefault);parameters.addParameter(outputParameter);
         groupVolumes[i]=project::kGroups[i].volume; groupPans[i]=project::kGroups[i].pan; groupMutes[i]=project::kGroups[i].mute; groupSolos[i]=project::kGroups[i].solo;groupOutputBuses[i]=project::kGroupOutputSeparateDefaults[i]?project::kGroups[i].outputBusIndex:0;
     }

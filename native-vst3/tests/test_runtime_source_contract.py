@@ -274,13 +274,17 @@ def test_native_gain_reduction_meter_reads_compressor_dsp():
 def test_shared_preview_meters_keep_browser_visuals_and_independent_stereo_levels():
     header = (SOURCE_DIR / "NativeView.h").read_text(encoding="utf-8")
     source = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+    mac = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
 
     assert "drawVisualSpriteRegion" in header
     assert 'if(equals(c.kind,"spectrum"))drawControl(i);else drawVisualControl(i)' in source
     assert 'equals(c.meterMode,"stereo")&&s.mlw>0' in source
-    assert "instrument.outputPeak(0)*scale" in source
-    assert "instrument.outputPeak(1)*scale" in source
-    assert "elapsed/16.6667f" in source
+    assert "instrument.groupOutputPeak(c.samplerGroupIndex,0)" in source
+    assert "instrument.groupOutputPeak(c.samplerGroupIndex,1)" in source
+    assert "std::exp(-elapsed/timeConstantMs)" in source
+    assert "_visualMeterLevels" in mac
+    assert "std::exp(-elapsedMs / timeConstantMs)" in mac
+    assert "[self displayedValueForControl:index]" in mac
 
 
 def test_preview_brand_uses_the_native_behind_controls_layering():
@@ -864,13 +868,20 @@ def test_sampler_bound_native_controls_use_group_notes_analysis_and_two_output_c
     assert "copyGroupAnalysisSamples" in instrument_header
     assert "groupAnalysisSamplesLeft" in instrument_header
     assert 'outputParameter->appendString(STR16("Master"))' in instrument
-    assert 'String separateName(STR16("Output terpisah · "))' in instrument
+    assert 'std::string("Out")+std::to_string(project::kGroups[i].outputBusIndex)' in instrument
     assert "v>=.5f?project::kGroups" in instrument
     assert "n.samplerGroup" in instrument
     assert "targetGroup<0||z.groupIndex==targetGroup" in instrument
     assert "c.samplerGroupIndex" in windows
     assert "copyGroupAnalysisSamples" in windows
-    assert 'std::wstring(L"Output terpisah · ")+wide(project::kGroups' in windows
+    assert 'valueLabel=wide(project::kGroups' in windows
+    assert 'std::wstring(L"Out")+std::to_wstring(group.outputBusIndex)' in windows
+    assert 'selected?rgb(project::kAccentRgb):rgb(c.textColorRgb,.18f)' in windows
+    assert 'selected?rgb(project::kAccentRgb):rgb(c.textColorRgb,.45f)' in windows
+    assert 'if(selected){target->DrawLine' in windows
     assert "control.samplerGroupIndex" in mac
     assert "copyGroupAnalysisSamples" in mac
-    assert '[@"Output terpisah · " stringByAppendingString:samplerName]' in mac
+    assert 'outputName = [NSString stringWithUTF8String:samplerGroup.name]' in mac
+    assert 'stringWithFormat:@"Out%d", samplerGroup.outputBusIndex' in mac
+    assert 'selected ? rgbColor(project::kAccentRgb) : [rgbColor(control.textColorRgb) colorWithAlphaComponent:.18]' in mac
+    assert '(selected ? @"›" : @"⌄")' in mac

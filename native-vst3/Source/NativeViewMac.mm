@@ -142,7 +142,7 @@ float displayedValue(NativeInstrument& instrument, std::size_t index, NSInteger 
         const bool peak = equals(control.kind, "gain_meter");
         const float left = control.samplerGroupIndex >= 0 ? (peak ? instrument.groupOutputPeak(control.samplerGroupIndex, 0) : instrument.groupOutputRms(control.samplerGroupIndex, 0)) : (peak ? instrument.outputPeak(0) : instrument.outputRms(0));
         const float right = control.samplerGroupIndex >= 0 ? (peak ? instrument.groupOutputPeak(control.samplerGroupIndex, 1) : instrument.groupOutputRms(control.samplerGroupIndex, 1)) : (peak ? instrument.outputPeak(1) : instrument.outputRms(1));
-        return std::clamp(std::max(left, right) * 1.5f, 0.f, 1.f);
+        return std::clamp(std::max(left, right) * (peak ? 1.5f : 2.8f), 0.f, 1.f);
     }
     const auto parameter = displayedParameter(instrument, index, selectedPrismBand);
     return parameter == kNoParamId ? std::clamp(control.value, 0.f, 1.f)
@@ -235,6 +235,8 @@ namespace project = tripleside::project;
     NSInteger _dragPrismBand;
     std::array<unsigned, 128> _padTriggerGenerations;
     std::array<double, 128> _padFlashUntil;
+    std::map<std::size_t, float> _visualMeterLevels;
+    std::map<std::size_t, double> _visualMeterUpdatedAt;
     BarSpectrumAnalyzer _barSpectrumAnalyzer;
     double _barSpectrumUpdatedAt;
     NSInteger _openPanel;
@@ -261,6 +263,7 @@ namespace project = tripleside::project;
 }
 - (instancetype)initWithFrame:(NSRect)frame instrument:(NativeInstrument*)instrument;
 - (BOOL)hitPadFlashActive:(int)pitch;
+- (float)displayedValueForControl:(std::size_t)index;
 - (void)drawOpenPanel;
 - (void)updateMidiPlayback;
 - (NSRect)panelRect:(NSInteger)index;
@@ -333,6 +336,25 @@ namespace project = tripleside::project;
 
 - (BOOL)isFlipped { return YES; }
 - (BOOL)acceptsFirstResponder { return YES; }
+
+- (float)displayedValueForControl:(std::size_t)index {
+    const auto measured = displayedValue(*_instrument, index, _selectedPrismBand);
+    if (index >= project::kControls.size()) return measured;
+    const auto& control = project::kControls[index];
+    if (!equals(control.kind, "gain_meter") && !equals(control.kind, "vu_meter")) return measured;
+    const auto now = NSProcessInfo.processInfo.systemUptime;
+    auto& updatedAt = _visualMeterUpdatedAt[index];
+    const auto elapsedMs = updatedAt > 0 ? std::clamp((now - updatedAt) * 1000., 1., 250.) : (1000. / 30.);
+    updatedAt = now;
+    auto& smoothed = _visualMeterLevels[index];
+    const bool reduction = equals(control.parameter, "gain_reduction");
+    const auto timeConstantMs = measured > smoothed
+        ? (reduction ? 32. : equals(control.kind, "vu_meter") ? 45. : 28.)
+        : (reduction ? 360. : equals(control.kind, "vu_meter") ? 420. : 320.);
+    const auto alpha = 1. - std::exp(-elapsedMs / timeConstantMs);
+    smoothed += static_cast<float>(alpha * (measured - smoothed));
+    return std::clamp(smoothed, 0.f, 1.f);
+}
 
 - (void)updateTrackingAreas {
     [super updateTrackingAreas];
@@ -1073,7 +1095,7 @@ namespace project = tripleside::project;
     if (!image || visual.w <= 0 || visual.h <= 0 || visual.hw <= 0 || visual.hh <= 0 || visual.frames <= 0) return;
     float value = equals(control.kind, "indicator")
         ? indicatorValue(*_instrument, static_cast<std::size_t>(index), _selectedPrismBand, _openPanel, _activeNote, _playingMidiSequence)
-        : displayedValue(*_instrument, static_cast<std::size_t>(index), _selectedPrismBand);
+        : [self displayedValueForControl:static_cast<std::size_t>(index)];
     if (control.midiSequenceIndex >= 0) value = _instrument->livePatternSequenceIndex() == control.midiSequenceIndex ? 1.f : 0.f;
     else if (equals(control.kind, "pad")) value = hitPadVariant(control.variant)
         ? ([self hitPadFlashActive:control.notePitch] ? 1.f : 0.f)
@@ -1154,7 +1176,7 @@ namespace project = tripleside::project;
         }
         auto value = equals(control.kind, "indicator")
             ? indicatorValue(*_instrument, index, _selectedPrismBand, _openPanel, _activeNote, _playingMidiSequence)
-            : displayedValue(*_instrument, index, _selectedPrismBand);
+            : [self displayedValueForControl:index];
         if (control.midiSequenceIndex >= 0) value = _instrument->livePatternSequenceIndex() == control.midiSequenceIndex ? 1.f : 0.f;
         if (equals(control.kind, "panel_button")) value = _openPanel == static_cast<NSInteger>(index) ? 1.f : 0.f;
         const bool hitPad = equals(control.kind, "pad") && hitPadVariant(control.variant);
@@ -1187,17 +1209,17 @@ namespace project = tripleside::project;
                                       std::max<CGFloat>(1, NSWidth(rect) - inset * 2),
                                       std::max<CGFloat>(1, NSHeight(rect) - header - inset * 1.35));
         fillRounded(box, std::clamp<CGFloat>(NSHeight(rect) * .12, 5, 9), rgbColor(control.colorRgb));
-        strokeRounded(box, std::clamp<CGFloat>(NSHeight(rect) * .12, 5, 9), [rgbColor(control.textColorRgb) colorWithAlphaComponent:.18], 1);
+        strokeRounded(box, std::clamp<CGFloat>(NSHeight(rect) * .12, 5, 9), selected ? rgbColor(project::kAccentRgb) : [rgbColor(control.textColorRgb) colorWithAlphaComponent:.18], 1);
         NSString* outputName = @"Master";
         if (selected && control.samplerGroupIndex >= 0) {
-            NSString* samplerName = [NSString stringWithUTF8String:project::kGroups[static_cast<std::size_t>(control.samplerGroupIndex)].name] ?: @"Sampler";
-            outputName = [@"Output terpisah · " stringByAppendingString:samplerName];
+            const auto& samplerGroup = project::kGroups[static_cast<std::size_t>(control.samplerGroupIndex)];
+            outputName = [NSString stringWithUTF8String:samplerGroup.name] ?: @"Sampler";
         }
         const CGFloat fontSize = std::clamp<CGFloat>(std::min<CGFloat>(control.outputFontSize, std::min(NSHeight(rect) * .30, NSWidth(rect) * .12)), 6, 32);
         const CGFloat leftPadding = std::clamp<CGFloat>(NSWidth(rect) * .05, 5, 12);
         const CGFloat rightPadding = std::clamp<CGFloat>(NSWidth(rect) * .14, 20, 34);
         [outputName drawInRect:NSMakeRect(NSMinX(box)+leftPadding, NSMinY(box), std::max<CGFloat>(1, NSWidth(box)-leftPadding-rightPadding), NSHeight(box)) withAttributes:panelTextAttributes(fontSize, rgbColor(control.textColorRgb), NSTextAlignmentLeft, NSFontWeightSemibold)];
-        [@"⌄" drawInRect:NSMakeRect(NSMaxX(box)-rightPadding, NSMidY(box)-10, rightPadding, 20) withAttributes:panelTextAttributes(std::min<CGFloat>(15, fontSize+4), rgbColor(project::kAccentRgb), NSTextAlignmentCenter, NSFontWeightBold)];
+        [(selected ? @"›" : @"⌄") drawInRect:NSMakeRect(NSMaxX(box)-rightPadding, NSMidY(box)-10, rightPadding, 20) withAttributes:panelTextAttributes(std::min<CGFloat>(15, fontSize+4), selected ? rgbColor(project::kAccentRgb) : rgbColor(control.textColorRgb, .45), NSTextAlignmentCenter, NSFontWeightBold)];
     }
 
     if constexpr (project::kIsPrismEq || project::kHasPrismModule) {
@@ -1393,8 +1415,9 @@ namespace project = tripleside::project;
     NSMenuItem* master = [[NSMenuItem alloc] initWithTitle:@"Master" action:@selector(selectOutputMenuItem:) keyEquivalent:@""];
     master.target = self; master.tag = 0; master.representedObject = @(index); master.state = selected ? NSControlStateValueOff : NSControlStateValueOn; [menu addItem:master];
     if (control.samplerGroupIndex >= 0) {
-        NSString* name = [NSString stringWithUTF8String:project::kGroups[static_cast<std::size_t>(control.samplerGroupIndex)].name] ?: @"Sampler";
-        NSMenuItem* separate = [[NSMenuItem alloc] initWithTitle:[@"Output terpisah · " stringByAppendingString:name] action:@selector(selectOutputMenuItem:) keyEquivalent:@""];
+        const auto& samplerGroup = project::kGroups[static_cast<std::size_t>(control.samplerGroupIndex)];
+        NSString* separateName = [NSString stringWithFormat:@"Out%d", samplerGroup.outputBusIndex];
+        NSMenuItem* separate = [[NSMenuItem alloc] initWithTitle:separateName action:@selector(selectOutputMenuItem:) keyEquivalent:@""];
         separate.target = self; separate.tag = 1; separate.representedObject = @(index); separate.state = selected ? NSControlStateValueOn : NSControlStateValueOff; [menu addItem:separate];
     }
     [NSMenu popUpContextMenu:menu withEvent:event forView:self];
