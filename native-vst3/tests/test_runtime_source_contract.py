@@ -981,3 +981,7 @@ def test_combined_solo_mute_draws_and_toggles_group_slots_on_both_platforms():
     assert "groupParameterId(control.samplerGroupIndex, solo ? 3 : 2)" in mac
     assert "control.soloColorRgb : control.muteColorRgb" in mac
     assert "control.soloMuteGap" in mac
+    assert "mixColor(activeColor,0x111115,.24f)" in windows
+    assert "mixColor(activeColor,0xffffff,.72f)" in windows
+    assert "mixedRgbColor(activeColor, 0x111115, .24)" in mac
+    assert "mixedRgbColor(activeColor, 0xffffff, .72)" in mac

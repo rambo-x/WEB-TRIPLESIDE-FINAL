@@ -82,6 +82,15 @@ NSColor* rgbColor(unsigned rgb, CGFloat alpha = 1) {
                                      alpha:alpha];
 }
 
+NSColor* mixedRgbColor(unsigned base, unsigned other, CGFloat baseWeight, CGFloat alpha = 1) {
+    const CGFloat ar = ((base >> 16) & 255) / 255., ag = ((base >> 8) & 255) / 255., ab = (base & 255) / 255.;
+    const CGFloat br = ((other >> 16) & 255) / 255., bg = ((other >> 8) & 255) / 255., bb = (other & 255) / 255.;
+    return [NSColor colorWithCalibratedRed:ar * baseWeight + br * (1 - baseWeight)
+                                     green:ag * baseWeight + bg * (1 - baseWeight)
+                                      blue:ab * baseWeight + bb * (1 - baseWeight)
+                                     alpha:alpha];
+}
+
 NSDictionary* panelTextAttributes(CGFloat size, NSColor* color, NSTextAlignment alignment = NSTextAlignmentLeft, NSFontWeight weight = NSFontWeightRegular) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
@@ -420,9 +429,10 @@ namespace project = tripleside::project;
         if (equals(control.buttonShape, "round")) { const CGFloat side = std::min(NSWidth(button), NSHeight(button)); button = NSMakeRect(NSMidX(button) - side * .5, NSMidY(button) - side * .5, side, side); }
         const bool active = _instrument->getParamNormalized(groupParameterId(control.samplerGroupIndex, solo ? 3 : 2)) >= .5;
         const CGFloat radius = equals(control.buttonShape, "round") || equals(control.buttonShape, "capsule") ? NSHeight(button) * .5 : std::clamp<CGFloat>(NSHeight(button) * .12, 3, 8);
-        fillRounded(button, radius, active ? rgbColor(solo ? control.soloColorRgb : control.muteColorRgb) : rgbColor(0x27272a));
-        strokeRounded(button, radius, active ? rgbColor(0xffffff, .9) : rgbColor(0xffffff, .16));
-        [(solo ? @"S" : @"M") drawInRect:button withAttributes:panelTextAttributes(std::clamp<CGFloat>(NSHeight(button) * .28, 9, 16), active ? rgbColor(0x09090b) : rgbColor(0xf4f4f5), NSTextAlignmentCenter, NSFontWeightBold)];
+        const unsigned activeColor = solo ? control.soloColorRgb : control.muteColorRgb;
+        fillRounded(button, radius, active ? mixedRgbColor(activeColor, 0x111115, .24) : rgbColor(0x27272a));
+        strokeRounded(button, radius, active ? mixedRgbColor(activeColor, 0xffffff, .76 / .88, .88) : rgbColor(0xffffff, .16));
+        [(solo ? @"S" : @"M") drawInRect:button withAttributes:panelTextAttributes(std::clamp<CGFloat>(NSHeight(button) * .28, 9, 16), active ? mixedRgbColor(activeColor, 0xffffff, .72) : rgbColor(0xf4f4f5), NSTextAlignmentCenter, NSFontWeightBold)];
     }
 }
 
