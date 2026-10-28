@@ -141,6 +141,26 @@ void NativeView::drawVisualSpriteRegion(const char*file,int frame,int columns,fl
     const auto source=D2D1::RectF(frameX+region.left-cell.left,frameY+region.top-cell.top,frameX+region.right-cell.left,frameY+region.bottom-cell.top);
     target->DrawBitmap(bitmap.Get(),region,1.f,D2D1_BITMAP_INTERPOLATION_MODE_LINEAR,source);
 }
+void NativeView::drawOpenRing(size_t index,const D2D1_RECT_F&r,float value){
+    if(index>=project::kControls.size()||r.right<=r.left||r.bottom<=r.top)return;
+    const auto&c=project::kControls[index];const bool pan=equals(c.variant,"pan-open-led-ring");
+    value=std::clamp(value,0.f,1.f);const float start=pan?std::min(.5f,value):0.f,length=pan?std::abs(value-.5f):value;
+    if(length<=.00001f)return;
+    const float scale=std::max(.01f,std::min(r.right-r.left,r.bottom-r.top)/100.f),cx=(r.left+r.right)*.5f,cy=(r.top+r.bottom)*.5f,radius=38.f*scale;
+    ComPtr<ID2D1PathGeometry>geometry;factory->CreatePathGeometry(geometry.GetAddressOf());ComPtr<ID2D1GeometrySink>sink;
+    if(!geometry||FAILED(geometry->Open(sink.GetAddressOf())))return;
+    const int segments=std::max(2,static_cast<int>(std::ceil(length*96.f)));
+    for(int point=0;point<=segments;++point){const float percent=start+length*point/segments,angle=(135.f+270.f*percent)*3.14159265358979323846f/180.f;const auto p=D2D1::Point2F(cx+std::cos(angle)*radius,cy+std::sin(angle)*radius);if(!point)sink->BeginFigure(p,D2D1_FIGURE_BEGIN_HOLLOW);else sink->AddLine(p);}
+    sink->EndFigure(D2D1_FIGURE_END_OPEN);sink->Close();
+    D2D1_STROKE_STYLE_PROPERTIES strokeProperties=D2D1::StrokeStyleProperties();strokeProperties.startCap=D2D1_CAP_STYLE_ROUND;strokeProperties.endCap=D2D1_CAP_STYLE_ROUND;strokeProperties.lineJoin=D2D1_LINE_JOIN_ROUND;ComPtr<ID2D1StrokeStyle>strokeStyle;factory->CreateStrokeStyle(strokeProperties,nullptr,0,strokeStyle.GetAddressOf());
+    ComPtr<ID2D1SolidColorBrush>brush;target->CreateSolidColorBrush(rgb(c.colorRgb),brush.GetAddressOf());if(!brush)return;
+    const float strength=std::clamp(c.ringGlowIntensity,0.f,100.f)/100.f,baseWidth=std::clamp(c.ringThickness,1.f,16.f)*scale;
+    constexpr std::array<float,4> spreads{12.f,8.f,5.f,2.5f};constexpr std::array<float,4> opacities{.05f,.075f,.12f,.2f};
+    const float opacity=std::clamp(c.opacity,0.f,1.f);
+    if(strength>0.f)for(size_t layer=0;layer<spreads.size();++layer){brush->SetOpacity(opacity*opacities[layer]*strength);target->DrawGeometry(geometry.Get(),brush.Get(),baseWidth+spreads[layer]*strength*scale,strokeStyle.Get());}
+    brush->SetOpacity(opacity);target->DrawGeometry(geometry.Get(),brush.Get(),baseWidth,strokeStyle.Get());
+    if(pan){const auto marker=D2D1::Point2F(cx,cy-radius),markerRadius=std::max(1.4f,c.ringThickness*.52f)*scale;if(strength>0.f)for(size_t layer=0;layer<spreads.size();++layer){brush->SetOpacity(opacity*opacities[layer]*strength);const float glowRadius=markerRadius+spreads[layer]*strength*.5f*scale;target->FillEllipse(D2D1::Ellipse(marker,glowRadius,glowRadius),brush.Get());}brush->SetOpacity(opacity);target->FillEllipse(D2D1::Ellipse(marker,markerRadius,markerRadius),brush.Get());}
+}
 void NativeView::drawVisualControl(size_t index){
     const auto&c=project::kControls[index];const auto&s=project::kVisualControls[index];
     float spriteX=s.x,spriteY=s.y,spriteWidth=s.w,spriteHeight=s.h;
@@ -166,6 +186,7 @@ void NativeView::drawVisualControl(size_t index){
     const auto frameFor=[&](float level){return static_cast<int>(std::lround(std::clamp(level,0.f,1.f)*(s.frames-1)));};
     const bool hitPad=equals(c.kind,"pad")&&(equals(c.variant,"hit-effect")||equals(c.variant,"diffuse-hit")||equals(c.variant,"smooth-diffuse-hit"));
     if(hitPad&&value>.5f){const float insetX=spriteWidth*.08f,insetY=spriteHeight*.08f;drawVisualSprite(s.file,frameFor(value),s.columns,s.w,s.h,spriteX+insetX,spriteY+insetY,spriteWidth-2*insetX,spriteHeight-2*insetY,.68f);}else drawVisualSprite(s.file,frameFor(value),s.columns,s.w,s.h,spriteX,spriteY,spriteWidth,spriteHeight);
+    if(equals(c.variant,"open-led-ring")||equals(c.variant,"pan-open-led-ring")){auto ring=D2D1::RectF(s.rx,s.ry,s.rx+s.rw,s.ry+s.rh);if(panelChild&&s.hw>0&&s.hh>0){const auto hit=controlRect(index);const float scaleX=(hit.right-hit.left)/s.hw,scaleY=(hit.bottom-hit.top)/s.hh;ring=D2D1::RectF(hit.left+(s.rx-s.hx)*scaleX,hit.top+(s.ry-s.hy)*scaleY,hit.left+(s.rx+s.rw-s.hx)*scaleX,hit.top+(s.ry+s.rh-s.hy)*scaleY);}drawOpenRing(index,ring,value);}
     if(!panelChild&&meter&&equals(c.meterMode,"stereo")&&s.mlw>0&&s.mlh>0&&s.mrw>0&&s.mrh>0){
         const auto cell=D2D1::RectF(s.x,s.y,s.x+s.w,s.y+s.h),left=D2D1::RectF(s.mlx,s.mly,s.mlx+s.mlw,s.mly+s.mlh),right=D2D1::RectF(s.mrx,s.mry,s.mrx+s.mrw,s.mry+s.mrh);
         drawVisualSpriteRegion(s.file,frameFor(displayed[0]),s.columns,s.w,s.h,cell,left);

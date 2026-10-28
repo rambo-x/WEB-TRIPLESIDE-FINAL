@@ -537,7 +537,7 @@ const COMPONENT_VARIANTS = [
   { id: "graphite-ridge", category: "knob", kind: "knob", label: "Graphite Ridge", detail: "CSS presisi · bilah diagonal", style: "css" },
   { id: "ivory-lever", category: "knob", kind: "knob", label: "Ivory Lever", detail: "Ivory · tuas aluminium · MIN/MAX", style: "css" },
   { id: "luminous", category: "knob", kind: "knob", label: "Luminous Ring", detail: "Ring menyala mengikuti nilai", style: "css" },
-  { id: "open-led-ring", category: "knob", kind: "knob", label: "Open LED Ring", detail: "Busur terbuka tanpa badan · ketebalan dapat diatur", style: "css", value: 65, ringThickness: 5 },
+  { id: "open-led-ring", category: "knob", kind: "knob", label: "Open LED Ring", detail: "Busur terbuka tanpa badan · ketebalan dan nyala dapat diatur", style: "css", value: 65, ringThickness: 5, ringGlowIntensity: 65 },
   { id: "regent-cap", category: "knob", kind: "knob", label: "Regent Console", detail: "Machined black cap · amber pointer", style: "css" },
   { id: "regent-white", category: "knob", kind: "knob", label: "Regent White", detail: "Classic white cap · amber pointer", style: "css" },
   { id: "regent-green", category: "knob", kind: "knob", label: "Regent Green", detail: "Emerald EQ cap · white pointer", style: "css" },
@@ -554,7 +554,7 @@ const COMPONENT_VARIANTS = [
   { id: "regent-white-gray", category: "knob", kind: "knob", label: "Regent Gray · White Binding", detail: "Gray cap · bright white collar", style: "css" },
   { id: "pan", category: "pan", kind: "knob", label: "Pan L–R", detail: "Bipolar dengan center detent", style: "css", parameter: "pan", value: 50 },
   { id: "pan-unified", category: "pan", kind: "knob", label: "Pan Uniform Ring", detail: "Ring satu warna · center detent", style: "css", parameter: "pan", value: 50 },
-  { id: "pan-open-led-ring", category: "pan", kind: "knob", label: "Pan Open LED Ring", detail: "Busur bipolar terbuka · ketebalan dapat diatur", style: "css", parameter: "pan", value: 50, ringThickness: 5 },
+  { id: "pan-open-led-ring", category: "pan", kind: "knob", label: "Pan Open LED Ring", detail: "Busur bipolar terbuka · ketebalan dan nyala dapat diatur", style: "css", parameter: "pan", value: 50, ringThickness: 5, ringGlowIntensity: 65 },
   { id: "pan-ring-chicken-head-clean", category: "pan", kind: "knob", label: "Black Chicken Head · Ring", detail: "LED kontinu terpisah · center detent", style: "css", parameter: "pan", value: 50 },
   { id: "pan-chicken-head-clean", category: "pan", kind: "knob", label: "Black Chicken Head · Dots", detail: "LED titik terpisah · center detent", style: "css", parameter: "pan", value: 50 },
   { id: "pan-ring-ivory-lever", category: "pan", kind: "knob", label: "Ivory Lever · Ring", detail: "LED kontinu terpisah · center detent", style: "css", parameter: "pan", value: 50 },
@@ -633,6 +633,7 @@ const DEFAULT_STUDIO_METAL_INDICATOR_COLOR = "#090A0B";
 const OPEN_RING_KNOB_VARIANTS = new Set(["open-led-ring", "pan-open-led-ring"]);
 const isOpenRingKnobVariant = (variant) => OPEN_RING_KNOB_VARIANTS.has(String(variant || ""));
 const normalizeOpenRingThickness = (value) => Math.max(1, Math.min(16, Number(value) || 5));
+const normalizeOpenRingGlowIntensity = (value) => Math.max(0, Math.min(100, Number.isFinite(Number(value)) ? Number(value) : 65));
 const PAN_LED_KNOB_BASES = {
   "pan-ring-chicken-head-clean": "chicken-head-clean",
   "pan-chicken-head-clean": "chicken-head-clean",
@@ -1138,7 +1139,7 @@ const normalizeInterfaceControl = (control) => {
       outputFontSize: normalizeOutputSelectorFontSize(control.outputFontSize ?? control.output_font_size),
     } : {}),
     ...(control.kind === "fader" ? {
-      faderMeterEnabled: isStudioMetalFaderVariant(control.component_variant) ? true : control.faderMeterEnabled !== false && control.fader_meter_enabled !== false,
+      faderMeterEnabled: control.faderMeterEnabled !== false && control.fader_meter_enabled !== false,
       faderMeterPosition: normalizeFaderMeterPosition(control.faderMeterPosition ?? control.fader_meter_position),
       faderMeterColor: isHexColor(control.faderMeterColor ?? control.fader_meter_color) ? (control.faderMeterColor ?? control.fader_meter_color) : DEFAULT_FADER_METER_COLOR,
       faderMeterGap: normalizeFaderMeterGap(control.faderMeterGap ?? control.fader_meter_gap),
@@ -1152,6 +1153,7 @@ const normalizeInterfaceControl = (control) => {
     ...(control.kind === "knob" && isOpenRingKnobVariant(componentVariant) ? {
       controlColor: isHexColor(control.controlColor ?? control.control_color) ? (control.controlColor ?? control.control_color) : "#67E8F9",
       ringThickness: normalizeOpenRingThickness(control.ringThickness ?? control.ring_thickness ?? control.waveformLineWidth ?? control.waveform_line_width),
+      ringGlowIntensity: normalizeOpenRingGlowIntensity(control.ringGlowIntensity ?? control.ring_glow_intensity),
     } : {}),
     ...(control.kind === "solo_mute" ? {
       soloMuteGap: normalizeSoloMuteGap(control.soloMuteGap ?? control.solo_mute_gap),
@@ -1721,7 +1723,7 @@ const toProjectPayload = (project, samples) => {
   modulation_enabled: project.modulationEnabled === true,
   interface_controls: project.interfaceControls.map((rawControl) => {
     const normalized = normalizeInterfaceControl(rawControl);
-    const { notePitch, moduleId, samplerGroupId, sampler_group_id: legacySamplerGroupId, keyCount, keyColors, key_colors: legacyKeyColors, showBackground, show_background: legacyShowBackground, labelPosition, label_position: legacyLabelPosition, labelGap, label_gap: legacyLabelGap, stateLabelGap, state_label_gap: legacyStateLabelGap, labelX, labelY, label_x: legacyLabelX, label_y: legacyLabelY, meterMode, meter_mode: legacyMeterMode, padColor, padActiveColor, pad_color: legacyPadColor, pad_active_color: legacyPadActiveColor, visualColor, visual_color: legacyVisualColor, waveformLineWidth, waveform_line_width: legacyWaveformLineWidth, ringThickness, ring_thickness: legacyRingThickness, barWidthRatio, bar_width_ratio: legacyBarWidthRatio, spectrumBand, spectrum_band: legacySpectrumBand, prismControlMode, prism_control_mode: legacyPrismControlMode, prismContext, prism_context: legacyPrismContext, prismOwnerId, prism_owner_id: legacyPrismOwnerId, textFont, text_font: legacyTextFont, textColor, text_color: legacyTextColor, controlColor, control_color: legacyControlColor, outputFontSize, output_font_size: legacyOutputFontSize, faderMeterEnabled, fader_meter_enabled: legacyFaderMeterEnabled, faderMeterPosition, fader_meter_position: legacyFaderMeterPosition, faderMeterColor, fader_meter_color: legacyFaderMeterColor, faderMeterGap, fader_meter_gap: legacyFaderMeterGap, faderMeterWidth, fader_meter_width: legacyFaderMeterWidth, faderMeterHeight, fader_meter_height: legacyFaderMeterHeight, soloMuteGap, solo_mute_gap: legacySoloMuteGap, soloColor, solo_color: legacySoloColor, muteColor, mute_color: legacyMuteColor, buttonShape, button_shape: legacyButtonShape, indicatorSourceId, indicator_source_id: legacyIndicatorSourceId, midiSequenceId, midi_sequence_id: legacyMidiSequenceId, imageUrl, imageName, imageFit, imageOpacity, image_url: legacyImageUrl, image_name: legacyImageName, image_fit: legacyImageFit, image_opacity: legacyImageOpacity, parentPanelId, parent_panel_id: legacyParentPanelId, panelType, panel_type: legacyPanelType, panelX, panel_x: legacyPanelX, panelY, panel_y: legacyPanelY, panelWidth, panel_width: legacyPanelWidth, panelHeight, panel_height: legacyPanelHeight, mixerShowDefaultControls, mixer_show_default_controls: legacyMixerShowDefaultControls, ...control } = normalized;
+    const { notePitch, moduleId, samplerGroupId, sampler_group_id: legacySamplerGroupId, keyCount, keyColors, key_colors: legacyKeyColors, showBackground, show_background: legacyShowBackground, labelPosition, label_position: legacyLabelPosition, labelGap, label_gap: legacyLabelGap, stateLabelGap, state_label_gap: legacyStateLabelGap, labelX, labelY, label_x: legacyLabelX, label_y: legacyLabelY, meterMode, meter_mode: legacyMeterMode, padColor, padActiveColor, pad_color: legacyPadColor, pad_active_color: legacyPadActiveColor, visualColor, visual_color: legacyVisualColor, waveformLineWidth, waveform_line_width: legacyWaveformLineWidth, ringThickness, ring_thickness: legacyRingThickness, ringGlowIntensity, ring_glow_intensity: legacyRingGlowIntensity, barWidthRatio, bar_width_ratio: legacyBarWidthRatio, spectrumBand, spectrum_band: legacySpectrumBand, prismControlMode, prism_control_mode: legacyPrismControlMode, prismContext, prism_context: legacyPrismContext, prismOwnerId, prism_owner_id: legacyPrismOwnerId, textFont, text_font: legacyTextFont, textColor, text_color: legacyTextColor, controlColor, control_color: legacyControlColor, outputFontSize, output_font_size: legacyOutputFontSize, faderMeterEnabled, fader_meter_enabled: legacyFaderMeterEnabled, faderMeterPosition, fader_meter_position: legacyFaderMeterPosition, faderMeterColor, fader_meter_color: legacyFaderMeterColor, faderMeterGap, fader_meter_gap: legacyFaderMeterGap, faderMeterWidth, fader_meter_width: legacyFaderMeterWidth, faderMeterHeight, fader_meter_height: legacyFaderMeterHeight, soloMuteGap, solo_mute_gap: legacySoloMuteGap, soloColor, solo_color: legacySoloColor, muteColor, mute_color: legacyMuteColor, buttonShape, button_shape: legacyButtonShape, indicatorSourceId, indicator_source_id: legacyIndicatorSourceId, midiSequenceId, midi_sequence_id: legacyMidiSequenceId, imageUrl, imageName, imageFit, imageOpacity, image_url: legacyImageUrl, image_name: legacyImageName, image_fit: legacyImageFit, image_opacity: legacyImageOpacity, parentPanelId, parent_panel_id: legacyParentPanelId, panelType, panel_type: legacyPanelType, panelX, panel_x: legacyPanelX, panelY, panel_y: legacyPanelY, panelWidth, panel_width: legacyPanelWidth, panelHeight, panel_height: legacyPanelHeight, mixerShowDefaultControls, mixer_show_default_controls: legacyMixerShowDefaultControls, ...control } = normalized;
     return {
       ...control,
       module_id: moduleId || null,
@@ -1748,6 +1750,7 @@ const toProjectPayload = (project, samples) => {
       ...(["visual", "spectrum"].includes(control.kind) && isHexColor(visualColor ?? legacyVisualColor) ? { visual_color: visualColor ?? legacyVisualColor } : {}),
       ...(control.kind === "spectrum" && control.component_variant === "realtime-waveform" ? { waveform_line_width: Math.max(0.5, Math.min(8, Number(waveformLineWidth ?? legacyWaveformLineWidth ?? 1.8) || 1.8)) } : {}),
       ...(control.kind === "knob" && isOpenRingKnobVariant(control.component_variant) ? { ring_thickness: normalizeOpenRingThickness(ringThickness ?? legacyRingThickness ?? waveformLineWidth ?? legacyWaveformLineWidth) } : {}),
+      ...(control.kind === "knob" && isOpenRingKnobVariant(control.component_variant) ? { ring_glow_intensity: normalizeOpenRingGlowIntensity(ringGlowIntensity ?? legacyRingGlowIntensity) } : {}),
       ...(control.kind === "spectrum" && control.component_variant === "bar-spectrum-visualizer" ? { bar_width_ratio: Math.max(0.1, Math.min(1, Number(barWidthRatio ?? legacyBarWidthRatio ?? 0.54) || 0.54)) } : {}),
       ...(spectrumBand === true || legacySpectrumBand === true ? { spectrum_band: true } : {}),
       ...(PRISM_CONTROL_MODES.has(prismControlMode ?? legacyPrismControlMode) ? { prism_control_mode: prismControlMode ?? legacyPrismControlMode } : {}),
@@ -1893,7 +1896,7 @@ const fromSavedProject = (saved) => {
   accentColor: migrateLumaOpto ? "#d6b56d" : saved.accent_color,
   effects: {},
   controls: saved.controls || [],
-  interfaceControls: migratedObsidianState?.interfaceControls || (migrateLumaOpto ? createTemplateControls("vintageeq", 49) : (migrateAmpStack ? migrateAmpStackControls : (controls) => controls)((saved.interface_controls || []).map(({ note_pitch, module_id, sampler_group_id, key_count, key_colors, show_background, label_position, pad_color, pad_active_color, visual_color, waveform_line_width, ring_thickness, bar_width_ratio, spectrum_band, prism_control_mode, prism_context, prism_owner_id, text_font, text_color, control_color, output_font_size, fader_meter_enabled, fader_meter_position, fader_meter_color, fader_meter_gap, fader_meter_width, fader_meter_height, solo_mute_gap, solo_color, mute_color, button_shape, indicator_source_id, midi_sequence_id, image_url, image_name, image_fit, image_opacity, parent_panel_id, panel_type, panel_x, panel_y, panel_width, panel_height, mixer_show_default_controls, ...control }, index) => normalizeInterfaceControl({ ...control, label: controlLabelOrFallback(control, index), moduleId: module_id || null, sampler_group_id: sampler_group_id || null, notePitch: note_pitch ?? 60, keyCount: key_count || undefined, keyColors: key_colors, showBackground: show_background !== false, labelPosition: label_position, padColor: pad_color, padActiveColor: pad_active_color, visualColor: visual_color, waveformLineWidth: waveform_line_width, ringThickness: ring_thickness ?? (isOpenRingKnobVariant(control.component_variant) ? waveform_line_width : undefined), barWidthRatio: bar_width_ratio, spectrumBand: spectrum_band === true, prismControlMode: prism_control_mode, prismContext: prism_context, prismOwnerId: prism_owner_id, textFont: text_font, textColor: text_color, controlColor: control_color, outputFontSize: output_font_size, faderMeterEnabled: fader_meter_enabled, faderMeterPosition: fader_meter_position, faderMeterColor: fader_meter_color, faderMeterGap: fader_meter_gap, faderMeterWidth: fader_meter_width, faderMeterHeight: fader_meter_height, soloMuteGap: solo_mute_gap, soloColor: solo_color, muteColor: mute_color, buttonShape: button_shape, indicatorSourceId: indicator_source_id, midiSequenceId: midi_sequence_id, imageUrl: image_url, imageName: image_name, imageFit: image_fit, imageOpacity: image_opacity, parentPanelId: parent_panel_id, panelType: panel_type, panelX: panel_x, panelY: panel_y, panelWidth: panel_width, panelHeight: panel_height, mixerShowDefaultControls: mixer_show_default_controls })))),
+  interfaceControls: migratedObsidianState?.interfaceControls || (migrateLumaOpto ? createTemplateControls("vintageeq", 49) : (migrateAmpStack ? migrateAmpStackControls : (controls) => controls)((saved.interface_controls || []).map(({ note_pitch, module_id, sampler_group_id, key_count, key_colors, show_background, label_position, pad_color, pad_active_color, visual_color, waveform_line_width, ring_thickness, ring_glow_intensity, bar_width_ratio, spectrum_band, prism_control_mode, prism_context, prism_owner_id, text_font, text_color, control_color, output_font_size, fader_meter_enabled, fader_meter_position, fader_meter_color, fader_meter_gap, fader_meter_width, fader_meter_height, solo_mute_gap, solo_color, mute_color, button_shape, indicator_source_id, midi_sequence_id, image_url, image_name, image_fit, image_opacity, parent_panel_id, panel_type, panel_x, panel_y, panel_width, panel_height, mixer_show_default_controls, ...control }, index) => normalizeInterfaceControl({ ...control, label: controlLabelOrFallback(control, index), moduleId: module_id || null, sampler_group_id: sampler_group_id || null, notePitch: note_pitch ?? 60, keyCount: key_count || undefined, keyColors: key_colors, showBackground: show_background !== false, labelPosition: label_position, padColor: pad_color, padActiveColor: pad_active_color, visualColor: visual_color, waveformLineWidth: waveform_line_width, ringThickness: ring_thickness ?? (isOpenRingKnobVariant(control.component_variant) ? waveform_line_width : undefined), ringGlowIntensity: ring_glow_intensity, barWidthRatio: bar_width_ratio, spectrumBand: spectrum_band === true, prismControlMode: prism_control_mode, prismContext: prism_context, prismOwnerId: prism_owner_id, textFont: text_font, textColor: text_color, controlColor: control_color, outputFontSize: output_font_size, faderMeterEnabled: fader_meter_enabled, faderMeterPosition: fader_meter_position, faderMeterColor: fader_meter_color, faderMeterGap: fader_meter_gap, faderMeterWidth: fader_meter_width, faderMeterHeight: fader_meter_height, soloMuteGap: solo_mute_gap, soloColor: solo_color, muteColor: mute_color, buttonShape: button_shape, indicatorSourceId: indicator_source_id, midiSequenceId: midi_sequence_id, imageUrl: image_url, imageName: image_name, imageFit: image_fit, imageOpacity: image_opacity, parentPanelId: parent_panel_id, panelType: panel_type, panelX: panel_x, panelY: panel_y, panelWidth: panel_width, panelHeight: panel_height, mixerShowDefaultControls: mixer_show_default_controls })))),
   presets: Array.isArray(saved.presets) ? saved.presets : [],
   midiMappings: [],
   midiSequences: (saved.midi_sequences || []).map(({ duration_ticks, loop_enabled, generator_config, ...sequence }) => ({ ...sequence, durationTicks: duration_ticks, loopEnabled: loop_enabled === true, ...(generator_config ? { generatorConfig: normalizeWaveGeneratorConfig(generator_config) } : {}) })),
@@ -5208,7 +5211,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       ...(kind === "indicator" ? { controlColor: variant?.color || project.accentColor, indicatorSourceId: null } : {}),
       ...(kind === "text" ? { textFont: "space-grotesk", textColor: "#F4F4F5" } : {}),
       ...(["pitch-bend-led", "modulation-led"].includes(variantId) ? { controlColor: project.accentColor } : {}),
-      ...(isOpenRingKnobVariant(variantId) ? { controlColor: project.accentColor, ringThickness: normalizeOpenRingThickness(variant?.ringThickness) } : {}),
+      ...(isOpenRingKnobVariant(variantId) ? { controlColor: project.accentColor, ringThickness: normalizeOpenRingThickness(variant?.ringThickness), ringGlowIntensity: normalizeOpenRingGlowIntensity(variant?.ringGlowIntensity) } : {}),
       ...(kind === "pad" ? {
         padColor: defaultPadSurfaceColor(variantId || "rubber"),
         padActiveColor: defaultPadActiveColor(variantId || "rubber", 60, project.accentColor),
@@ -8429,8 +8432,8 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
       showBackground: control.showBackground ?? variant.showBackground ?? !isVisual,
       parentPanelId: kind === "panel_button" ? null : control.parentPanelId ?? null,
       ...(isMeter ? { meterMode: control.meterMode ?? control.meter_mode ?? (kind === "gain_meter" ? "stereo" : "mono") } : {}),
-      ...(kind === "fader" ? { faderMeterEnabled: isStudioMetalFaderVariant(variant.id) ? true : control.faderMeterEnabled ?? variant.faderMeterEnabled ?? true, faderMeterPosition: control.faderMeterPosition ?? variant.faderMeterPosition ?? "right", faderMeterColor: control.faderMeterColor ?? DEFAULT_FADER_METER_COLOR, faderMeterGap: control.faderMeterGap ?? variant.faderMeterGap ?? DEFAULT_FADER_METER_GAP, faderMeterWidth: control.faderMeterWidth ?? variant.faderMeterWidth ?? DEFAULT_FADER_METER_WIDTH, faderMeterHeight: control.faderMeterHeight ?? variant.faderMeterHeight ?? DEFAULT_FADER_METER_HEIGHT, ...(isStudioMetalFaderVariant(variant.id) ? { controlColor: control.controlColor ?? control.control_color ?? variant.capColor ?? DEFAULT_STUDIO_METAL_CAP_COLOR, textColor: control.textColor ?? control.text_color ?? variant.indicatorColor ?? DEFAULT_STUDIO_METAL_INDICATOR_COLOR } : {}) } : {}),
-      ...(kind === "knob" && isOpenRingKnobVariant(variant.id) ? { controlColor: control.controlColor ?? control.control_color ?? accentColor, ringThickness: normalizeOpenRingThickness(control.ringThickness ?? control.ring_thickness ?? control.waveformLineWidth ?? control.waveform_line_width ?? variant.ringThickness) } : {}),
+      ...(kind === "fader" ? { faderMeterEnabled: control.faderMeterEnabled ?? variant.faderMeterEnabled ?? true, faderMeterPosition: control.faderMeterPosition ?? variant.faderMeterPosition ?? "right", faderMeterColor: control.faderMeterColor ?? DEFAULT_FADER_METER_COLOR, faderMeterGap: control.faderMeterGap ?? variant.faderMeterGap ?? DEFAULT_FADER_METER_GAP, faderMeterWidth: control.faderMeterWidth ?? variant.faderMeterWidth ?? DEFAULT_FADER_METER_WIDTH, faderMeterHeight: control.faderMeterHeight ?? variant.faderMeterHeight ?? DEFAULT_FADER_METER_HEIGHT, ...(isStudioMetalFaderVariant(variant.id) ? { controlColor: control.controlColor ?? control.control_color ?? variant.capColor ?? DEFAULT_STUDIO_METAL_CAP_COLOR, textColor: control.textColor ?? control.text_color ?? variant.indicatorColor ?? DEFAULT_STUDIO_METAL_INDICATOR_COLOR } : {}) } : {}),
+      ...(kind === "knob" && isOpenRingKnobVariant(variant.id) ? { controlColor: control.controlColor ?? control.control_color ?? accentColor, ringThickness: normalizeOpenRingThickness(control.ringThickness ?? control.ring_thickness ?? control.waveformLineWidth ?? control.waveform_line_width ?? variant.ringThickness), ringGlowIntensity: normalizeOpenRingGlowIntensity(control.ringGlowIntensity ?? control.ring_glow_intensity ?? variant.ringGlowIntensity) } : {}),
       ...(kind === "solo_mute" ? { soloMuteGap: control.soloMuteGap ?? DEFAULT_SOLO_MUTE_GAP, soloColor: control.soloColor ?? DEFAULT_SOLO_COLOR, muteColor: control.muteColor ?? DEFAULT_MUTE_COLOR, buttonShape: control.buttonShape ?? "square" } : {}),
       ...(kind === "indicator" ? { controlColor: control.controlColor ?? control.control_color ?? variant.color ?? accentColor, indicatorSourceId: control.indicatorSourceId ?? control.indicator_source_id ?? null } : {}),
       ...(kind === "text" ? { textFont: control.textFont ?? control.text_font ?? "space-grotesk", textColor: control.textColor ?? control.text_color ?? "#F4F4F5" } : {}),
@@ -9228,6 +9231,7 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                     neutralValue={neutralControlValue(control, projectTemplate)} label={control.label}
                     variant={control.component_variant || "classic"} asset={filmstripAssetFor(control, componentStyle, "knob")}
                     ringThickness={control.ringThickness ?? control.ring_thickness ?? control.waveformLineWidth ?? control.waveform_line_width}
+                    ringGlowIntensity={control.ringGlowIntensity ?? control.ring_glow_intensity}
                     ringColor={control.controlColor ?? control.control_color ?? accentColor}
                     onChange={(value) => {
                       if (PRISM_CONTEXT_PARAMETERS.has(control.parameter)) updatePrismContext(control, value);
@@ -9239,7 +9243,7 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                   />
                 ) : control.kind === "fader" ? (
                   <FaderMeterLayout
-                    enabled={isStudioMetalFaderVariant(control.component_variant) || (control.faderMeterEnabled !== false && control.fader_meter_enabled !== false)}
+                    enabled={control.faderMeterEnabled !== false && control.fader_meter_enabled !== false}
                     position={control.faderMeterPosition ?? control.fader_meter_position}
                     color={control.faderMeterColor ?? control.fader_meter_color ?? DEFAULT_FADER_METER_COLOR}
                     gap={control.faderMeterGap ?? control.fader_meter_gap}
@@ -9638,12 +9642,12 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
           {selectedControl.kind === "fader" && <>
             <label>
               <FieldLabel>{isStudioMetalFaderVariant(selectedControl.component_variant) ? "Metering kontinu non-LED" : "Metering di samping fader"}</FieldLabel>
-              <select className="maker-input mt-2" disabled={isStudioMetalFaderVariant(selectedControl.component_variant)} value={isStudioMetalFaderVariant(selectedControl.component_variant) || (selectedControl.faderMeterEnabled !== false && selectedControl.fader_meter_enabled !== false) ? "visible" : "hidden"} onChange={(event) => onUpdate(selectedControl.id, { faderMeterEnabled: event.target.value === "visible" })}>
+              <select className="maker-input mt-2" value={selectedControl.faderMeterEnabled !== false && selectedControl.fader_meter_enabled !== false ? "visible" : "hidden"} onChange={(event) => onUpdate(selectedControl.id, { faderMeterEnabled: event.target.value === "visible" })}>
                 <option value="visible">Tampilkan</option>
                 <option value="hidden">Sembunyikan</option>
               </select>
             </label>
-            {(isStudioMetalFaderVariant(selectedControl.component_variant) || (selectedControl.faderMeterEnabled !== false && selectedControl.fader_meter_enabled !== false)) && <>
+            {(selectedControl.faderMeterEnabled !== false && selectedControl.fader_meter_enabled !== false) && <>
               <label>
                 <FieldLabel>Posisi metering</FieldLabel>
                 <select className="maker-input mt-2" value={normalizeFaderMeterPosition(selectedControl.faderMeterPosition ?? selectedControl.fader_meter_position)} onChange={(event) => onUpdate(selectedControl.id, { faderMeterPosition: event.target.value })}>
@@ -9692,6 +9696,10 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
             <label>
               <FieldLabel>Ketebalan ring · {normalizeOpenRingThickness(selectedControl.ringThickness ?? selectedControl.ring_thickness ?? selectedControl.waveformLineWidth ?? selectedControl.waveform_line_width)} px</FieldLabel>
               <input className="maker-range mt-4 w-full" type="range" min="1" max="16" step="0.5" value={normalizeOpenRingThickness(selectedControl.ringThickness ?? selectedControl.ring_thickness ?? selectedControl.waveformLineWidth ?? selectedControl.waveform_line_width)} onChange={(event) => onUpdate(selectedControl.id, { ringThickness: Number(event.target.value) })} />
+            </label>
+            <label>
+              <FieldLabel>Intensitas nyala ring · {Math.round(normalizeOpenRingGlowIntensity(selectedControl.ringGlowIntensity ?? selectedControl.ring_glow_intensity))}%</FieldLabel>
+              <input className="maker-range mt-4 w-full" type="range" min="0" max="100" step="1" value={normalizeOpenRingGlowIntensity(selectedControl.ringGlowIntensity ?? selectedControl.ring_glow_intensity)} onChange={(event) => onUpdate(selectedControl.id, { ringGlowIntensity: Number(event.target.value) })} />
             </label>
             <DesignerColorField
               label="Warna nyala ring"
@@ -10305,10 +10313,18 @@ function PanLedRing({ value, type = "dots" }) {
   );
 }
 
-function OpenRingKnobVisual({ value, pan = false, thickness = 5, color = "#67E8F9" }) {
+const OPEN_RING_GLOW_LAYERS = [
+  { spread: 12, opacity: 0.05 },
+  { spread: 8, opacity: 0.075 },
+  { spread: 5, opacity: 0.12 },
+  { spread: 2.5, opacity: 0.2 },
+];
+
+function OpenRingKnobVisual({ value, pan = false, thickness = 5, glowIntensity = 65, color = "#67E8F9" }) {
   const normalized = Math.max(0, Math.min(100, Number(value) || 0));
   const strokeWidth = normalizeOpenRingThickness(thickness);
   const activeColor = isHexColor(color) ? color : "#67E8F9";
+  const normalizedGlow = normalizeOpenRingGlowIntensity(glowIntensity);
   const segmentStart = pan ? Math.min(50, normalized) : 0;
   const segmentLength = pan ? Math.abs(normalized - 50) : normalized;
   const pointAt = (percent) => {
@@ -10318,10 +10334,13 @@ function OpenRingKnobVisual({ value, pan = false, thickness = 5, color = "#67E8F
   const segmentEnd = segmentStart + segmentLength;
   const [activeStartX, activeStartY] = pointAt(segmentStart);
   const [activeEndX, activeEndY] = pointAt(segmentEnd);
-  const activePath = `M ${activeStartX.toFixed(2)} ${activeStartY.toFixed(2)} A 38 38 0 ${segmentLength > (200 / 3) ? 1 : 0} 1 ${activeEndX.toFixed(2)} ${activeEndY.toFixed(2)}`;
-  return <svg className="maker-open-ring-knob__svg" viewBox="0 0 100 100" aria-hidden="true" style={{ "--maker-open-ring-color": activeColor }}>
-    <path className="maker-open-ring-knob__track" d="M 23.13 76.87 A 38 38 0 1 1 76.87 76.87" pathLength="100" strokeWidth={strokeWidth} />
+  const activePath = `M ${activeStartX.toFixed(5)} ${activeStartY.toFixed(5)} A 38 38 0 ${segmentLength > (200 / 3) ? 1 : 0} 1 ${activeEndX.toFixed(5)} ${activeEndY.toFixed(5)}`;
+  const glowStrength = normalizedGlow / 100;
+  return <svg className="maker-open-ring-knob__svg" viewBox="0 0 100 100" aria-hidden="true" shapeRendering="geometricPrecision">
+    <path className="maker-open-ring-knob__track" d="M 23.12994 76.87006 A 38 38 0 1 1 76.87006 76.87006" pathLength="100" strokeWidth={strokeWidth} />
+    {segmentLength > 0 && normalizedGlow > 0 && OPEN_RING_GLOW_LAYERS.map((layer) => <path key={`${layer.spread}-${layer.opacity}`} className="maker-open-ring-knob__glow" d={activePath} stroke={activeColor} strokeWidth={strokeWidth + (layer.spread * glowStrength)} strokeOpacity={layer.opacity * glowStrength} />)}
     {segmentLength > 0 && <path className="maker-open-ring-knob__active" d={activePath} stroke={activeColor} strokeWidth={strokeWidth} />}
+    {pan && segmentLength > 0 && normalizedGlow > 0 && OPEN_RING_GLOW_LAYERS.map((layer) => <circle key={`${layer.spread}-${layer.opacity}`} className="maker-open-ring-knob__center-glow" cx="50" cy="12" r={Math.max(1.4, strokeWidth * 0.52) + (layer.spread * glowStrength * 0.5)} fill={activeColor} fillOpacity={layer.opacity * glowStrength} />)}
     {pan && segmentLength > 0 && <circle className="maker-open-ring-knob__center" cx="50" cy="12" r={Math.max(1.4, strokeWidth * 0.52)} fill={activeColor} />}
   </svg>;
 }
@@ -10476,7 +10495,7 @@ function ComponentThumbnail({ variant }) {
     preview = isPanLedKnobVariant(id) ? <span className={`maker-gallery-pan-led-shell maker-knob--${id}`}><PanLedRing value={50} type={panLedStyleForVariant(id)} />{sprite}</span> : sprite;
   } else if (kind === "knob") {
     const visualVariant = PAN_LED_KNOB_BASES[id] || id;
-    preview = <span className={`maker-rotary-knob maker-knob--${id} ${visualVariant !== id ? `maker-knob--${visualVariant}` : ""}`} style={{ "--knob-angle": isPanKnobVariant(id) ? "0deg" : "40deg", "--knob-progress": "175.5deg" }}>{isOpenRingKnobVariant(id) ? <OpenRingKnobVisual value={isPanKnobVariant(id) ? 50 : 65} pan={isPanKnobVariant(id)} thickness={variant.ringThickness} color="#67E8F9" /> : <>{id === "chicken-head" && <span className="maker-chicken-head-knob__scale"><span>MIN</span><span>MAX</span></span>}{id === "ivory-lever" && <span className="maker-ivory-lever__scale"><span>MIN</span><span>MAX</span></span>}{id === "orbit-encoder" && <OrbitEncoderLights value={65} />}{isPanLedKnobVariant(id) && <PanLedRing value={50} type={panLedStyleForVariant(id)} />}<span className="maker-rotary-knob__indicator" /></>}<span className="maker-rotary-knob__value">{isPanKnobVariant(id) ? "C" : "65"}</span></span>;
+    preview = <span className={`maker-rotary-knob maker-knob--${id} ${visualVariant !== id ? `maker-knob--${visualVariant}` : ""}`} style={{ "--knob-angle": isPanKnobVariant(id) ? "0deg" : "40deg", "--knob-progress": "175.5deg" }}>{isOpenRingKnobVariant(id) ? <OpenRingKnobVisual value={isPanKnobVariant(id) ? 50 : 65} pan={isPanKnobVariant(id)} thickness={variant.ringThickness} glowIntensity={variant.ringGlowIntensity} color="#67E8F9" /> : <>{id === "chicken-head" && <span className="maker-chicken-head-knob__scale"><span>MIN</span><span>MAX</span></span>}{id === "ivory-lever" && <span className="maker-ivory-lever__scale"><span>MIN</span><span>MAX</span></span>}{id === "orbit-encoder" && <OrbitEncoderLights value={65} />}{isPanLedKnobVariant(id) && <PanLedRing value={50} type={panLedStyleForVariant(id)} />}<span className="maker-rotary-knob__indicator" /></>}<span className="maker-rotary-knob__value">{isPanKnobVariant(id) ? "C" : "65"}</span></span>;
   } else if (kind === "indicator") {
     preview = <span className="maker-gallery-led-indicator"><RoundLedIndicator active color={variant.color} /></span>;
   } else if (kind === "solo_mute") {
@@ -10537,7 +10556,7 @@ function ComponentThumbnail({ variant }) {
   return <span className="maker-gallery-preview" aria-hidden="true">{preview}</span>;
 }
 
-function RotaryKnob({ value, valueText, neutralValue = 50, label, onChange, onInteract, disabled = false, variant = "classic", ringThickness = 5, ringColor = "#67E8F9", asset = DEFAULT_VST_FILMSTRIP_SKIN.knob }) {
+function RotaryKnob({ value, valueText, neutralValue = 50, label, onChange, onInteract, disabled = false, variant = "classic", ringThickness = 5, ringGlowIntensity = 65, ringColor = "#67E8F9", asset = DEFAULT_VST_FILMSTRIP_SKIN.knob }) {
   const dragRef = useRef(null);
   const isPanKnob = isPanKnobVariant(variant);
   const visualVariant = PAN_LED_KNOB_BASES[variant] || variant;
@@ -10584,7 +10603,7 @@ function RotaryKnob({ value, valueText, neutralValue = 50, label, onChange, onIn
       onFocus={() => onInteract?.()}
       onKeyDown={(event) => { onInteract?.(); setFromKey(event); }}
     >
-      {asset ? <>{isPanLedKnobVariant(variant) && <PanLedRing value={value} type={panLedStyleForVariant(variant)} />}{asset.staticFace && <span className="maker-static-knob-asset__indicator" />}<span className="maker-control-value-readout">{valueText || (isPanKnob ? value === 50 ? "C" : value < 50 ? `L${100 - value * 2}` : `R${(value - 50) * 2}` : value)}</span></> : <>{isOpenRingKnobVariant(variant) ? <OpenRingKnobVisual value={value} pan={isPanKnob} thickness={ringThickness} color={ringColor} /> : <>{variant === "chicken-head" && <span className="maker-chicken-head-knob__scale" aria-hidden="true"><span>MIN</span><span>MAX</span></span>}{variant === "ivory-lever" && <span className="maker-ivory-lever__scale" aria-hidden="true"><span>MIN</span><span>MAX</span></span>}{variant === "orbit-encoder" && <OrbitEncoderLights value={value} />}{isPanLedKnobVariant(variant) && <PanLedRing value={value} type={panLedStyleForVariant(variant)} />}<span className="maker-rotary-knob__indicator" /></>}<span className="maker-rotary-knob__value">{valueText || (isPanKnob ? value === 50 ? "C" : value < 50 ? `L${100 - value * 2}` : `R${(value - 50) * 2}` : value)}</span></>}
+      {asset ? <>{isPanLedKnobVariant(variant) && <PanLedRing value={value} type={panLedStyleForVariant(variant)} />}{asset.staticFace && <span className="maker-static-knob-asset__indicator" />}<span className="maker-control-value-readout">{valueText || (isPanKnob ? value === 50 ? "C" : value < 50 ? `L${100 - value * 2}` : `R${(value - 50) * 2}` : value)}</span></> : <>{isOpenRingKnobVariant(variant) ? <OpenRingKnobVisual value={value} pan={isPanKnob} thickness={ringThickness} glowIntensity={ringGlowIntensity} color={ringColor} /> : <>{variant === "chicken-head" && <span className="maker-chicken-head-knob__scale" aria-hidden="true"><span>MIN</span><span>MAX</span></span>}{variant === "ivory-lever" && <span className="maker-ivory-lever__scale" aria-hidden="true"><span>MIN</span><span>MAX</span></span>}{variant === "orbit-encoder" && <OrbitEncoderLights value={value} />}{isPanLedKnobVariant(variant) && <PanLedRing value={value} type={panLedStyleForVariant(variant)} />}<span className="maker-rotary-knob__indicator" /></>}<span className="maker-rotary-knob__value">{valueText || (isPanKnob ? value === 50 ? "C" : value < 50 ? `L${100 - value * 2}` : `R${(value - 50) * 2}` : value)}</span></>}
     </button>
   );
 }

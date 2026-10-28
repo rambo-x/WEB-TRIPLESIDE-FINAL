@@ -3870,6 +3870,7 @@
 }
 
 .maker-open-ring-knob__track,
+.maker-open-ring-knob__glow,
 .maker-open-ring-knob__active {
   fill: none;
   stroke-linecap: round;
@@ -3877,15 +3878,16 @@
 
 .maker-open-ring-knob__track {
   stroke: rgba(255, 255, 255, .105);
-  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, .78));
 }
 
-.maker-open-ring-knob__active {
-  filter: drop-shadow(0 0 3px var(--maker-open-ring-color, #67e8f9));
+.maker-open-ring-knob__glow,
+.maker-open-ring-knob__center-glow {
+  pointer-events: none;
 }
 
+.maker-open-ring-knob__active,
 .maker-open-ring-knob__center {
-  filter: drop-shadow(0 0 3px var(--maker-open-ring-color, #67e8f9));
+  filter: none;
 }
 
 .maker-knob--open-led-ring .maker-rotary-knob__value,

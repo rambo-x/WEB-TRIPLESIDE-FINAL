@@ -140,7 +140,8 @@ describe("VST Maker admin template editing", () => {
     expect(styles).toContain(".maker-fader--studio-metal-db");
     expect(styles).toContain(".maker-fader--studio-metal-long-cap");
     expect(styles).not.toContain(".maker-studio-metal-fader__scale");
-    expect(source).toContain('isStudioMetalFaderVariant(control.component_variant) || (control.faderMeterEnabled');
+    expect(source).toContain('enabled={control.faderMeterEnabled !== false && control.fader_meter_enabled !== false}');
+    expect(source).not.toContain('disabled={isStudioMetalFaderVariant(selectedControl.component_variant)}');
     expect(source).toContain('meterVariant={isStudioMetalFaderVariant(control.component_variant) ? "continuous" : "led"}');
     expect(source).toContain('label="Warna badan cap fader"');
     expect(source).toContain('label="Warna garis indikator cap"');
@@ -176,12 +177,24 @@ describe("VST Maker admin template editing", () => {
     expect(source).toContain('max="16" step="0.5"');
     expect(source).toContain('label="Warna nyala ring"');
     expect(source).toContain("ring_thickness: normalizeOpenRingThickness");
+    expect(source).toContain("Intensitas nyala ring");
+    expect(source).toContain("ring_glow_intensity: normalizeOpenRingGlowIntensity");
+    expect(source).toContain('min="0" max="100" step="1"');
     expect(source).toContain("pan && segmentLength > 0");
     expect(visualRenderSource).toContain("ringThickness: c.ring_thickness");
+    expect(visualRenderSource).toContain("ringGlowIntensity: c.ring_glow_intensity");
     expect(source).toContain("isOpenRingKnobVariant(control.component_variant)");
     expect(styles).toContain(".maker-knob--open-led-ring");
     expect(styles).toContain(".maker-knob--pan-open-led-ring");
     expect(styles).toContain("stroke-linecap: round");
+    expect(source).toContain('className="maker-open-ring-knob__glow"');
+    expect(source).toContain('shapeRendering="geometricPrecision"');
+    expect(source).toContain("const OPEN_RING_GLOW_LAYERS = [");
+    expect(source).toContain("strokeWidth={strokeWidth + (layer.spread * glowStrength)}");
+    expect(source).not.toContain("<feGaussianBlur");
+    expect(source).not.toContain("<filter id={glowFilterId}");
+    expect(styles).not.toMatch(/maker-open-ring-knob__glow[^}]*drop-shadow/s);
+    expect(styles).toContain(".maker-open-ring-knob__active,\n.maker-open-ring-knob__center");
   });
 
   test("offers a plate-free mechanical toggle in the button gallery", () => {

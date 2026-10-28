@@ -127,10 +127,23 @@ def test_live_analyzers_keep_the_shared_preview_contract():
 
 def test_fader_capture_records_the_live_inline_meter_track_geometry():
     source = MODULE_PATH.read_text(encoding="utf-8")
+    visual_source = (Path(__file__).parents[2] / "frontend" / "src" / "pages" / "VstVisualRender.jsx").read_text(encoding="utf-8")
 
     assert "kind == 'fader' and control.get('fader_meter_enabled', True)" in source
     assert "'.maker-fader-inline-meter .maker-gain-meter__channels > i'" in source
     assert "meter_channels = [meter_hit]" in source
+    assert 'c.kind === "fader" ? 0 : frame.value / 100' in visual_source
+
+
+def test_open_ring_capture_keeps_only_idle_track_and_records_vector_geometry():
+    source = MODULE_PATH.read_text(encoding="utf-8")
+
+    assert "ring_bounds = element.locator('.maker-open-ring-knob__svg').bounding_box()" in source
+    assert "control.get('component_variant') == 'open-led-ring'" in source
+    assert "value = 0" in source
+    assert "control.get('component_variant') == 'pan-open-led-ring'" in source
+    assert "value = 50" in source
+    assert "ring_bounds=ring_bounds" in source
 
 
 def test_output_selector_capture_has_exactly_master_and_target_frames():

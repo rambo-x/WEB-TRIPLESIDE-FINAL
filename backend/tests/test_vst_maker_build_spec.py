@@ -879,7 +879,7 @@ def test_build_spec_preserves_open_ring_thickness_without_widening_waveform_cont
             "id": "open-ring", "kind": "knob", "label": "Open Ring", "parameter": "tone",
             "module_id": None, "x": 30, "y": 30, "value": 65, "width": 128, "height": 128,
             "component_variant": "open-led-ring", "ring_thickness": 15.5,
-            "waveform_line_width": 3.5, "control_color": "#39FF88",
+            "ring_glow_intensity": 0, "waveform_line_width": 3.5, "control_color": "#39FF88",
         },
         {
             "id": "legacy-pan-ring", "kind": "knob", "label": "Legacy Pan Ring", "parameter": "pan",
@@ -895,9 +895,11 @@ def test_build_spec_preserves_open_ring_thickness_without_widening_waveform_cont
     spec = vst_maker_build_spec(parsed)
 
     assert spec["interface"]["controls"][0]["ring_thickness"] == 15.5
+    assert spec["interface"]["controls"][0]["ring_glow_intensity"] == 0
     assert spec["interface"]["controls"][0]["waveform_line_width"] == 3.5
     assert spec["interface"]["controls"][0]["control_color"] == "#39FF88"
     assert spec["interface"]["controls"][1]["ring_thickness"] == 7.5
+    assert spec["interface"]["controls"][1]["ring_glow_intensity"] == 65
 
 
 def test_build_spec_allows_manual_expression_features_without_components():

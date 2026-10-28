@@ -675,6 +675,7 @@ class VstMakerInterfaceControlInput(BaseModel):
     show_correlation_meter: bool = True
     waveform_line_width: float = Field(default=1.8, ge=0.5, le=8)
     ring_thickness: float | None = Field(default=None, ge=1, le=16)
+    ring_glow_intensity: float | None = Field(default=None, ge=0, le=100)
     bar_width_ratio: float = Field(default=0.54, ge=0.1, le=1)
     text_font: Literal["outfit", "manrope", "space-grotesk", "cinzel", "cormorant-garamond"] = "space-grotesk"
     text_color: str = Field(default="#F4F4F5", pattern=r"^#[0-9A-Fa-f]{6}$")
@@ -3237,8 +3238,14 @@ def vst_maker_build_spec(project: dict, sample_assets: list[dict] | None = None)
             except (TypeError, ValueError):
                 ring_thickness = 5
             normalized_control["ring_thickness"] = max(1, min(16, ring_thickness))
+            try:
+                ring_glow_intensity = float(control.get("ring_glow_intensity", 65))
+            except (TypeError, ValueError):
+                ring_glow_intensity = 65
+            normalized_control["ring_glow_intensity"] = max(0, min(100, ring_glow_intensity))
         else:
             normalized_control.pop("ring_thickness", None)
+            normalized_control.pop("ring_glow_intensity", None)
         if control.get("kind") == "button" and control.get("component_variant") == "mechanical-toggle":
             try:
                 raw_state_gap = control.get("state_label_gap")

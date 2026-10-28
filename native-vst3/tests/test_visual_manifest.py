@@ -24,7 +24,7 @@ def test_measured_canvas_and_hit_rect_survive_compilation(tmp_path):
     header = (tmp_path/'NativeProject.h').read_text()
     assert 'kCanvasWidth = 1024;' in header
     assert 'kCanvasHeight = 460;' in header
-    assert 'VisualControl{"visual_control_0.png", 12.0f, 34.0f, 112.0f, 122.0f, 36.25f, 58.5f, 64.0f, 74.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 101, 16}' in header
+    assert 'VisualControl{"visual_control_0.png", 12.0f, 34.0f, 112.0f, 122.0f, 36.25f, 58.5f, 64.0f, 74.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 101, 16}' in header
     assert 'kVisualBackdrop = "visual_backdrop.png"' in header
 
 

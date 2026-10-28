@@ -292,6 +292,7 @@ namespace project = tripleside::project;
 - (void)drawBarSpectrumInRect:(NSRect)rect color:(unsigned)color barWidthRatio:(CGFloat)barWidthRatio samplerGroup:(int)samplerGroup;
 - (void)drawSpectrumInRect:(NSRect)rect color:(unsigned)color samplerGroup:(int)samplerGroup;
 - (void)drawVectorscopeInRect:(NSRect)rect color:(unsigned)color samplerGroup:(int)samplerGroup showCorrelation:(BOOL)showCorrelation;
+- (void)drawOpenRing:(std::size_t)index rect:(NSRect)rect value:(float)value;
 - (void)drawInlineFaderMeter:(std::size_t)index rect:(NSRect)rect exact:(BOOL)exact;
 - (void)drawSoloMutePair:(std::size_t)index rect:(NSRect)rect;
 - (void)activateSoloMute:(NSInteger)index point:(NSPoint)point reset:(BOOL)reset;
@@ -1233,6 +1234,23 @@ namespace project = tripleside::project;
     strokeRounded(rect,11.2,rgbColor(color,.18));
 }
 
+- (void)drawOpenRing:(std::size_t)index rect:(NSRect)rect value:(float)value {
+    if (index >= project::kControls.size() || NSWidth(rect) <= 0 || NSHeight(rect) <= 0) return;
+    const auto& control = project::kControls[index]; const BOOL pan = equals(control.variant, "pan-open-led-ring");
+    value = std::clamp(value, 0.f, 1.f); const CGFloat start = pan ? std::min(.5f, value) : 0.f, length = pan ? std::abs(value - .5f) : value;
+    if (length <= .00001) return;
+    const CGFloat scale = std::max<CGFloat>(.01, std::min(NSWidth(rect), NSHeight(rect)) / 100.), radius = 38 * scale;
+    const NSPoint center = NSMakePoint(NSMidX(rect), NSMidY(rect));
+    NSBezierPath* path = [NSBezierPath bezierPath]; path.lineCapStyle = NSLineCapStyleRound; path.lineJoinStyle = NSLineJoinStyleRound;
+    const NSInteger segments = std::max<NSInteger>(2, static_cast<NSInteger>(std::ceil(length * 96)));
+    for (NSInteger point = 0; point <= segments; ++point) { const CGFloat percent = start + length * point / segments, angle = (135 + 270 * percent) * M_PI / 180.; const NSPoint p = NSMakePoint(center.x + std::cos(angle) * radius, center.y + std::sin(angle) * radius); if (!point) [path moveToPoint:p]; else [path lineToPoint:p]; }
+    constexpr std::array<CGFloat, 4> spreads{12, 8, 5, 2.5}; constexpr std::array<CGFloat, 4> opacities{.05, .075, .12, .2};
+    const CGFloat strength = std::clamp<CGFloat>(control.ringGlowIntensity, 0, 100) / 100., opacity = std::clamp<CGFloat>(control.opacity, 0, 1), baseWidth = std::clamp<CGFloat>(control.ringThickness, 1, 16) * scale;
+    if (strength > 0) for (std::size_t layer = 0; layer < spreads.size(); ++layer) { [rgbColor(control.colorRgb, opacity * opacities[layer] * strength) setStroke]; path.lineWidth = baseWidth + spreads[layer] * strength * scale; [path stroke]; }
+    [rgbColor(control.colorRgb, opacity) setStroke]; path.lineWidth = baseWidth; [path stroke];
+    if (pan) { const NSPoint marker = NSMakePoint(center.x, center.y - radius); const CGFloat markerRadius = std::max<CGFloat>(1.4, control.ringThickness * .52) * scale; if (strength > 0) for (std::size_t layer = 0; layer < spreads.size(); ++layer) { const CGFloat glowRadius = markerRadius + spreads[layer] * strength * .5 * scale; [rgbColor(control.colorRgb, opacity * opacities[layer] * strength) setFill]; [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(marker.x-glowRadius, marker.y-glowRadius, glowRadius*2, glowRadius*2)] fill]; } [rgbColor(control.colorRgb, opacity) setFill]; [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(marker.x-markerRadius, marker.y-markerRadius, markerRadius*2, markerRadius*2)] fill]; }
+}
+
 - (void)drawPanelControl:(NSInteger)index {
     if (index < 0 || static_cast<std::size_t>(index) >= project::kControls.size()
         || static_cast<std::size_t>(index) >= project::kVisualControls.size()) return;
@@ -1293,6 +1311,10 @@ namespace project = tripleside::project;
     [image drawInRect:destination fromRect:NSMakeRect(column * visual.w, sourceY, visual.w, visual.h)
              operation:NSCompositingOperationSourceOver fraction:1 respectFlipped:YES
                  hints:@{NSImageHintInterpolation: @(NSImageInterpolationHigh)}];
+    if (equals(control.variant, "open-led-ring") || equals(control.variant, "pan-open-led-ring")) {
+        const NSRect ring = NSMakeRect(NSMinX(hit) + (visual.rx - visual.hx) * scaleX, NSMinY(hit) + (visual.ry - visual.hy) * scaleY, visual.rw * scaleX, visual.rh * scaleY);
+        [self drawOpenRing:static_cast<std::size_t>(index) rect:ring value:value];
+    }
     if (equals(control.kind, "fader") && control.faderMeterEnabled) {
         NSRect meterRect = hit; BOOL exact = NO;
         if (visual.mlw > 0 && visual.mlh > 0) { exact = YES; meterRect = NSMakeRect(NSMinX(hit) + (visual.mlx - visual.hx) * scaleX, NSMinY(hit) + (visual.mly - visual.hy) * scaleY, visual.mlw * scaleX, visual.mlh * scaleY); }
@@ -1380,6 +1402,7 @@ namespace project = tripleside::project;
                     operation:NSCompositingOperationSourceOver fraction:.68 respectFlipped:YES
                         hints:@{NSImageHintInterpolation: @(NSImageInterpolationHigh)}];
         } else [self drawAtlas:[self imageNamed:visual.file] file:visual frame:frame];
+        if (equals(control.variant, "open-led-ring") || equals(control.variant, "pan-open-led-ring")) [self drawOpenRing:index rect:NSMakeRect(visual.rx, visual.ry, visual.rw, visual.rh) value:value];
     }
 
     for (std::size_t index = 0; index < project::kControls.size(); ++index) {

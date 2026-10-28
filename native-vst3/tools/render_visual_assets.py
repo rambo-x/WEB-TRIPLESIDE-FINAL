@@ -255,6 +255,7 @@ def render(spec_path, url, browser=None):
                            (style.webkitBackdropFilter && style.webkitBackdropFilter !== 'none');
                 })""")
                 meter_channels = []
+                ring_bounds = None
                 meter_mode = control.get('meter_mode') or ('stereo' if kind == 'gain_meter' else 'mono')
                 if kind == 'fader' and control.get('fader_meter_enabled', True):
                     inline_meter = element.locator('.maker-fader-inline-meter .maker-gain-meter__channels > i')
@@ -263,6 +264,10 @@ def render(spec_path, url, browser=None):
                         if meter_hit is None:
                             raise ValueError(f'Fader meter geometry is missing: {control.get("id")}')
                         meter_channels = [meter_hit]
+                if kind == 'knob' and control.get('component_variant') in {'open-led-ring', 'pan-open-led-ring'}:
+                    ring_bounds = element.locator('.maker-open-ring-knob__svg').bounding_box()
+                    if ring_bounds is None:
+                        raise ValueError(f'Open ring geometry is missing: {control.get("id")}')
                 if kind in {'gain_meter', 'vu_meter'} and meter_mode == 'stereo':
                     channel_selector = (
                         '.maker-filmstrip-meter-group.is-stereo .maker-filmstrip-meter'
@@ -288,6 +293,10 @@ def render(spec_path, url, browser=None):
                     element.locator('[data-vst-pitch]').evaluate_all("es => es.forEach(e => e.style.visibility='hidden')")
                 for frame in range(frames):
                     value = frame * 100 / max(1, frames-1)
+                    if kind == 'knob' and control.get('component_variant') == 'open-led-ring':
+                        value = 0
+                    elif kind == 'knob' and control.get('component_variant') == 'pan-open-led-ring':
+                        value = 50
                     state = dict(id=control['id'], value=value, panelId=parent_panel_id or None)
                     if kind == 'pad' and frame:
                         state['pitch'] = control.get('note_pitch', 60)
@@ -298,6 +307,7 @@ def render(spec_path, url, browser=None):
                 manifest['controls'].append(dict(
                     file=filename, rect=rect, hit=hit, frames=frames, columns=columns,
                     meter_channels=meter_channels,
+                    ring_bounds=ring_bounds,
                 ))
                 if kind == 'keyboard':
                     keys = element.locator('[data-vst-pitch]')

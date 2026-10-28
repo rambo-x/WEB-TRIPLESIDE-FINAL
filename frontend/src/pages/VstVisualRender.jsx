@@ -29,6 +29,7 @@ export default function VstVisualRender() {
     meterMode: c.meter_mode,
     waveformLineWidth: c.waveform_line_width,
     ringThickness: c.ring_thickness ?? (['open-led-ring', 'pan-open-led-ring'].includes(c.component_variant) ? c.waveform_line_width : undefined),
+    ringGlowIntensity: c.ring_glow_intensity,
     barWidthRatio: c.bar_width_ratio,
     padColor: c.pad_color, padActiveColor: c.pad_active_color,
     controlColor: c.control_color, textColor: c.text_color,
