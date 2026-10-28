@@ -147,6 +147,11 @@ def test_output_selector_capture_has_exactly_master_and_target_frames():
     assert RENDERER.control_frame_count("knob", spec) == 101
 
 
+def test_combined_solo_mute_uses_native_runtime_state_over_one_idle_frame():
+    assert "solo_mute" in RENDERER.SUPPORTED_CONTROL_KINDS
+    assert RENDERER.control_frame_count("solo_mute", {}) == 1
+
+
 def test_linked_indicator_verification_uses_source_state_and_capture_override():
     controls = [
         {"id": "power", "kind": "button", "parameter": "bypass", "value": 0},
