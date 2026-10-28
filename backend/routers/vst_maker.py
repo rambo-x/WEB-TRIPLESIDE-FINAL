@@ -211,7 +211,7 @@ CORRECTION_REBUILD_MAX_SKIN_CHANGES = 3
 # A ready artifact is reusable only when both its immutable project spec and
 # this builder release match; otherwise Export must enqueue a real rebuild.
 VST_BUILD_PIPELINE_REVISION = (
-    os.environ.get("VST_BUILD_PIPELINE_REVISION", "studio-metal-open-ring-v1").strip()
+    os.environ.get("VST_BUILD_PIPELINE_REVISION", "open-ring-vector-glow-v1").strip()
     or "native-control-parity-v1"
 )
 VST_MACOS_SAMPLER_ROUTING_ENABLED = os.environ.get(
