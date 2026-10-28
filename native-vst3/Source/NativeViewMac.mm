@@ -56,7 +56,7 @@ float neutralControlValue(const project::ControlInfo& control) {
 
 bool interactiveKind(const char* kind) {
     return equals(kind, "knob") || equals(kind, "fader") || equals(kind, "button")
-        || equals(kind, "mute") || equals(kind, "solo") || equals(kind, "pad")
+        || equals(kind, "mute") || equals(kind, "solo") || equals(kind, "solo_mute") || equals(kind, "pad")
         || equals(kind, "keyboard") || equals(kind, "panel_button") || equals(kind, "output_selector");
 }
 
@@ -283,6 +283,8 @@ namespace project = tripleside::project;
 - (void)drawSpectrumInRect:(NSRect)rect color:(unsigned)color samplerGroup:(int)samplerGroup;
 - (void)drawVectorscopeInRect:(NSRect)rect color:(unsigned)color samplerGroup:(int)samplerGroup showCorrelation:(BOOL)showCorrelation;
 - (void)drawInlineFaderMeter:(std::size_t)index rect:(NSRect)rect exact:(BOOL)exact;
+- (void)drawSoloMutePair:(std::size_t)index rect:(NSRect)rect;
+- (void)activateSoloMute:(NSInteger)index point:(NSPoint)point reset:(BOOL)reset;
 - (void)drawControlValue:(std::size_t)index rect:(NSRect)rect value:(float)value;
 - (BOOL)panelMouseDown:(NSPoint)point;
 - (BOOL)importMidiPath:(NSString*)path;
@@ -403,6 +405,35 @@ namespace project = tripleside::project;
         NSGradient* gradient = [[NSGradient alloc] initWithColorsAndLocations:[NSColor colorWithCalibratedRed:red * .76 green:green * .76 blue:blue * .76 alpha:1], 0., [NSColor colorWithCalibratedRed:red green:green blue:blue alpha:1], .72, [NSColor colorWithCalibratedRed:red + (1-red) * .28 green:green + (1-green) * .28 blue:blue + (1-blue) * .28 alpha:1], 1., nil];
         [gradient drawInBezierPath:path angle:90];
     }
+}
+
+- (void)drawSoloMutePair:(std::size_t)index rect:(NSRect)rect {
+    if (index >= project::kControls.size()) return;
+    const auto& control = project::kControls[index];
+    if (control.samplerGroupIndex < 0) return;
+    const CGFloat inset = 4, top = NSMinY(rect) + 18, bottom = NSMaxY(rect) - 4;
+    const CGFloat gap = std::min<CGFloat>(control.soloMuteGap, std::max<CGFloat>(0, NSWidth(rect) - inset * 2 - 2));
+    const CGFloat width = std::max<CGFloat>(1, (NSWidth(rect) - inset * 2 - gap) * .5);
+    for (NSInteger item = 0; item < 2; ++item) {
+        const bool solo = item == 0;
+        NSRect button = NSMakeRect(NSMinX(rect) + inset + (solo ? 0 : width + gap), top, width, std::max<CGFloat>(1, bottom - top));
+        if (equals(control.buttonShape, "round")) { const CGFloat side = std::min(NSWidth(button), NSHeight(button)); button = NSMakeRect(NSMidX(button) - side * .5, NSMidY(button) - side * .5, side, side); }
+        const bool active = _instrument->getParamNormalized(groupParameterId(control.samplerGroupIndex, solo ? 3 : 2)) >= .5;
+        const CGFloat radius = equals(control.buttonShape, "round") || equals(control.buttonShape, "capsule") ? NSHeight(button) * .5 : std::clamp<CGFloat>(NSHeight(button) * .12, 3, 8);
+        fillRounded(button, radius, active ? rgbColor(solo ? control.soloColorRgb : control.muteColorRgb) : rgbColor(0x27272a));
+        strokeRounded(button, radius, active ? rgbColor(0xffffff, .9) : rgbColor(0xffffff, .16));
+        [(solo ? @"S" : @"M") drawInRect:button withAttributes:panelTextAttributes(std::clamp<CGFloat>(NSHeight(button) * .28, 9, 16), active ? rgbColor(0x09090b) : rgbColor(0xf4f4f5), NSTextAlignmentCenter, NSFontWeightBold)];
+    }
+}
+
+- (void)activateSoloMute:(NSInteger)index point:(NSPoint)point reset:(BOOL)reset {
+    if (index < 0 || static_cast<std::size_t>(index) >= project::kControls.size()) return;
+    const auto& control = project::kControls[static_cast<std::size_t>(index)];
+    if (!equals(control.kind, "solo_mute") || control.samplerGroupIndex < 0) return;
+    const NSRect rect = project::kPanelControls[static_cast<std::size_t>(index)].parentPanelIndex >= 0 ? [self panelChildRect:index] : [self runtimeControlRect:index];
+    const NSPoint local = controlLocalPoint(control, point);
+    const auto parameter = groupParameterId(control.samplerGroupIndex, local.x <= NSMidX(rect) ? 3 : 2);
+    [self setParameter:parameter value:reset ? 0.f : (_instrument->getParamNormalized(parameter) >= .5 ? 0.f : 1.f)];
 }
 
 - (void)drawControlValue:(std::size_t)index rect:(NSRect)rect value:(float)value {
@@ -1196,6 +1227,7 @@ namespace project = tripleside::project;
         || static_cast<std::size_t>(index) >= project::kVisualControls.size()) return;
     const auto& control = project::kControls[static_cast<std::size_t>(index)];
     const auto& visual = project::kVisualControls[static_cast<std::size_t>(index)];
+    if (equals(control.kind, "solo_mute")) { [self drawSoloMutePair:static_cast<std::size_t>(index) rect:[self panelChildRect:index]]; return; }
     if (equals(control.kind, "spectrum") && equals(control.variant, "realtime-waveform")) {
         const NSRect waveform = [self panelChildRect:index];
         [NSGraphicsContext saveGraphicsState];
@@ -1348,6 +1380,12 @@ namespace project = tripleside::project;
         NSRect meterRect = rect; BOOL exact = NO;
         if (index < project::kVisualControls.size()) { const auto& visual = project::kVisualControls[index]; if (visual.mlw > 0 && visual.mlh > 0) { meterRect = NSMakeRect(visual.mlx, visual.mly, visual.mlw, visual.mlh); exact = YES; } }
         [self drawInlineFaderMeter:index rect:meterRect exact:exact];
+    }
+
+    for (std::size_t index = 0; index < project::kControls.size(); ++index) {
+        const auto& control = project::kControls[index];
+        if (!equals(control.kind, "solo_mute") || project::kPanelControls[index].parentPanelIndex >= 0 || !controlVisible(index)) continue;
+        [self drawSoloMutePair:index rect:[self runtimeControlRect:static_cast<NSInteger>(index)]];
     }
 
     for (std::size_t index = 0; index < project::kControls.size(); ++index) {
@@ -1627,7 +1665,10 @@ namespace project = tripleside::project;
     if (panelControl >= 0) {
         _dragControl = panelControl;
         const auto& control = project::kControls[static_cast<std::size_t>(_dragControl)];
-        if (equals(control.kind, "output_selector")) {
+        if (equals(control.kind, "solo_mute")) {
+            [self activateSoloMute:_dragControl point:point reset:event.clickCount >= 2];
+            _dragControl = -1;
+        } else if (equals(control.kind, "output_selector")) {
             _outputMenuControl = _dragControl;
             [self setNeedsDisplay:YES];
             _dragControl = -1;
@@ -1692,7 +1733,10 @@ namespace project = tripleside::project;
     _dragControl = [self controlAt:point];
     if (_dragControl < 0) return;
     const auto& control = project::kControls[static_cast<std::size_t>(_dragControl)];
-    if (equals(control.kind, "output_selector")) {
+    if (equals(control.kind, "solo_mute")) {
+        [self activateSoloMute:_dragControl point:point reset:event.clickCount >= 2];
+        _dragControl = -1;
+    } else if (equals(control.kind, "output_selector")) {
         _outputMenuControl = _dragControl;
         [self setNeedsDisplay:YES];
         _dragControl = -1;

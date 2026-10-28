@@ -373,6 +373,7 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
             sampler_value_parameters = {
                 "knob": {"volume", "pan"}, "fader": {"volume", "pan"},
                 "button": {"mute", "solo"}, "solo": {"solo"}, "mute": {"mute"},
+                "solo_mute": {"solo_mute"},
             }
             valid_sampler_binding = (
                 kind == "output_selector"
@@ -396,6 +397,13 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
         text_color_rgb = int(text_color_match.group(1), 16) if text_color_match else 0xF4F4F5
         fader_meter_color_match = re.fullmatch(r"#?([0-9a-fA-F]{6})", str(control.get("fader_meter_color") or "#22C55E"))
         fader_meter_color_rgb = int(fader_meter_color_match.group(1), 16) if fader_meter_color_match else 0x22C55E
+        solo_color_match = re.fullmatch(r"#?([0-9a-fA-F]{6})", str(control.get("solo_color") or "#FACC15"))
+        solo_color_rgb = int(solo_color_match.group(1), 16) if solo_color_match else 0xFACC15
+        mute_color_match = re.fullmatch(r"#?([0-9a-fA-F]{6})", str(control.get("mute_color") or "#FB7185"))
+        mute_color_rgb = int(mute_color_match.group(1), 16) if mute_color_match else 0xFB7185
+        button_shape = str(control.get("button_shape") or "square")
+        if button_shape not in {"square", "capsule", "round"}:
+            button_shape = "square"
         output_font_size = round(clamp(control.get("output_font_size"), 6, 32, 11))
         control_parameter = str(control.get("parameter") or "tone")
         control_value = clamp(control.get("value"), 0, 100, 50) / 100
@@ -467,6 +475,10 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
             str(round(clamp(control.get("fader_meter_gap"), 0, 32, 4))),
             str(round(clamp(control.get("fader_meter_width"), 4, 32, 10))),
             str(round(clamp(control.get("fader_meter_height"), 20, 100, 100))),
+            str(round(clamp(control.get("solo_mute_gap"), 0, 48, 8))),
+            f"0x{solo_color_rgb:06X}",
+            f"0x{mute_color_rgb:06X}",
+            cpp_string(button_shape),
         )
         control_lines.append("    ControlInfo{" + ", ".join(fields) + "},")
         panel_lines.append("    PanelControlInfo{" + ", ".join((
@@ -628,7 +640,7 @@ namespace tripleside::project {{
 struct SampleInfo {{ const char* resourceFile; }};
 struct GroupInfo {{ const char* id; const char* name; float volume; float pan; bool mute; bool solo; int outputBusIndex; }};
 struct ZoneInfo {{ int sampleIndex, groupIndex, articulationIndex, micIndex, roundRobinSet, rootPitch, lowPitch, highPitch, velocityLow, velocityHigh, roundRobin; float sampleStart, sampleEnd, loopStart, loopEnd, fadeInMs, fadeOutMs, loopCrossfadeMs; int tuneSemitones; float tuneCents, gainDb, pan; bool loopEnabled, tempoSync; float sourceBpm; std::array<int, 16> chokeTargetPitches; int chokeTargetCount; }};
-struct ControlInfo {{ const char* id; const char* kind; const char* label; const char* offLabel; const char* onLabel; const char* parameter; int moduleIndex; int indicatorSourceIndex; int midiSequenceIndex; int samplerGroupIndex; float x, y; int width, height; float value, opacity, rotation; unsigned int colorRgb; bool showBackground; int notePitch, keyCount; const char* labelPosition; int labelGap, stateLabelGap; const char* variant; const char* meterMode; const char* textFont; unsigned int textColorRgb; int outputFontSize; bool showCorrelationMeter; float waveformLineWidth, barWidthRatio; bool spectrumBand; bool useFilmstrip; bool faderMeterEnabled; const char* faderMeterPosition; unsigned int faderMeterColorRgb; int faderMeterGap, faderMeterWidth, faderMeterHeight; }};
+struct ControlInfo {{ const char* id; const char* kind; const char* label; const char* offLabel; const char* onLabel; const char* parameter; int moduleIndex; int indicatorSourceIndex; int midiSequenceIndex; int samplerGroupIndex; float x, y; int width, height; float value, opacity, rotation; unsigned int colorRgb; bool showBackground; int notePitch, keyCount; const char* labelPosition; int labelGap, stateLabelGap; const char* variant; const char* meterMode; const char* textFont; unsigned int textColorRgb; int outputFontSize; bool showCorrelationMeter; float waveformLineWidth, barWidthRatio; bool spectrumBand; bool useFilmstrip; bool faderMeterEnabled; const char* faderMeterPosition; unsigned int faderMeterColorRgb; int faderMeterGap, faderMeterWidth, faderMeterHeight; int soloMuteGap; unsigned int soloColorRgb, muteColorRgb; const char* buttonShape; }};
 struct KeyColorInfo {{ int control, pitch; unsigned int colorRgb; }};
 struct PanelControlInfo {{ int parentPanelIndex; const char* panelType; float panelX, panelY, panelWidth, panelHeight; bool mixerShowDefaultControls; }};
 struct PresetInfo {{ const char* id; const char* name; bool factory; int valueOffset, valueCount, groupOffset, groupCount, moduleOffset, moduleCount, midiSequenceIndex; }};

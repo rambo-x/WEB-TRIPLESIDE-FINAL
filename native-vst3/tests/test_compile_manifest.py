@@ -337,7 +337,30 @@ def test_compiles_integrated_fader_meter_native_contract(tmp_path):
     assert "bool faderMeterEnabled;" in result
     assert "unsigned int faderMeterColorRgb;" in result
     control = next(line for line in result.splitlines() if 'ControlInfo{"kick-volume"' in line)
-    assert 'true, "left", 0x12ABEF, 9, 14, 72}' in control
+    assert 'true, "left", 0x12ABEF, 9, 14, 72,' in control
+
+
+def test_compiles_combined_solo_mute_native_contract(tmp_path):
+    spec = project_spec()
+    spec["sampler_groups"] = [{"id": "snare", "name": "Snare", "mute": True, "solo": False}]
+    spec["interface"]["controls"] = [{
+        "id": "snare-state", "kind": "solo_mute", "label": "Snare State",
+        "parameter": "solo_mute", "sampler_group_id": "snare", "value": 0,
+        "solo_mute_gap": 13, "solo_color": "#12ABEF", "mute_color": "#EF4444",
+        "button_shape": "capsule",
+    }]
+    source = tmp_path / "project.json"
+    output = tmp_path / "NativeProject.h"
+    source.write_text(json.dumps(spec), encoding="utf-8")
+
+    MODULE.compile_manifest(source, output)
+
+    result = output.read_text(encoding="utf-8")
+    assert "int soloMuteGap;" in result
+    assert "unsigned int soloColorRgb, muteColorRgb;" in result
+    control = next(line for line in result.splitlines() if 'ControlInfo{"snare-state"' in line)
+    assert '"solo_mute", -1, -1, -1, 0,' in control
+    assert '13, 0x12ABEF, 0xEF4444, "capsule"}' in control
 
 
 def test_native_manifest_rejects_more_than_bounded_dsp_parameter_limit(tmp_path):
@@ -425,8 +448,8 @@ def test_compiles_mono_and_stereo_meter_modes(tmp_path):
     MODULE.compile_manifest(source, output)
 
     result = output.read_text(encoding="utf-8")
-    assert '"classic", "stereo", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, true, false, "right", 0x22C55E, 4, 10, 100}' in result
-    assert '"classic", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, true, false, "right", 0x22C55E, 4, 10, 100}' in result
+    assert '"classic", "stereo", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, true, false, "right", 0x22C55E, 4, 10, 100,' in result
+    assert '"classic", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, true, false, "right", 0x22C55E, 4, 10, 100,' in result
     assert "const char* meterMode;" in result
 
 
@@ -816,7 +839,7 @@ def test_compiles_static_knob_assets_and_variant(tmp_path):
 
     result = output.read_text(encoding="utf-8")
     assert 'ControlInfo{"spectrum", "knob", "Spectrum"' in result
-    assert '"modern-spectrum", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, true, false, "right", 0x22C55E, 4, 10, 100}' in result
+    assert '"modern-spectrum", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, true, false, "right", 0x22C55E, 4, 10, 100,' in result
     assert 'kModernSpectrumKnobFile = "modern-spectrum-knob-v2.png"' in result
     assert 'kStudioScallopKnobFile = "studio-scallop-knob-64x128-v2.png"' in result
     assert 'kBlackPrecisionKnobFile = "black-precision-knob-64x128-v1.png"' in result
@@ -899,23 +922,23 @@ def test_css_procedural_knobs_override_legacy_filmstrip_style(tmp_path):
     MODULE.compile_manifest(source, output)
 
     result = output.read_text(encoding="utf-8")
-    assert '"studio-scallop", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100}' in result
-    assert '"graphite-ridge", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100}' in result
-    assert '"chicken-head-clean", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100}' in result
-    assert '"orbit-encoder", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100}' in result
-    assert '"ivory-lever", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100}' in result
-    assert '"pan-chicken-head-clean", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100}' in result
-    assert '"pan-ivory-lever", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100}' in result
-    assert '"pan-ring-chicken-head-clean", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100}' in result
-    assert '"pan-ring-ivory-lever", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100}' in result
-    assert '"black-dome", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100}' in result
+    assert '"studio-scallop", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100,' in result
+    assert '"graphite-ridge", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100,' in result
+    assert '"chicken-head-clean", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100,' in result
+    assert '"orbit-encoder", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100,' in result
+    assert '"ivory-lever", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100,' in result
+    assert '"pan-chicken-head-clean", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100,' in result
+    assert '"pan-ivory-lever", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100,' in result
+    assert '"pan-ring-chicken-head-clean", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100,' in result
+    assert '"pan-ring-ivory-lever", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100,' in result
+    assert '"black-dome", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100,' in result
     for variant in (
         "regent-white", "regent-green", "regent-red", "regent-blue", "regent-brown", "regent-black", "regent-gray",
         "regent-white-green", "regent-white-red", "regent-white-blue", "regent-white-brown", "regent-white-black", "regent-white-gray",
     ):
-        assert f'"{variant}", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100}}' in result
-    assert '"pan-black-dome", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100}' in result
-    assert '"pan-ring-black-dome", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100}' in result
+        assert f'"{variant}", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100,' in result
+    assert '"pan-black-dome", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100,' in result
+    assert '"pan-ring-black-dome", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100,' in result
 
 
 def test_uses_safe_master_headroom_without_a_volume_control(tmp_path):
@@ -1271,7 +1294,7 @@ def test_compiles_prism_eq_native_dsp_profile(tmp_path):
     assert "kPrismBandFrequencies" in result
     assert "kPrismBandQs" in result
     assert "kPrismBandEnabled" in result
-    assert 'true, true, false, "right", 0x22C55E, 4, 10, 100}' in next(line for line in result.splitlines() if 'ControlInfo{"low-cut"' in line)
+    assert 'true, true, false, "right", 0x22C55E, 4, 10, 100,' in next(line for line in result.splitlines() if 'ControlInfo{"low-cut"' in line)
 
 
 def test_explicit_prism_module_enables_contextual_native_routing(tmp_path):

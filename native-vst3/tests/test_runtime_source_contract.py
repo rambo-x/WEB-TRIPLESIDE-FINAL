@@ -965,3 +965,19 @@ def test_sampler_bound_native_controls_use_group_notes_analysis_and_two_output_c
     assert 'stringWithFormat:@"Out%ld", static_cast<long>(bus)' in mac
     assert 'selected ? rgbColor(project::kAccentRgb) : [rgbColor(control.textColorRgb) colorWithAlphaComponent:.18]' in mac
     assert '(selected ? @"›" : @"⌄")' in mac
+
+
+def test_combined_solo_mute_draws_and_toggles_group_slots_on_both_platforms():
+    windows = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+    mac = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
+
+    assert "drawSoloMutePair" in windows
+    assert 'equals(c.kind,"solo_mute")' in windows
+    assert "groupParameterId(c.samplerGroupIndex,solo?3:2)" in windows
+    assert "c.soloColorRgb:c.muteColorRgb" in windows
+    assert "c.soloMuteGap" in windows
+    assert "drawSoloMutePair" in mac
+    assert 'equals(control.kind, "solo_mute")' in mac
+    assert "groupParameterId(control.samplerGroupIndex, solo ? 3 : 2)" in mac
+    assert "control.soloColorRgb : control.muteColorRgb" in mac
+    assert "control.soloMuteGap" in mac
