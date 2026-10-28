@@ -22,22 +22,36 @@ export default function VstVisualRender() {
   if (!spec) return null;
   const ui = spec.interface || {}, brand = spec.branding || {}, bg = ui.background || {};
   const controls = (ui.controls || []).map((c) => ({ ...c,
-    showBackground: c.show_background, notePitch: c.note_pitch, keyCount: c.key_count,
+    showBackground: c.show_background, notePitch: c.note_pitch, keyCount: c.key_count, moduleId: c.module_id,
     labelPosition: c.label_position,
     labelGap: c.label_gap,
     stateLabelGap: c.state_label_gap,
     meterMode: c.meter_mode,
+    waveformLineWidth: c.waveform_line_width,
+    ringThickness: c.ring_thickness ?? (['open-led-ring', 'pan-open-led-ring'].includes(c.component_variant) ? c.waveform_line_width : undefined),
+    barWidthRatio: c.bar_width_ratio,
     padColor: c.pad_color, padActiveColor: c.pad_active_color,
+    controlColor: c.control_color, textColor: c.text_color,
+    outputFontSize: c.output_font_size,
+    faderMeterEnabled: c.fader_meter_enabled !== false,
+    faderMeterPosition: c.fader_meter_position,
+    faderMeterColor: c.fader_meter_color,
+    faderMeterGap: c.fader_meter_gap,
+    faderMeterWidth: c.fader_meter_width,
+    faderMeterHeight: c.fader_meter_height,
     imageUrl: c.image_url, imageName: c.image_name,
     imageFit: c.image_fit, imageOpacity: c.image_opacity,
     parentPanelId: c.parent_panel_id,
     panelType: c.panel_type,
     panelX: c.panel_x, panelY: c.panel_y,
     panelWidth: c.panel_width, panelHeight: c.panel_height,
+    mixerShowDefaultControls: c.mixer_show_default_controls !== false,
     indicatorSourceId: c.indicator_source_id,
     midiSequenceId: c.midi_sequence_id,
     value: frame.id === c.id ? frame.value : c.value,
-    captureLevel: frame.id === c.id ? frame.value / 100 : undefined,
+    // Fader atlases keep only the empty meter track. Native draws the live
+    // level on top, independently from the fader's parameter frame.
+    captureLevel: frame.id === c.id ? (c.kind === "fader" ? 0 : frame.value / 100) : undefined,
   }));
   const pressed = new Set(frame.pitch === undefined ? [] : [frame.pitch]);
   const midiSequences = (spec.midi_sequences || []).map((sequence) => ({
@@ -66,9 +80,12 @@ export default function VstVisualRender() {
     midiPressedPitches={pressed} activeHitPitches={pressed} velocity={100} sustainEnabled={false}
     pitchBendEnabled={spec.instrument?.pitchBendEnabled === true}
     modulationEnabled={spec.instrument?.modulationEnabled === true}
-    controls={controls} engineModules={[]} selectedControlIds={[]}
+    controls={controls} engineModules={spec.engine_modules || []} selectedControlIds={[]}
     presets={spec.presets || []} midiSequences={midiSequences}
-    samplerGroups={spec.sampler_groups || []} onFeatureChange={noop}
+    samplerGroups={(spec.sampler_groups || []).map((group) => ({
+      ...group,
+      outputBus: group.output_bus === "separate" ? "separate" : "master",
+    }))} onFeatureChange={noop}
     livePatternConfig={livePatternConfig} onLivePatternConfigChange={noop}
     onKeyboardKeysChange={noop} onCanvasChange={noop}
     onNoteOn={noop} onNoteOff={noop} onAdd={noop} onSelect={noop} onUpdate={noop}

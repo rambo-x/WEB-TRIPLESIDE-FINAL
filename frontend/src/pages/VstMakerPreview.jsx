@@ -9,7 +9,6 @@ import {
   Check,
   ChevronDown,
   ClipboardPaste,
-  Coins,
   Copy,
   CreditCard,
   Download,
@@ -36,7 +35,7 @@ import {
   X,
 } from "lucide-react";
 import { api } from "../lib/api";
-import { controlsOnSameInteractionSurface, moveSelectedCanvasControls, offsetCanvasControlGroupWithinBounds, panelContentClientBounds, removeSelectedCanvasControls, resizeCanvasControlWithinBounds, shouldRemoveSelectedCanvasControls } from "../lib/vstMakerLayout";
+import { canvasControlMinimumSize, controlsOnSameInteractionSurface, moveSelectedCanvasControls, offsetCanvasControlGroupWithinBounds, panelContentClientBounds, removeSelectedCanvasControls, resizeCanvasControlWithinBounds, shouldRemoveSelectedCanvasControls } from "../lib/vstMakerLayout";
 import { hasPresetName, normalizePresetName } from "../lib/vstMakerPanel";
 import {
   collapseMappingsToRoot,
@@ -59,11 +58,83 @@ import { parseMidiFile } from "../lib/vstMidiFile";
 import { MIDI_LOOKAHEAD_MS, MIDI_SCHEDULER_INTERVAL_MS, MIDI_START_DELAY_MS, buildMidiPlaybackTimeline } from "../lib/vstMidiScheduler";
 import { DEFAULT_STEP_NOTES, WAVE_GENERATOR_MODES, WAVE_NOTE_NAMES, WAVE_SCALE_OPTIONS, WAVE_SINGLE_CHORD_OPTIONS, createWaveGeneratorSequence, normalizeWaveGeneratorConfig } from "../lib/vstWaveGenerators";
 import { WAVE_CHORD_START_LOOKAHEAD_SECONDS, WAVE_DECLICK_ATTACK_SECONDS, WAVE_DIRECT_START_LOOKAHEAD_SECONDS, WAVE_MIN_GAIN, WAVE_RELEASE_OUTPUT_FADE_SECONDS, WAVE_RELEASE_ZERO_SECONDS, WAVE_SOURCE_STOP_PADDING_SECONDS, drainWaveVoiceRegistry, moveWaveVoiceRegistryToken, shouldScheduleWaveRelease, waveAmpEnvelopeValueAt, waveVoiceStartTime } from "../lib/vstWaveEnvelope";
-import { DEFAULT_VST_PRICING, componentCreditPrice, createVstTemplatePricingBaseline, formatCredits, isCustomVstBackground, normalizeVstPricing, quoteVstProjectCredits } from "../lib/vstMakerPricing";
+import { createVstTemplateBaseline } from "../lib/vstTemplateBaseline";
 import { NEON_POP_DRUM_HITS, PREMIUM_PIANO_BACKGROUND_URL, REGENT_DEFAULT_CONTROLS, REGENT_WHITE_DEFAULT_CONTROLS, VST_PROJECT_TEMPLATES } from "../data/vstTemplates";
 import { DEFAULT_VST_FILMSTRIP_SKIN, VST_KNOB_ASSETS, filmstripFrameStyle } from "../data/vstFilmstripSkins";
 import VstMiniKeyboard from "../components/vst/VstMiniKeyboard";
-export { InterfaceWorkspace };
+export { InterfaceWorkspace, PreviewOutputMeter, dspModuleBindingLabel, dspTuningSemitones, editorTabsForProject, fromSavedProject, globalMacroValue, interfaceBindingsValid, nextDspTuningTarget, samplerGroupAudible, samplerOutputChoiceLabel, samplerOutputLabel, setSamplerMute, setSamplerSolo, smoothMeterReading, toProjectPayload };
+
+const globalMacroValue = (controls, parameter, fallback = 50) => {
+  const matchingControls = (controls || []).filter((item) => (
+    item.parameter === parameter && !(item.sampler_group_id ?? item.samplerGroupId)
+  ));
+  // Pads use `tone` as their trigger binding in older saved drum projects.
+  // Prefer an actual macro control so the first pad (value 0) cannot override
+  // the Neon template's Drive knob.
+  const control = matchingControls.find((item) => !["pad", "keyboard", "gain_meter", "vu_meter"].includes(item.kind))
+    || matchingControls[0];
+  if (!control) return fallback;
+  return Math.max(0, Math.min(100, Number(control.value) || 0));
+};
+
+const smoothMeterReading = (current, measured, elapsedMs, attackMs, releaseMs) => {
+  const from = Math.max(0, Math.min(1, Number(current) || 0));
+  const target = Math.max(0, Math.min(1, Number(measured) || 0));
+  const duration = target > from ? attackMs : releaseMs;
+  const alpha = 1 - Math.exp(-Math.max(1, Math.min(250, Number(elapsedMs) || (1000 / 60))) / Math.max(1, duration));
+  return from + (target - from) * alpha;
+};
+
+const samplerOutputLabel = (groups, samplerGroupId) => {
+  const target = (groups || []).find((group) => group.id === samplerGroupId);
+  if (!target) return "Output";
+  return target.name;
+};
+
+const samplerOutputChoiceLabel = (groups, samplerGroupId, controls = []) => {
+  const provisioned = new Set((controls || [])
+    .filter((control) => control.kind === "output_selector" && control.sampler_group_id)
+    .map((control) => control.sampler_group_id));
+  provisioned.add(samplerGroupId);
+  let outputNumber = 0;
+  for (const group of groups || []) {
+    if ((group.outputBus ?? group.output_bus) === "separate" || provisioned.has(group.id)) outputNumber += 1;
+    if (group.id === samplerGroupId) break;
+  }
+  return `Out${Math.max(1, outputNumber)}`;
+};
+
+function SamplerOutputSelector({ ariaLabel, samplerName, separateLabel, value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const closeOutside = (event) => {
+      if (!rootRef.current?.contains(event.target)) setOpen(false);
+    };
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+  const choose = (nextValue) => {
+    onChange(nextValue);
+    setOpen(false);
+  };
+  return <div ref={rootRef} className={`maker-output-selector ${open ? "is-open" : ""} ${value === "separate" ? "is-routed" : ""}`}>
+    <button type="button" className="maker-output-selector__trigger" aria-label={ariaLabel} aria-haspopup="listbox" aria-expanded={open} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); setOpen((current) => !current); }}>
+      <span>{samplerName}</span><span className={`maker-output-selector__route-icon ${value === "separate" ? "is-active" : ""}`} aria-hidden="true">{value === "separate" ? "›" : "⌄"}</span>
+    </button>
+    {open && <div className="maker-output-selector__menu" role="listbox" aria-label={`${ariaLabel} pilihan`} onPointerDown={(event) => event.stopPropagation()}>
+      {[{ value: "master", label: "Master" }, { value: "separate", label: separateLabel }].map((option) => <button key={option.value} type="button" role="option" aria-selected={value === option.value} onClick={(event) => { event.stopPropagation(); choose(option.value); }}>{option.label}</button>)}
+    </div>}
+  </div>;
+}
 
 // Equal MIDI pitches can overlap. Keep their playback tokens FIFO so the first
 // note-off cannot accidentally stop the newer retrigger.
@@ -106,14 +177,46 @@ const MAX_SAMPLE_BYTES = 512 * 1024 * 1024;
 const MAX_IMPULSE_RESPONSE_BYTES = 32 * 1024 * 1024;
 const STANDARD_DSP_MODULE_TYPES = ["input_trim", "soft_clip", "linked_compressor", "de_esser", "prism_eq", "parametric_eq", "multiband_compressor", "tone_shaper", "stereo_width", "cross_delay", "dry_wet", "output_trim"];
 const DSP_MODULE_LIBRARY_GROUPS = [
-  { id: "instrument", label: "Instrument Pitch", detail: "Tuning global untuk sampler dan synthesizer", types: ["tuning"] },
+  { id: "instrument", label: "Instrument Pitch", detail: "Tuning global atau khusus satu sampler", types: ["tuning"] },
   { id: "amp", label: "Amp & Cabinet", detail: "Model amplifier, drive, gate, dan cabinet", types: ["dual_high_gain", "silk_bloom", "amp_model", "amp_overdrive", "noise_gate", "cabinet_ir"] },
   { id: "studio", label: "Studio Processor", detail: "Gain, dynamics, tone, stereo, dan output", types: ["input_trim", "soft_clip", "linked_compressor", "de_esser", "multiband_compressor", "tone_shaper", "stereo_width", "dry_wet", "output_trim"] },
   { id: "eq", label: "EQ & Filter", detail: "Spectrum EQ dan Parametric EQ dengan frequency, gain, dan Q", types: ["prism_eq", "parametric_eq"] },
   { id: "creative", label: "Modulation & Space", detail: "Delay, modulation, dan ambience", types: ["cross_delay", "chorus", "flanger", "tremolo", "vibrato", "digital_delay", "reverb", "shimmer"] },
 ];
-const dspGlobalTuningSemitones = (modules = []) => {
-  const module = modules.find((item) => item.type === "tuning" && !item.bypassed);
+const dspModuleSamplerTarget = (module) => module?.samplerGroupId ?? module?.sampler_group_id ?? null;
+const dspModuleBindingLabel = (module, modules = [], samplerGroups = []) => {
+  const samplerGroupId = dspModuleSamplerTarget(module);
+  const targetLabel = samplerGroupId
+    ? samplerGroups.find((group) => group.id === samplerGroupId)?.name || "Sampler tidak tersedia"
+    : "DSP Master";
+  const matchingModules = modules.filter((item) => (
+    item.name === module?.name && dspModuleSamplerTarget(item) === samplerGroupId
+  ));
+  const duplicateSuffix = matchingModules.length > 1
+    ? ` · #${matchingModules.findIndex((item) => item.id === module?.id) + 1}`
+    : "";
+  return `${module?.name || "Modul DSP"} · ${targetLabel}${duplicateSuffix}`;
+};
+const tuningTargetKey = (samplerGroupId) => samplerGroupId || "__master__";
+const tuningTargetInUse = (modules = [], samplerGroupId = null, excludedModuleId = null) => (
+  modules.some((module) => (
+    module.type === "tuning"
+    && module.id !== excludedModuleId
+    && tuningTargetKey(dspModuleSamplerTarget(module)) === tuningTargetKey(samplerGroupId)
+  ))
+);
+const nextDspTuningTarget = (modules = [], samplerGroups = []) => (
+  ((modules || []).some((module) => module.type === "tuning")
+    ? [...(samplerGroups || []).map((group) => group.id), null]
+    : [null, ...(samplerGroups || []).map((group) => group.id)])
+    .find((samplerGroupId) => !tuningTargetInUse(modules, samplerGroupId))
+);
+const dspTuningSemitones = (modules = [], samplerGroupId = null) => {
+  const activeModules = modules.filter((item) => item.type === "tuning" && !item.bypassed);
+  const module = (samplerGroupId
+    ? activeModules.find((item) => dspModuleSamplerTarget(item) === samplerGroupId)
+    : null)
+    || activeModules.find((item) => !dspModuleSamplerTarget(item));
   if (!module) return 0;
   const tuning = Math.round(Math.max(0, Math.min(1, Number(module.parameters?.tuning ?? 0.5))) * 48) - 24;
   const fineTune = Math.max(0, Math.min(1, Number(module.parameters?.fine_tune ?? 0.5))) * 200 - 100;
@@ -127,7 +230,7 @@ const DESIGNER_HISTORY_LIMIT = 50;
 const DESIGNER_HISTORY_MERGE_MS = 400;
 const DEFAULT_VST_BUILD_SETTINGS = {
   customer_license_enabled: true,
-  show_no_serial_option: true,
+  show_no_serial_option: false,
   license_max_activations: 2,
 };
 const DESIGNER_HISTORY_KEYS = [
@@ -182,6 +285,7 @@ const INTERFACE_CONTROL_OPTIONS = [
   { id: "modulation", label: "Modulation", description: "Kontrol vibrato MIDI" },
   { id: "solo", label: "Solo", description: "Tombol solo-safe output" },
   { id: "mute", label: "Mute", description: "Tombol bisukan output" },
+  { id: "solo_mute", label: "Solo + Mute", description: "Sepasang tombol Solo dan Mute untuk satu sampler" },
   { id: "gain_meter", label: "Gain meter", description: "Peak meter stereo" },
   { id: "vu_meter", label: "VU meter", description: "Meter RMS analog" },
   { id: "visual", label: "Visual", description: "Dekorasi panel statis" },
@@ -190,6 +294,7 @@ const INTERFACE_CONTROL_OPTIONS = [
   { id: "text", label: "Text", description: "Teks statis yang dapat ditempatkan di panel" },
   { id: "image", label: "Gambar", description: "Artwork yang dapat dipindah dan diubah ukurannya" },
   { id: "panel_button", label: "Panel Button", description: "Membuka panel fungsi yang dapat dipindah dan di-resize" },
+  { id: "output_selector", label: "Combo Box Multiple Output", description: "Pilih bus DAW untuk satu sampler dari dalam plugin" },
 ];
 
 const LABEL_POSITION_OPTIONS = [
@@ -216,6 +321,37 @@ const normalizeMechanicalStateLabelGap = (value) => {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? Math.max(0, Math.min(32, Math.round(numeric))) : DEFAULT_MECHANICAL_STATE_LABEL_GAP;
 };
+const DEFAULT_OUTPUT_SELECTOR_FONT_SIZE = 11;
+const normalizeOutputSelectorFontSize = (value) => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.max(6, Math.min(32, Math.round(numeric))) : DEFAULT_OUTPUT_SELECTOR_FONT_SIZE;
+};
+const DEFAULT_FADER_METER_COLOR = "#22C55E";
+const DEFAULT_FADER_METER_GAP = 4;
+const DEFAULT_FADER_METER_WIDTH = 10;
+const DEFAULT_FADER_METER_HEIGHT = 100;
+const DEFAULT_SOLO_MUTE_GAP = 8;
+const DEFAULT_SOLO_COLOR = "#FACC15";
+const DEFAULT_MUTE_COLOR = "#FB7185";
+const SOLO_MUTE_SHAPES = new Set(["square", "capsule", "round"]);
+const normalizeFaderMeterGap = (value) => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.max(0, Math.min(32, Math.round(numeric))) : DEFAULT_FADER_METER_GAP;
+};
+const normalizeFaderMeterWidth = (value) => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.max(4, Math.min(32, Math.round(numeric))) : DEFAULT_FADER_METER_WIDTH;
+};
+const normalizeFaderMeterHeight = (value) => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.max(20, Math.min(100, Math.round(numeric))) : DEFAULT_FADER_METER_HEIGHT;
+};
+const normalizeFaderMeterPosition = (value) => value === "left" ? "left" : "right";
+const normalizeSoloMuteGap = (value) => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.max(0, Math.min(48, Math.round(numeric))) : DEFAULT_SOLO_MUTE_GAP;
+};
+const normalizeSoloMuteShape = (value) => SOLO_MUTE_SHAPES.has(value) ? value : "square";
 const normalizeComponentRotation = (value) => {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return 0;
@@ -233,17 +369,20 @@ const rotatedControlSize = (width, height, rotation) => {
 };
 
 const controlLabelOrFallback = (control, index = 0) => {
-  const currentLabel = String(control?.label || "").trim();
-  if (currentLabel) return currentLabel.slice(0, control?.kind === "text" ? 80 : 24);
+  if (control?.label !== undefined && control?.label !== null) {
+    return String(control.label).slice(0, control?.kind === "text" ? 80 : 24);
+  }
   const parameterLabel = CONTROL_OPTIONS.find((option) => option.id === control?.parameter)?.label;
   const kindLabel = INTERFACE_CONTROL_OPTIONS.find((option) => option.id === control?.kind)?.label;
   return String(parameterLabel || kindLabel || `Control ${index + 1}`).slice(0, control?.kind === "text" ? 80 : 24);
 };
 
-const controlsWithDefaultLabels = (controls = []) => controls.map((control, index) => ({
-  ...control,
-  label: controlLabelOrFallback(control, index),
-}));
+const interfaceBindingsValid = (controls = [], moduleIds = new Set()) => (
+  controls.length > 0 && controls.every((control) => (
+    (["visual", "text"].includes(control.kind) || !!String(control.parameter || "").trim())
+    && (!control.moduleId || moduleIds.has(control.moduleId))
+  ))
+);
 
 const waveGeneratorVelocityGain = (velocity, parameters = {}) => {
   const unit = (key, fallback) => Math.max(0, Math.min(1, Number(parameters[key] ?? fallback)));
@@ -263,6 +402,11 @@ const EDITOR_TABS = [
   { id: "sound", label: "FX & Processor", detail: "Efek, modul & macro" },
   { id: "settings", label: "Settings", detail: "Build & lisensi" },
 ];
+
+const editorTabsForProject = ({ customerMode = false, isEffectProject = false } = {}) => EDITOR_TABS.filter((tab) => (
+  !(isEffectProject && tab.id === "sampler")
+  && !(customerMode && tab.id === "settings")
+));
 
 const ACTIVE_BUILD_STATUSES = ["queued", "preparing", "building", "validating", "retrying"];
 const BUILD_STATUS_LABELS = {
@@ -364,6 +508,7 @@ const COMPONENT_CATEGORIES = [
   { id: "knob", label: "Knob", kinds: ["knob"] },
   { id: "pan", label: "Knob Pan", kinds: ["knob"] },
   { id: "button", label: "Button", kinds: ["button", "solo", "mute", "indicator"] },
+  { id: "solo_mute", label: "Solo + Mute", kinds: ["solo_mute"] },
   { id: "fader", label: "Fader", kinds: ["fader"] },
   { id: "meter", label: "Meter", kinds: ["gain_meter", "vu_meter"] },
   { id: "visual", label: "Visual", kinds: ["visual"] },
@@ -373,6 +518,7 @@ const COMPONENT_CATEGORIES = [
   { id: "hit_pad", label: "Hit Pad", kinds: ["pad"] },
   { id: "keyboard", label: "Keyboard", kinds: ["keyboard"] },
   { id: "panel", label: "Panel Button", kinds: ["panel_button"] },
+  { id: "output", label: "Multiple Output", kinds: ["output_selector"] },
 ];
 const COMPONENT_VARIANTS = [
   { id: "classic", category: "knob", kind: "knob", label: "Classic", detail: "Knob studio sederhana", style: "css" },
@@ -391,6 +537,7 @@ const COMPONENT_VARIANTS = [
   { id: "graphite-ridge", category: "knob", kind: "knob", label: "Graphite Ridge", detail: "CSS presisi · bilah diagonal", style: "css" },
   { id: "ivory-lever", category: "knob", kind: "knob", label: "Ivory Lever", detail: "Ivory · tuas aluminium · MIN/MAX", style: "css" },
   { id: "luminous", category: "knob", kind: "knob", label: "Luminous Ring", detail: "Ring menyala mengikuti nilai", style: "css" },
+  { id: "open-led-ring", category: "knob", kind: "knob", label: "Open LED Ring", detail: "Busur terbuka tanpa badan · ketebalan dapat diatur", style: "css", value: 65, ringThickness: 5 },
   { id: "regent-cap", category: "knob", kind: "knob", label: "Regent Console", detail: "Machined black cap · amber pointer", style: "css" },
   { id: "regent-white", category: "knob", kind: "knob", label: "Regent White", detail: "Classic white cap · amber pointer", style: "css" },
   { id: "regent-green", category: "knob", kind: "knob", label: "Regent Green", detail: "Emerald EQ cap · white pointer", style: "css" },
@@ -407,6 +554,7 @@ const COMPONENT_VARIANTS = [
   { id: "regent-white-gray", category: "knob", kind: "knob", label: "Regent Gray · White Binding", detail: "Gray cap · bright white collar", style: "css" },
   { id: "pan", category: "pan", kind: "knob", label: "Pan L–R", detail: "Bipolar dengan center detent", style: "css", parameter: "pan", value: 50 },
   { id: "pan-unified", category: "pan", kind: "knob", label: "Pan Uniform Ring", detail: "Ring satu warna · center detent", style: "css", parameter: "pan", value: 50 },
+  { id: "pan-open-led-ring", category: "pan", kind: "knob", label: "Pan Open LED Ring", detail: "Busur bipolar terbuka · ketebalan dapat diatur", style: "css", parameter: "pan", value: 50, ringThickness: 5 },
   { id: "pan-ring-chicken-head-clean", category: "pan", kind: "knob", label: "Black Chicken Head · Ring", detail: "LED kontinu terpisah · center detent", style: "css", parameter: "pan", value: 50 },
   { id: "pan-chicken-head-clean", category: "pan", kind: "knob", label: "Black Chicken Head · Dots", detail: "LED titik terpisah · center detent", style: "css", parameter: "pan", value: 50 },
   { id: "pan-ring-ivory-lever", category: "pan", kind: "knob", label: "Ivory Lever · Ring", detail: "LED kontinu terpisah · center detent", style: "css", parameter: "pan", value: 50 },
@@ -431,12 +579,15 @@ const COMPONENT_VARIANTS = [
   { id: "regent-illuminated", category: "button", kind: "button", label: "Regent Illuminated", detail: "Light gray off · amber-orange on", style: "css" },
   { id: "solo-led", category: "button", kind: "solo", label: "Solo", detail: "Tombol solo kuning", style: "css" },
   { id: "mute-led", category: "button", kind: "mute", label: "Mute", detail: "Tombol mute merah", style: "css" },
+  { id: "solo-mute-pair", category: "solo_mute", kind: "solo_mute", label: "Solo + Mute", detail: "Dua tombol dalam satu komponen", style: "css", width: 152, height: 82 },
   { id: "round-indicator", category: "button", kind: "indicator", label: "Plain Round LED", detail: "Lampu on/off polos · dapat dihubungkan", style: "css", color: "#22D3EE", width: 72, height: 72, showBackground: false },
   { id: "classic", category: "fader", kind: "fader", label: "Classic", detail: "Fader minimal", style: "css" },
   { id: "heritage", category: "fader", kind: "fader", label: "Heritage 3D", detail: "Fader studio vintage", style: "filmstrip" },
   { id: "console", category: "fader", kind: "fader", label: "Console", detail: "Cap lebar dan skala", style: "css" },
   { id: "luminous", category: "fader", kind: "fader", label: "LED Track", detail: "Track menyala mengikuti nilai", style: "css" },
   { id: "mixer-metal", category: "fader", kind: "fader", label: "Mixer Metal", detail: "Fader metal 3D · skala presisi · status LED", style: "css", width: 104, height: 260 },
+  { id: "studio-metal-db", category: "fader", kind: "fader", label: "Studio Metal", detail: "Cap aluminium beralur · warna cap dapat diatur", style: "css", width: 118, height: 280, value: 75, showBackground: false, faderMeterEnabled: true, faderMeterPosition: "left", faderMeterGap: 4, faderMeterWidth: 8, faderMeterHeight: 94, capColor: "#AEB1B3", indicatorColor: "#090A0B" },
+  { id: "studio-metal-long-cap", category: "fader", kind: "fader", label: "Studio Metal Long Cap", detail: "Cap lebih panjang simetris · warna dapat diatur", style: "css", width: 118, height: 280, value: 75, showBackground: false, faderMeterEnabled: true, faderMeterPosition: "left", faderMeterGap: 4, faderMeterWidth: 8, faderMeterHeight: 94, capColor: "#AEB1B3", indicatorColor: "#090A0B" },
   { id: "led", category: "meter", kind: "gain_meter", label: "LED Peak", detail: "Meter vertikal cepat", style: "css" },
   { id: "heritage", category: "meter", kind: "vu_meter", label: "Heritage VU", detail: "Meter jarum 3D", style: "filmstrip" },
   { id: "dark-vu", category: "meter", kind: "vu_meter", label: "Dark VU", detail: "Meter analog gelap", style: "css" },
@@ -472,8 +623,16 @@ const COMPONENT_VARIANTS = [
   { id: "preset-browser", category: "panel", kind: "panel_button", label: "Preset Browser", detail: "Simpan, cari, dan muat snapshot suara", style: "css", panelType: "preset_browser" },
   { id: "mixer", category: "panel", kind: "panel_button", label: "Mixer", detail: "Volume, pan, mute, solo, dan meter sampler", style: "css", panelType: "mixer" },
   { id: "midi-map", category: "panel", kind: "panel_button", label: "MIDI Grooves", detail: "Browse, preview, dan drag groove MIDI ke DAW", style: "css", panelType: "midi_map" },
+  { id: "output-dropdown", category: "output", kind: "output_selector", label: "Combo Box Output", detail: "Pilih Master atau output sampler dari dalam plugin", style: "css", width: 190, height: 76, showBackground: false },
 ];
 const componentVariantKey = (variant) => `${variant.category}:${variant.kind}:${variant.id}`;
+const STUDIO_METAL_FADER_VARIANTS = new Set(["studio-metal-db", "studio-metal-long-cap"]);
+const isStudioMetalFaderVariant = (variant) => STUDIO_METAL_FADER_VARIANTS.has(String(variant || ""));
+const DEFAULT_STUDIO_METAL_CAP_COLOR = "#AEB1B3";
+const DEFAULT_STUDIO_METAL_INDICATOR_COLOR = "#090A0B";
+const OPEN_RING_KNOB_VARIANTS = new Set(["open-led-ring", "pan-open-led-ring"]);
+const isOpenRingKnobVariant = (variant) => OPEN_RING_KNOB_VARIANTS.has(String(variant || ""));
+const normalizeOpenRingThickness = (value) => Math.max(1, Math.min(16, Number(value) || 5));
 const PAN_LED_KNOB_BASES = {
   "pan-ring-chicken-head-clean": "chicken-head-clean",
   "pan-chicken-head-clean": "chicken-head-clean",
@@ -488,9 +647,18 @@ const PAN_LED_KNOB_BASES = {
 };
 const isPanLedKnobVariant = (variant) => Boolean(PAN_LED_KNOB_BASES[variant]);
 const panLedStyleForVariant = (variant) => String(variant || "").startsWith("pan-ring-") ? "ring" : "dots";
-const isPanKnobVariant = (variant) => variant === "pan" || variant === "pan-unified" || isPanLedKnobVariant(variant);
+const isPanKnobVariant = (variant) => variant === "pan" || variant === "pan-unified" || variant === "pan-open-led-ring" || isPanLedKnobVariant(variant);
+const WING_FILMSTRIP_VARIANTS = new Set(["crimson-wing", "black-crimson-wing", "regent-white-wing", "pan-ring-black-crimson-wing", "pan-black-crimson-wing"]);
+const wingFilmstripAngleCorrection = (variant, asset, value) => {
+  if (!WING_FILMSTRIP_VARIANTS.has(variant) || !asset || asset.frames <= 1) return 0;
+  const normalized = Math.max(0, Math.min(100, Number(value) || 0));
+  const selectedFrame = Math.round((normalized / 100) * (asset.frames - 1));
+  const desiredAngle = -135 + (normalized * 2.7);
+  const selectedFrameAngle = -135 + ((selectedFrame / (asset.frames - 1)) * 270);
+  return desiredAngle - selectedFrameAngle;
+};
 const resolveVariantParameter = (variant) => variant?.parameter;
-const CSS_PROCEDURAL_KNOBS = new Set(["chicken-head-clean", "orbit-encoder", "studio-scallop", "graphite-ridge", "ivory-lever", "black-dome", "regent-cap", "regent-white", "regent-green", "regent-red", "regent-blue", "regent-brown", "regent-black", "regent-gray", "regent-white-green", "regent-white-red", "regent-white-blue", "regent-white-brown", "regent-white-black", "regent-white-gray", "pan-chicken-head-clean", "pan-ivory-lever", "pan-ring-chicken-head-clean", "pan-ring-ivory-lever", "pan-black-dome", "pan-ring-black-dome"]);
+const CSS_PROCEDURAL_KNOBS = new Set(["chicken-head-clean", "orbit-encoder", "studio-scallop", "graphite-ridge", "ivory-lever", "black-dome", "regent-cap", "regent-white", "regent-green", "regent-red", "regent-blue", "regent-brown", "regent-black", "regent-gray", "regent-white-green", "regent-white-red", "regent-white-blue", "regent-white-brown", "regent-white-black", "regent-white-gray", "open-led-ring", "pan-open-led-ring", "pan-chicken-head-clean", "pan-ivory-lever", "pan-ring-chicken-head-clean", "pan-ring-ivory-lever", "pan-black-dome", "pan-ring-black-dome"]);
 const effectiveComponentStyle = (control, panelStyle) => (
   control?.kind === "knob" && CSS_PROCEDURAL_KNOBS.has(control.component_variant)
     ? "css"
@@ -521,6 +689,7 @@ const neutralControlValue = (control, projectTemplate) => {
   if (["input", "tone", "width"].includes(parameter)) return 50;
   if (parameter === "output") return 75;
   if (["volume", "mix"].includes(parameter)) return 100;
+  if (["mute", "solo", "bypass"].includes(parameter)) return 0;
   if (["drive", "compress", "attack", "release", "space"].includes(parameter)) return 0;
   return 50;
 };
@@ -536,6 +705,13 @@ const faderValueText = (control) => {
   if (decibels === null) return `${Math.round(value)}%`;
   if (Math.abs(decibels) < 0.05) return "0 dB";
   return `${decibels > 0 ? "+" : ""}${decibels.toFixed(1)} dB`;
+};
+
+const tuningKnobValueText = (control, engineModules) => {
+  if (control?.kind !== "knob" || !["tuning", "fine_tune"].includes(control?.parameter)) return undefined;
+  const module = (engineModules || []).find((item) => item.id === control.moduleId && item.type === "tuning");
+  const definition = dspRackOption(module?.type)?.parameters?.find((item) => item.key === control.parameter);
+  return definition ? formatDspParameterValue(definition, Math.max(0, Math.min(100, Number(control.value) || 0)) / 100) : undefined;
 };
 
 // Retained for backward-compatible parsing of piano-roll data in older drafts.
@@ -679,7 +855,7 @@ const normalizeSamplerName = (name) => {
   const normalized = String(name || "").trim();
   return !normalized || normalized === "Main" ? DEFAULT_SAMPLER_NAME : normalized;
 };
-const createSamplerGroup = (name = DEFAULT_SAMPLER_NAME) => ({ id: makeId(), name: normalizeSamplerName(name), volume: 100, pan: 0, mute: false, solo: false });
+const createSamplerGroup = (name = DEFAULT_SAMPLER_NAME) => ({ id: makeId(), name: normalizeSamplerName(name), volume: 100, pan: 0, mute: false, solo: false, outputBus: "master" });
 const normalizeSamplerGroup = (group, index = 0) => ({
   id: String(group?.id || makeId()),
   name: normalizeSamplerName(group?.name || `Sampler ${index + 1}`).slice(0, 48),
@@ -687,7 +863,75 @@ const normalizeSamplerGroup = (group, index = 0) => ({
   pan: Math.max(-1, Math.min(1, Number(group?.pan ?? 0))),
   mute: !!group?.mute,
   solo: !!group?.solo,
+  outputBus: group?.outputBus === "separate" || group?.output_bus === "separate" ? "separate" : "master",
 });
+const SAMPLER_CONTROL_PARAMETERS = new Set(["volume", "pan", "mute", "solo"]);
+const SAMPLER_VALUE_CONTROL_KINDS = new Set(["knob", "fader", "button", "solo", "mute", "solo_mute"]);
+const SAMPLER_NOTE_CONTROL_KINDS = new Set(["pad", "keyboard"]);
+const SAMPLER_MONITOR_CONTROL_KINDS = new Set(["gain_meter", "vu_meter", "spectrum"]);
+const samplerParametersForControl = (control) => (
+  ["knob", "fader"].includes(control?.kind) ? ["volume", "pan"]
+    : control?.kind === "button" ? ["mute", "solo"]
+      : control?.kind === "solo" ? ["solo"]
+        : control?.kind === "mute" ? ["mute"] : []
+);
+const supportsSamplerControlBinding = (control) => (
+  !control?.moduleId
+  && samplerParametersForControl(control).includes(control?.parameter)
+);
+const canChooseSamplerTarget = (control) => (
+  !control?.moduleId && SAMPLER_VALUE_CONTROL_KINDS.has(control?.kind)
+);
+const supportsSamplerNoteBinding = (control) => SAMPLER_NOTE_CONTROL_KINDS.has(control?.kind);
+const supportsSamplerMonitoringBinding = (control) => (
+  SAMPLER_MONITOR_CONTROL_KINDS.has(control?.kind)
+  && control?.parameter !== "gain_reduction"
+  && !control?.moduleId
+);
+const supportsSamplerIndicatorBinding = (control) => control?.kind === "indicator" && !control?.moduleId;
+const supportsAnySamplerBinding = (control) => (
+  control?.kind === "output_selector"
+  || control?.kind === "solo_mute"
+  || supportsSamplerControlBinding(control)
+  || supportsSamplerNoteBinding(control)
+  || supportsSamplerMonitoringBinding(control)
+  || supportsSamplerIndicatorBinding(control)
+);
+const samplerControlValue = (group, parameter, fallback = 0) => {
+  if (!group) return fallback;
+  if (parameter === "volume") return Math.round(Math.max(0, Math.min(100, Number(group.volume ?? 100))));
+  if (parameter === "pan") return Math.round((Math.max(-1, Math.min(1, Number(group.pan ?? 0))) + 1) * 50);
+  if (parameter === "mute") return group.mute ? 100 : 0;
+  if (parameter === "solo") return group.solo ? 100 : 0;
+  return fallback;
+};
+const samplerControlGroupUpdates = (parameter, value) => {
+  if (parameter === "volume") return { volume: Math.max(0, Math.min(100, Number(value))) };
+  if (parameter === "pan") return { pan: Math.max(-1, Math.min(1, (Number(value) - 50) / 50)) };
+  if (parameter === "mute") return { mute: Number(value) >= 50 };
+  if (parameter === "solo") return { solo: Number(value) >= 50 };
+  return null;
+};
+const samplerGroupAudible = (groups = [], group = null) => (
+  !group?.mute && (!(groups || []).some((item) => item.solo) || !!group?.solo)
+);
+const setSamplerSolo = (groups = [], groupId, enabled) => (
+  (groups || []).map((group) => group.id === groupId
+    ? { ...group, solo: enabled, ...(enabled ? { mute: false } : {}) }
+    : group)
+);
+const setSamplerMute = (groups = [], groupId, enabled) => (
+  (groups || []).map((group) => group.id === groupId
+    ? { ...group, mute: enabled, ...(enabled ? { solo: false } : {}) }
+    : group)
+);
+const normalizeSamplerSoloState = (groups = []) => {
+  return groups.map((group) => group.mute && group.solo ? { ...group, solo: false } : group);
+};
+const outputSelectorDefaultValue = (groups = [], samplerGroupId = null) => {
+  const target = groups.find((group) => group.id === samplerGroupId);
+  return target && (target.outputBus === "separate" || target.output_bus === "separate") ? 100 : 0;
+};
 const createOneKeyMappings = (sampleList, rootPitch, samplerName = DEFAULT_SAMPLER_NAME, options = {}) => {
   const pitches = oneKeyMappingPitches(sampleList, rootPitch, options);
   return sampleList.slice(0, 128).map((sample, index) => {
@@ -756,6 +1000,7 @@ const CONTROL_DEFAULT_SIZES = {
   keyboard: { width: 560, height: 150 },
   solo: { width: 96, height: 92 },
   mute: { width: 96, height: 92 },
+  solo_mute: { width: 152, height: 82 },
   gain_meter: { width: 92, height: 150 },
   vu_meter: { width: 170, height: 112 },
   visual: { width: 160, height: 160 },
@@ -763,6 +1008,7 @@ const CONTROL_DEFAULT_SIZES = {
   image: { width: 240, height: 160 },
   text: { width: 144, height: 36 },
   panel_button: { width: 148, height: 64 },
+  output_selector: { width: 190, height: 76 },
   indicator: { width: 72, height: 72 },
 };
 const usesClassicKnobDefaultSize = (kind, variant) => (
@@ -844,9 +1090,7 @@ const normalizeInterfaceControl = (control) => {
   const defaults = CONTROL_DEFAULT_SIZES[control.kind] || CONTROL_DEFAULT_SIZES.knob;
   const width = Number(control.width);
   const height = Number(control.height);
-  const compactIndicator = control.kind === "indicator" && (!control.component_variant || control.component_variant === "round-indicator");
-  const minimumWidth = control.kind === "keyboard" ? 240 : control.kind === "spectrum" ? 240 : compactIndicator ? 12 : control.kind === "text" ? 32 : 48;
-  const minimumHeight = control.kind === "keyboard" ? 112 : control.kind === "spectrum" ? 120 : compactIndicator ? 12 : control.kind === "text" ? 24 : 48;
+  const { width: minimumWidth, height: minimumHeight } = canvasControlMinimumSize(control.kind, control.component_variant);
   const labelPosition = normalizeLabelPosition(control.labelPosition ?? control.label_position);
   const labelGap = normalizeLabelGap(control.labelGap ?? control.label_gap);
   const stateLabelGap = normalizeMechanicalStateLabelGap(
@@ -872,6 +1116,8 @@ const normalizeInterfaceControl = (control) => {
     ...(control.kind === "button" && componentVariant === "mechanical-toggle" ? { stateLabelGap } : {}),
     showBackground: control.showBackground !== false && control.show_background !== false,
     show_correlation_meter: control.showCorrelationMeter !== false && control.show_correlation_meter !== false,
+    waveformLineWidth: Math.max(0.5, Math.min(8, Number(control.waveformLineWidth ?? control.waveform_line_width ?? 1.8) || 1.8)),
+    barWidthRatio: Math.max(0.1, Math.min(1, Number(control.barWidthRatio ?? control.bar_width_ratio ?? 0.54) || 0.54)),
     opacity: Math.max(0, Math.min(100, Number(control.opacity ?? 100))),
     rotation: normalizeComponentRotation(control.rotation),
     component_variant: componentVariant,
@@ -884,12 +1130,38 @@ const normalizeInterfaceControl = (control) => {
     ...(PRISM_CONTROL_MODES.has(control.prismControlMode ?? control.prism_control_mode) ? { prismControlMode: control.prismControlMode ?? control.prism_control_mode } : {}),
     ...(["frequency", "gain", "q"].includes(control.prismContext ?? control.prism_context) ? { prismContext: control.prismContext ?? control.prism_context } : {}),
     ...((control.prismOwnerId ?? control.prism_owner_id) ? { prismOwnerId: String(control.prismOwnerId ?? control.prism_owner_id).slice(0, 64) } : {}),
-    ...(control.kind === "text" ? {
+    ...(["text", "output_selector"].includes(control.kind) ? {
       textFont: BRAND_FONT_OPTIONS.some((option) => option.id === (control.textFont ?? control.text_font)) ? (control.textFont ?? control.text_font) : "space-grotesk",
       textColor: isHexColor(control.textColor ?? control.text_color) ? (control.textColor ?? control.text_color) : "#F4F4F5",
     } : {}),
+    ...(control.kind === "output_selector" ? {
+      outputFontSize: normalizeOutputSelectorFontSize(control.outputFontSize ?? control.output_font_size),
+    } : {}),
+    ...(control.kind === "fader" ? {
+      faderMeterEnabled: isStudioMetalFaderVariant(control.component_variant) ? true : control.faderMeterEnabled !== false && control.fader_meter_enabled !== false,
+      faderMeterPosition: normalizeFaderMeterPosition(control.faderMeterPosition ?? control.fader_meter_position),
+      faderMeterColor: isHexColor(control.faderMeterColor ?? control.fader_meter_color) ? (control.faderMeterColor ?? control.fader_meter_color) : DEFAULT_FADER_METER_COLOR,
+      faderMeterGap: normalizeFaderMeterGap(control.faderMeterGap ?? control.fader_meter_gap),
+      faderMeterWidth: normalizeFaderMeterWidth(control.faderMeterWidth ?? control.fader_meter_width),
+      faderMeterHeight: normalizeFaderMeterHeight(control.faderMeterHeight ?? control.fader_meter_height),
+      ...(isStudioMetalFaderVariant(control.component_variant) ? {
+        controlColor: isHexColor(control.controlColor ?? control.control_color) ? (control.controlColor ?? control.control_color) : DEFAULT_STUDIO_METAL_CAP_COLOR,
+        textColor: isHexColor(control.textColor ?? control.text_color) ? (control.textColor ?? control.text_color) : DEFAULT_STUDIO_METAL_INDICATOR_COLOR,
+      } : {}),
+    } : {}),
+    ...(control.kind === "knob" && isOpenRingKnobVariant(componentVariant) ? {
+      controlColor: isHexColor(control.controlColor ?? control.control_color) ? (control.controlColor ?? control.control_color) : "#67E8F9",
+      ringThickness: normalizeOpenRingThickness(control.ringThickness ?? control.ring_thickness ?? control.waveformLineWidth ?? control.waveform_line_width),
+    } : {}),
+    ...(control.kind === "solo_mute" ? {
+      soloMuteGap: normalizeSoloMuteGap(control.soloMuteGap ?? control.solo_mute_gap),
+      soloColor: isHexColor(control.soloColor ?? control.solo_color) ? (control.soloColor ?? control.solo_color) : DEFAULT_SOLO_COLOR,
+      muteColor: isHexColor(control.muteColor ?? control.mute_color) ? (control.muteColor ?? control.mute_color) : DEFAULT_MUTE_COLOR,
+      buttonShape: normalizeSoloMuteShape(control.buttonShape ?? control.button_shape),
+    } : {}),
     ...(isHexColor(control.controlColor ?? control.control_color) ? { controlColor: control.controlColor ?? control.control_color } : {}),
     ...(control.kind === "indicator" && (control.indicatorSourceId ?? control.indicator_source_id) ? { indicatorSourceId: String(control.indicatorSourceId ?? control.indicator_source_id).slice(0, 64) } : {}),
+    ...(supportsAnySamplerBinding({ ...control, parameter, moduleId: control.moduleId }) && (control.samplerGroupId ?? control.sampler_group_id) ? { sampler_group_id: String(control.samplerGroupId ?? control.sampler_group_id).slice(0, 64) } : {}),
     ...(["button", "pad"].includes(control.kind) && (control.midiSequenceId ?? control.midi_sequence_id) ? { midiSequenceId: String(control.midiSequenceId ?? control.midi_sequence_id).slice(0, 64) } : {}),
     ...(control.kind === "image" ? {
       imageUrl: control.imageUrl ?? control.image_url ?? "",
@@ -904,6 +1176,7 @@ const normalizeInterfaceControl = (control) => {
       panelY: clampPercent(control.panelY ?? control.panel_y ?? 52, 0, 100),
       panelWidth: clampPercent(control.panelWidth ?? control.panel_width ?? 88, 35, 96),
       panelHeight: clampPercent(control.panelHeight ?? control.panel_height ?? 78, 30, 92),
+      mixerShowDefaultControls: control.mixerShowDefaultControls !== false && control.mixer_show_default_controls !== false,
     } : {}),
     ...(isTwoStateButton ? {
       off_label: String(control.off_label ?? control.label ?? "").slice(0, 24),
@@ -1181,13 +1454,14 @@ const withRequiredSpectrum = (templateId, controls = []) => {
 };
 
 const withPrismSpectrumDsp = (templateId, controls = [], modules = []) => {
-  const analyzers = controls.filter((control) => control.kind === "spectrum" && (control.component_variant || "realtime-spectrum") === "realtime-spectrum");
+  const hasSamplerTarget = (control) => !!(control.sampler_group_id ?? control.samplerGroupId);
+  const analyzers = controls.filter((control) => control.kind === "spectrum" && (control.component_variant || "realtime-spectrum") === "realtime-spectrum" && !hasSamplerTarget(control));
   if (!analyzers.length && templateId !== "prismeq") return { controls, modules };
   const existing = modules.find((module) => module.type === "prism_eq");
   if (existing) return {
     modules,
     controls: withRequiredSpectrum(templateId, controls).map((control) => (
-      ((control.kind === "spectrum" && (control.component_variant || "realtime-spectrum") === "realtime-spectrum") || PRISM_CONTEXT_PARAMETERS.has(control.parameter)) && !control.moduleId
+      ((control.kind === "spectrum" && (control.component_variant || "realtime-spectrum") === "realtime-spectrum") || PRISM_CONTEXT_PARAMETERS.has(control.parameter)) && !control.moduleId && !hasSamplerTarget(control)
         ? { ...control, moduleId: existing.id }
         : control
     )),
@@ -1213,7 +1487,7 @@ const withPrismSpectrumDsp = (templateId, controls = [], modules = []) => {
   }));
   return {
     modules: nextModules,
-    controls: withRequiredSpectrum(templateId, controls).map((control) => (control.kind === "spectrum" && control.component_variant !== "pure-spectrum") || PRISM_CONTEXT_PARAMETERS.has(control.parameter)
+    controls: withRequiredSpectrum(templateId, controls).map((control) => ((control.kind === "spectrum" && control.component_variant !== "pure-spectrum") || PRISM_CONTEXT_PARAMETERS.has(control.parameter)) && !hasSamplerTarget(control)
       ? { ...control, moduleId }
       : control),
   };
@@ -1360,11 +1634,11 @@ const readDraft = () => {
       brandAlign: migrateAmpStack ? "left" : ["left", "center", "right"].includes(stored.brandAlign) ? stored.brandAlign : fresh.brandAlign,
       effects: {},
       controls: Array.isArray(stored.controls) ? stored.controls : fresh.controls,
-      interfaceControls: migratedObsidianState?.interfaceControls || (migrateLumaOpto ? createTemplateControls("vintageeq", 49) : migrateMixforgePanel ? createTemplateControls("mixforge", 49) : migratePrismControls ? createTemplateControls("prismeq", 49, "direct") : Array.isArray(stored.interfaceControls) ? (migrateAmpStack ? migrateAmpStackControls : (controls) => controls)(stored.interfaceControls.map((control) => normalizeInterfaceControl({ ...control, moduleId: control.moduleId || null, notePitch: Number.isInteger(control.notePitch) ? control.notePitch : 60, keyCount: KEYBOARD_SIZE_OPTIONS.includes(Number(control.keyCount)) ? Number(control.keyCount) : undefined }))) : []),
+      interfaceControls: migratedObsidianState?.interfaceControls || (migrateLumaOpto ? createTemplateControls("vintageeq", 49) : migrateMixforgePanel ? createTemplateControls("mixforge", 49) : migratePrismControls ? createTemplateControls("prismeq", 49, "direct") : Array.isArray(stored.interfaceControls) ? (migrateAmpStack ? migrateAmpStackControls : (controls) => controls)(stored.interfaceControls.map((control, index) => normalizeInterfaceControl({ ...control, label: controlLabelOrFallback(control, index), moduleId: control.moduleId || null, notePitch: Number.isInteger(control.notePitch) ? control.notePitch : 60, keyCount: KEYBOARD_SIZE_OPTIONS.includes(Number(control.keyCount)) ? Number(control.keyCount) : undefined }))) : []),
       presets: Array.isArray(stored.presets) ? stored.presets.slice(0, 128) : [],
       midiMappings: [],
       midiSequences: Array.isArray(stored.midiSequences) ? stored.midiSequences.slice(0, 16) : [],
-      samplerGroups: Array.isArray(stored.samplerGroups) && stored.samplerGroups.length ? stored.samplerGroups.slice(0, 16).map(normalizeSamplerGroup) : fresh.samplerGroups,
+      samplerGroups: Array.isArray(stored.samplerGroups) && stored.samplerGroups.length ? normalizeSamplerSoloState(stored.samplerGroups.slice(0, 16).map(normalizeSamplerGroup)) : fresh.samplerGroups,
       engineModules: migratedObsidianState?.engineModules || normalizeDspRack(stored.engineModules),
       impulseResponses: Array.isArray(stored.impulseResponses) ? stored.impulseResponses.slice(0, 16) : [],
       pianoNotes: Array.isArray(stored.pianoNotes) ? stored.pianoNotes : [],
@@ -1447,10 +1721,11 @@ const toProjectPayload = (project, samples) => {
   modulation_enabled: project.modulationEnabled === true,
   interface_controls: project.interfaceControls.map((rawControl) => {
     const normalized = normalizeInterfaceControl(rawControl);
-    const { notePitch, moduleId, keyCount, keyColors, key_colors: legacyKeyColors, showBackground, show_background: legacyShowBackground, labelPosition, label_position: legacyLabelPosition, labelGap, label_gap: legacyLabelGap, stateLabelGap, state_label_gap: legacyStateLabelGap, labelX, labelY, label_x: legacyLabelX, label_y: legacyLabelY, meterMode, meter_mode: legacyMeterMode, padColor, padActiveColor, pad_color: legacyPadColor, pad_active_color: legacyPadActiveColor, visualColor, visual_color: legacyVisualColor, spectrumBand, spectrum_band: legacySpectrumBand, prismControlMode, prism_control_mode: legacyPrismControlMode, prismContext, prism_context: legacyPrismContext, prismOwnerId, prism_owner_id: legacyPrismOwnerId, textFont, text_font: legacyTextFont, textColor, text_color: legacyTextColor, controlColor, control_color: legacyControlColor, indicatorSourceId, indicator_source_id: legacyIndicatorSourceId, midiSequenceId, midi_sequence_id: legacyMidiSequenceId, imageUrl, imageName, imageFit, imageOpacity, image_url: legacyImageUrl, image_name: legacyImageName, image_fit: legacyImageFit, image_opacity: legacyImageOpacity, parentPanelId, parent_panel_id: legacyParentPanelId, panelType, panel_type: legacyPanelType, panelX, panel_x: legacyPanelX, panelY, panel_y: legacyPanelY, panelWidth, panel_width: legacyPanelWidth, panelHeight, panel_height: legacyPanelHeight, ...control } = normalized;
+    const { notePitch, moduleId, samplerGroupId, sampler_group_id: legacySamplerGroupId, keyCount, keyColors, key_colors: legacyKeyColors, showBackground, show_background: legacyShowBackground, labelPosition, label_position: legacyLabelPosition, labelGap, label_gap: legacyLabelGap, stateLabelGap, state_label_gap: legacyStateLabelGap, labelX, labelY, label_x: legacyLabelX, label_y: legacyLabelY, meterMode, meter_mode: legacyMeterMode, padColor, padActiveColor, pad_color: legacyPadColor, pad_active_color: legacyPadActiveColor, visualColor, visual_color: legacyVisualColor, waveformLineWidth, waveform_line_width: legacyWaveformLineWidth, ringThickness, ring_thickness: legacyRingThickness, barWidthRatio, bar_width_ratio: legacyBarWidthRatio, spectrumBand, spectrum_band: legacySpectrumBand, prismControlMode, prism_control_mode: legacyPrismControlMode, prismContext, prism_context: legacyPrismContext, prismOwnerId, prism_owner_id: legacyPrismOwnerId, textFont, text_font: legacyTextFont, textColor, text_color: legacyTextColor, controlColor, control_color: legacyControlColor, outputFontSize, output_font_size: legacyOutputFontSize, faderMeterEnabled, fader_meter_enabled: legacyFaderMeterEnabled, faderMeterPosition, fader_meter_position: legacyFaderMeterPosition, faderMeterColor, fader_meter_color: legacyFaderMeterColor, faderMeterGap, fader_meter_gap: legacyFaderMeterGap, faderMeterWidth, fader_meter_width: legacyFaderMeterWidth, faderMeterHeight, fader_meter_height: legacyFaderMeterHeight, soloMuteGap, solo_mute_gap: legacySoloMuteGap, soloColor, solo_color: legacySoloColor, muteColor, mute_color: legacyMuteColor, buttonShape, button_shape: legacyButtonShape, indicatorSourceId, indicator_source_id: legacyIndicatorSourceId, midiSequenceId, midi_sequence_id: legacyMidiSequenceId, imageUrl, imageName, imageFit, imageOpacity, image_url: legacyImageUrl, image_name: legacyImageName, image_fit: legacyImageFit, image_opacity: legacyImageOpacity, parentPanelId, parent_panel_id: legacyParentPanelId, panelType, panel_type: legacyPanelType, panelX, panel_x: legacyPanelX, panelY, panel_y: legacyPanelY, panelWidth, panel_width: legacyPanelWidth, panelHeight, panel_height: legacyPanelHeight, mixerShowDefaultControls, mixer_show_default_controls: legacyMixerShowDefaultControls, ...control } = normalized;
     return {
       ...control,
       module_id: moduleId || null,
+      ...(supportsAnySamplerBinding({ ...control, moduleId, parameter: control.parameter }) ? { sampler_group_id: samplerGroupId || legacySamplerGroupId || null } : {}),
       note_pitch: notePitch ?? 60,
       show_background: (showBackground ?? legacyShowBackground) !== false,
       label_position: labelPosition ?? legacyLabelPosition ?? defaultLabelPosition(control.kind),
@@ -1466,15 +1741,35 @@ const toProjectPayload = (project, samples) => {
       panel_y: panelY ?? legacyPanelY ?? 52,
       panel_width: panelWidth ?? legacyPanelWidth ?? 88,
       panel_height: panelHeight ?? legacyPanelHeight ?? 78,
+      ...(control.kind === "panel_button" && (panelType || legacyPanelType) === "mixer" ? { mixer_show_default_controls: mixerShowDefaultControls !== false && legacyMixerShowDefaultControls !== false } : {}),
       ...(["gain_meter", "vu_meter"].includes(control.kind) ? { meter_mode: meterMode || legacyMeterMode || (control.kind === "gain_meter" ? "stereo" : "mono") } : {}),
       ...(control.kind === "pad" && isHexColor(padColor ?? legacyPadColor) ? { pad_color: padColor ?? legacyPadColor } : {}),
       ...(control.kind === "pad" && isHexColor(padActiveColor ?? legacyPadActiveColor) ? { pad_active_color: padActiveColor ?? legacyPadActiveColor } : {}),
       ...(["visual", "spectrum"].includes(control.kind) && isHexColor(visualColor ?? legacyVisualColor) ? { visual_color: visualColor ?? legacyVisualColor } : {}),
+      ...(control.kind === "spectrum" && control.component_variant === "realtime-waveform" ? { waveform_line_width: Math.max(0.5, Math.min(8, Number(waveformLineWidth ?? legacyWaveformLineWidth ?? 1.8) || 1.8)) } : {}),
+      ...(control.kind === "knob" && isOpenRingKnobVariant(control.component_variant) ? { ring_thickness: normalizeOpenRingThickness(ringThickness ?? legacyRingThickness ?? waveformLineWidth ?? legacyWaveformLineWidth) } : {}),
+      ...(control.kind === "spectrum" && control.component_variant === "bar-spectrum-visualizer" ? { bar_width_ratio: Math.max(0.1, Math.min(1, Number(barWidthRatio ?? legacyBarWidthRatio ?? 0.54) || 0.54)) } : {}),
       ...(spectrumBand === true || legacySpectrumBand === true ? { spectrum_band: true } : {}),
       ...(PRISM_CONTROL_MODES.has(prismControlMode ?? legacyPrismControlMode) ? { prism_control_mode: prismControlMode ?? legacyPrismControlMode } : {}),
       ...(["frequency", "gain", "q"].includes(prismContext ?? legacyPrismContext) ? { prism_context: prismContext ?? legacyPrismContext } : {}),
       ...((prismOwnerId ?? legacyPrismOwnerId) ? { prism_owner_id: prismOwnerId ?? legacyPrismOwnerId } : {}),
-      ...(control.kind === "text" ? { text_font: textFont || legacyTextFont || "space-grotesk", text_color: textColor || legacyTextColor || "#F4F4F5" } : {}),
+      ...(["text", "output_selector"].includes(control.kind) ? { text_font: textFont || legacyTextFont || "space-grotesk", text_color: textColor || legacyTextColor || "#F4F4F5" } : {}),
+      ...(control.kind === "fader" && isStudioMetalFaderVariant(control.component_variant) ? { text_color: isHexColor(textColor ?? legacyTextColor) ? (textColor ?? legacyTextColor) : DEFAULT_STUDIO_METAL_INDICATOR_COLOR } : {}),
+      ...(control.kind === "output_selector" ? { output_font_size: normalizeOutputSelectorFontSize(outputFontSize ?? legacyOutputFontSize) } : {}),
+      ...(control.kind === "fader" ? {
+        fader_meter_enabled: faderMeterEnabled !== false && legacyFaderMeterEnabled !== false,
+        fader_meter_position: normalizeFaderMeterPosition(faderMeterPosition ?? legacyFaderMeterPosition),
+        fader_meter_color: isHexColor(faderMeterColor ?? legacyFaderMeterColor) ? (faderMeterColor ?? legacyFaderMeterColor) : DEFAULT_FADER_METER_COLOR,
+        fader_meter_gap: normalizeFaderMeterGap(faderMeterGap ?? legacyFaderMeterGap),
+        fader_meter_width: normalizeFaderMeterWidth(faderMeterWidth ?? legacyFaderMeterWidth),
+        fader_meter_height: normalizeFaderMeterHeight(faderMeterHeight ?? legacyFaderMeterHeight),
+      } : {}),
+      ...(control.kind === "solo_mute" ? {
+        solo_mute_gap: normalizeSoloMuteGap(soloMuteGap ?? legacySoloMuteGap),
+        solo_color: isHexColor(soloColor ?? legacySoloColor) ? (soloColor ?? legacySoloColor) : DEFAULT_SOLO_COLOR,
+        mute_color: isHexColor(muteColor ?? legacyMuteColor) ? (muteColor ?? legacyMuteColor) : DEFAULT_MUTE_COLOR,
+        button_shape: normalizeSoloMuteShape(buttonShape ?? legacyButtonShape),
+      } : {}),
       ...(isHexColor(controlColor ?? legacyControlColor) ? { control_color: controlColor ?? legacyControlColor } : {}),
       ...(control.kind === "indicator" ? { indicator_source_id: indicatorSourceId || legacyIndicatorSourceId || null } : {}),
       ...(["button", "pad"].includes(control.kind) ? { midi_sequence_id: midiSequenceId || legacyMidiSequenceId || null } : {}),
@@ -1493,9 +1788,9 @@ const toProjectPayload = (project, samples) => {
   presets: project.presets || [],
   midi_mappings: [],
   midi_sequences: (project.midiSequences || []).map(({ durationTicks, loopEnabled, generatorConfig, ...sequence }) => ({ ...sequence, duration_ticks: durationTicks, loop_enabled: loopEnabled === true, ...(generatorConfig ? { generator_config: normalizeWaveGeneratorConfig(generatorConfig) } : {}) })),
-  sampler_groups: (project.samplerGroups || [createSamplerGroup()]).map((group, index) => {
+  sampler_groups: normalizeSamplerSoloState(project.samplerGroups || [createSamplerGroup()]).map((group, index) => {
     const normalized = normalizeSamplerGroup(group, index);
-    return { id: normalized.id, name: normalized.name, volume: normalized.volume, pan: normalized.pan, mute: normalized.mute, solo: normalized.solo };
+    return { id: normalized.id, name: normalized.name, volume: normalized.volume, pan: normalized.pan, mute: normalized.mute, solo: normalized.solo, output_bus: normalized.outputBus };
   }),
   engine_modules: serializeDspRack(project.engineModules),
   impulse_responses: (project.impulseResponses || []).map((impulse) => ({
@@ -1598,11 +1893,11 @@ const fromSavedProject = (saved) => {
   accentColor: migrateLumaOpto ? "#d6b56d" : saved.accent_color,
   effects: {},
   controls: saved.controls || [],
-  interfaceControls: migratedObsidianState?.interfaceControls || (migrateLumaOpto ? createTemplateControls("vintageeq", 49) : (migrateAmpStack ? migrateAmpStackControls : (controls) => controls)((saved.interface_controls || []).map(({ note_pitch, module_id, key_count, key_colors, show_background, label_position, pad_color, pad_active_color, visual_color, spectrum_band, prism_control_mode, prism_context, prism_owner_id, text_font, text_color, control_color, indicator_source_id, midi_sequence_id, image_url, image_name, image_fit, image_opacity, parent_panel_id, panel_type, panel_x, panel_y, panel_width, panel_height, ...control }) => normalizeInterfaceControl({ ...control, moduleId: module_id || null, notePitch: note_pitch ?? 60, keyCount: key_count || undefined, keyColors: key_colors, showBackground: show_background !== false, labelPosition: label_position, padColor: pad_color, padActiveColor: pad_active_color, visualColor: visual_color, spectrumBand: spectrum_band === true, prismControlMode: prism_control_mode, prismContext: prism_context, prismOwnerId: prism_owner_id, textFont: text_font, textColor: text_color, controlColor: control_color, indicatorSourceId: indicator_source_id, midiSequenceId: midi_sequence_id, imageUrl: image_url, imageName: image_name, imageFit: image_fit, imageOpacity: image_opacity, parentPanelId: parent_panel_id, panelType: panel_type, panelX: panel_x, panelY: panel_y, panelWidth: panel_width, panelHeight: panel_height })))),
+  interfaceControls: migratedObsidianState?.interfaceControls || (migrateLumaOpto ? createTemplateControls("vintageeq", 49) : (migrateAmpStack ? migrateAmpStackControls : (controls) => controls)((saved.interface_controls || []).map(({ note_pitch, module_id, sampler_group_id, key_count, key_colors, show_background, label_position, pad_color, pad_active_color, visual_color, waveform_line_width, ring_thickness, bar_width_ratio, spectrum_band, prism_control_mode, prism_context, prism_owner_id, text_font, text_color, control_color, output_font_size, fader_meter_enabled, fader_meter_position, fader_meter_color, fader_meter_gap, fader_meter_width, fader_meter_height, solo_mute_gap, solo_color, mute_color, button_shape, indicator_source_id, midi_sequence_id, image_url, image_name, image_fit, image_opacity, parent_panel_id, panel_type, panel_x, panel_y, panel_width, panel_height, mixer_show_default_controls, ...control }, index) => normalizeInterfaceControl({ ...control, label: controlLabelOrFallback(control, index), moduleId: module_id || null, sampler_group_id: sampler_group_id || null, notePitch: note_pitch ?? 60, keyCount: key_count || undefined, keyColors: key_colors, showBackground: show_background !== false, labelPosition: label_position, padColor: pad_color, padActiveColor: pad_active_color, visualColor: visual_color, waveformLineWidth: waveform_line_width, ringThickness: ring_thickness ?? (isOpenRingKnobVariant(control.component_variant) ? waveform_line_width : undefined), barWidthRatio: bar_width_ratio, spectrumBand: spectrum_band === true, prismControlMode: prism_control_mode, prismContext: prism_context, prismOwnerId: prism_owner_id, textFont: text_font, textColor: text_color, controlColor: control_color, outputFontSize: output_font_size, faderMeterEnabled: fader_meter_enabled, faderMeterPosition: fader_meter_position, faderMeterColor: fader_meter_color, faderMeterGap: fader_meter_gap, faderMeterWidth: fader_meter_width, faderMeterHeight: fader_meter_height, soloMuteGap: solo_mute_gap, soloColor: solo_color, muteColor: mute_color, buttonShape: button_shape, indicatorSourceId: indicator_source_id, midiSequenceId: midi_sequence_id, imageUrl: image_url, imageName: image_name, imageFit: image_fit, imageOpacity: image_opacity, parentPanelId: parent_panel_id, panelType: panel_type, panelX: panel_x, panelY: panel_y, panelWidth: panel_width, panelHeight: panel_height, mixerShowDefaultControls: mixer_show_default_controls })))),
   presets: Array.isArray(saved.presets) ? saved.presets : [],
   midiMappings: [],
   midiSequences: (saved.midi_sequences || []).map(({ duration_ticks, loop_enabled, generator_config, ...sequence }) => ({ ...sequence, durationTicks: duration_ticks, loopEnabled: loop_enabled === true, ...(generator_config ? { generatorConfig: normalizeWaveGeneratorConfig(generator_config) } : {}) })),
-  samplerGroups: Array.isArray(saved.sampler_groups) && saved.sampler_groups.length ? saved.sampler_groups.slice(0, 16).map(normalizeSamplerGroup) : [createSamplerGroup()],
+  samplerGroups: Array.isArray(saved.sampler_groups) && saved.sampler_groups.length ? normalizeSamplerSoloState(saved.sampler_groups.slice(0, 16).map(normalizeSamplerGroup)) : [createSamplerGroup()],
   engineModules: migratedObsidianState?.engineModules || normalizeDspRack(saved.engine_modules),
   impulseResponses: (saved.impulse_responses || []).map((impulse) => ({
     id: impulse.id,
@@ -1751,7 +2046,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
   const apiBase = customerMode ? "/customer/vst-maker" : "/admin/vst-maker";
   const canUseFeature = (feature) => !customerMode || entitlement?.features?.includes(feature);
   const planSampleFileLimit = customerMode
-    ? ({ free: 25_000_000, creator: 100_000_000, pro: 250_000_000, studio: MAX_SAMPLE_BYTES, ultimate: MAX_SAMPLE_BYTES, credit: MAX_SAMPLE_BYTES }[entitlement?.tier] || 0)
+    ? ({ free: 25_000_000, personal: 100_000_000, partner: MAX_SAMPLE_BYTES, creator: MAX_SAMPLE_BYTES, studio: MAX_SAMPLE_BYTES }[entitlement?.tier] || 25_000_000)
     : MAX_SAMPLE_BYTES;
   const [project, setProject] = useState(readDraft);
   const [samples, setSamples] = useState(readSampleMetadata);
@@ -1764,16 +2059,9 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
   const [publishedTemplates, setPublishedTemplates] = useState([]);
   const [templateCatalogLoaded, setTemplateCatalogLoaded] = useState(false);
   const [templateSettings, setTemplateSettings] = useState({});
-  const [pricing, setPricing] = useState(DEFAULT_VST_PRICING);
-  const [pricingDraft, setPricingDraft] = useState(DEFAULT_VST_PRICING);
-  const [savingPricing, setSavingPricing] = useState(false);
   const [buildSettings, setBuildSettings] = useState(DEFAULT_VST_BUILD_SETTINGS);
   const [buildSettingsDraft, setBuildSettingsDraft] = useState(DEFAULT_VST_BUILD_SETTINGS);
   const [savingBuildSettings, setSavingBuildSettings] = useState(false);
-  const [grantEmail, setGrantEmail] = useState("");
-  const [grantCredits, setGrantCredits] = useState(100);
-  const [grantNote, setGrantNote] = useState("");
-  const [grantBusy, setGrantBusy] = useState("");
   const [loadingProjects, setLoadingProjects] = useState(true);
   const [savingProject, setSavingProject] = useState(false);
   const [savingTemplate, setSavingTemplate] = useState(false);
@@ -1787,13 +2075,10 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
   const [queueingBuild, setQueueingBuild] = useState(false);
   const [buildPanelExpanded, setBuildPanelExpanded] = useState(false);
   const [buildLicenseDialogOpen, setBuildLicenseDialogOpen] = useState(false);
-  const [buildRequestMode, setBuildRequestMode] = useState("export");
   const [buildTargetPlatform, setBuildTargetPlatform] = useState("windows");
   const [buildActionMenuOpen, setBuildActionMenuOpen] = useState(null);
   const [authoritativeBuildQuote, setAuthoritativeBuildQuote] = useState(null);
-  const [distributionBuildChoice, setDistributionBuildChoice] = useState({ enabled: false, quantity: 10, maxActivations: 1 });
   const [liveCustomerActivity, setLiveCustomerActivity] = useState({ items: [], editing_count: 0, building_count: 0, updated_at: "" });
-  const [creditBalance, setCreditBalance] = useState(() => Number(entitlement?.build_credits || 0));
   const [selectedInterfaceControlIds, setSelectedInterfaceControlIds] = useState([]);
   const selectedInterfaceControlId = selectedInterfaceControlIds.at(-1) || null;
   const [, setDesignerHistoryVersion] = useState(0);
@@ -1850,6 +2135,8 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
   const releasedPreviewTokensRef = useRef(new Set());
   const audioContextRef = useRef(null);
   const meterAnalyserRef = useRef(null);
+  const samplerAnalyserRefs = useRef(new Map());
+  const samplerMonitorRoutesRef = useRef(new Map());
   const reverbImpulseRef = useRef(null);
   const impulseFilesRef = useRef(new Map());
   const impulseBuffersRef = useRef(new Map());
@@ -1858,6 +2145,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
   const waveNoiseBuffersRef = useRef(new Map());
   const dspWorkletReadyContextRef = useRef(null);
   const waveDspGraphRef = useRef(null);
+  const samplerDspGraphsRef = useRef(new Map());
   const samplerEffectsGraphRef = useRef(null);
   const hitPitchTokensRef = useRef(new Map());
   const roundRobinCursorRef = useRef(new Map());
@@ -1874,36 +2162,10 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
   const waveGeneratorModule = project.engineModules.find((module) => module.type === "wave_generator") || null;
   const dspRackModules = project.engineModules.filter((module) => module.type !== "wave_generator");
   const hasActiveWaveGenerator = !!waveGeneratorModule && !waveGeneratorModule.bypassed;
-  const buildCreditQuote = useMemo(
-    () => quoteVstProjectCredits({ ...project, samples }, pricing, buildSettings),
-    [project, samples, pricing, buildSettings],
-  );
   const templateIncludedSampleIds = useMemo(() => new Set(
     (project.pricingTemplateBaseline?.samples || []).map((sample) => String(sample.id || sample.sample_id || "")),
   ), [project.pricingTemplateBaseline]);
-  const buildDialogQuote = useMemo(() => {
-    if (!authoritativeBuildQuote) return buildCreditQuote;
-    if (Number(authoritativeBuildQuote.licenseMaxActivations) === Number(buildCreditQuote.licenseMaxActivations)) {
-      return authoritativeBuildQuote;
-    }
-    return {
-      ...buildCreditQuote,
-      standardTotalCredits: buildCreditQuote.totalCredits,
-      correctionRebuild: {
-        mode: "new_build",
-        eligible: false,
-        reasons: ["Pilihan serial atau kapasitas perangkat berubah"],
-        full_price_credits: buildCreditQuote.totalCredits,
-        charged_credits: buildCreditQuote.totalCredits,
-        savings_credits: 0,
-      },
-    };
-  }, [authoritativeBuildQuote, buildCreditQuote]);
-  const insufficientCredits = customerMode && creditBalance < buildCreditQuote.totalCredits;
-
-  useEffect(() => {
-    setCreditBalance(Number(entitlement?.build_credits || 0));
-  }, [entitlement?.build_credits]);
+  const buildDialogQuote = authoritativeBuildQuote || {};
   const isPrismEqProject = project.projectTemplate === "prismeq";
   const allProjectTemplates = useMemo(() => {
     const publishedTemplateIds = new Set(publishedTemplates.map((template) => template.id));
@@ -2003,11 +2265,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     && !!mapping.articulation?.trim()
     && !!mapping.micPosition?.trim()
   ));
-  const bindingsValid = project.interfaceControls.length > 0 && project.interfaceControls.every((control, index) => (
-    !!controlLabelOrFallback(control, index)
-    && (["visual", "text"].includes(control.kind) || !!String(control.parameter || "").trim())
-    && (!control.moduleId || moduleIds.has(control.moduleId))
-  ));
+  const bindingsValid = interfaceBindingsValid(project.interfaceControls, moduleIds);
   const readinessItems = [
     { label: "Identitas & versi", ready: !!project.name.trim() && !["Untitled Instrument", "Untitled Plugin FX"].includes(project.name.trim()) && !!project.manufacturerName.trim() && /^\d+\.\d+\.\d+$/.test(project.pluginVersion), tab: "interface" },
     ...(!isEffectProject ? [
@@ -2018,18 +2276,12 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     { label: "Panel & binding", ready: bindingsValid, tab: "interface" },
     { label: "Konfigurasi sound", ready: project.controls.length > 0 || project.engineModules.length > 0, tab: "sound" },
   ];
-  const visibleEditorTabs = EDITOR_TABS.filter((tab) => (
-    !(isEffectProject && ["sampler", "settings"].includes(tab.id))
-    && !((customerMode || isEffectProject) && tab.id === "settings")
-  ));
+  const visibleEditorTabs = editorTabsForProject({ customerMode, isEffectProject });
   const readinessCount = readinessItems.filter((item) => item.ready).length;
   const readinessPercent = Math.round((readinessCount / readinessItems.length) * 100);
   const latestBuild = buildJobs[0] || null;
   const latestReadyWindowsBuild = buildJobs.find((job) => job.status === "ready" && job.target_platform !== "macos") || null;
   const latestReadyMacBuild = buildJobs.find((job) => job.status === "ready" && job.target_platform === "macos") || null;
-  const windowsRebuildSlots = Number(latestReadyWindowsBuild?.correction_rebuilds_remaining || 0);
-  const macRebuildSlots = Number(latestReadyMacBuild?.correction_rebuilds_remaining || 0);
-  const hasRebuildSlots = customerMode && (windowsRebuildSlots > 0 || macRebuildSlots > 0);
   const latestReadyBuildDownloads = [
     { platform: "windows", label: "Windows", build: latestReadyWindowsBuild },
     { platform: "macos", label: "macOS", build: latestReadyMacBuild },
@@ -2193,21 +2445,6 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
 
   useEffect(() => {
     let active = true;
-    api.get(`${apiBase}/pricing`)
-      .then(({ data }) => {
-        if (!active) return;
-        const normalized = normalizeVstPricing(data);
-        setPricing(normalized);
-        setPricingDraft(normalized);
-      })
-      .catch((error) => {
-        if (active) toast.error(error.userMessage || "Harga kredit gagal dimuat");
-      });
-    return () => { active = false; };
-  }, [apiBase]);
-
-  useEffect(() => {
-    let active = true;
     api.get(`${apiBase}/build-settings`)
       .then(({ data }) => {
         if (!active) return;
@@ -2245,7 +2482,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     const template = publishedTemplates.find((item) => item.id === project.pricingTemplateId && item.project);
     if (!template) return;
     const templateProject = { ...fromSavedProject(template.project), pricingTemplateId: template.id };
-    const baseline = createVstTemplatePricingBaseline(templateProject, savedProjectSamples(template.project));
+    const baseline = createVstTemplateBaseline(templateProject, savedProjectSamples(template.project));
     setProject((current) => {
       if (current.pricingTemplateBaseline || current.pricingTemplateId !== template.id) return current;
       const next = { ...current, pricingTemplateBaseline: baseline };
@@ -2378,14 +2615,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
   }, [apiBase, project.projectId]);
 
   const macroValue = (parameter, fallback = 50) => {
-    const matchingControls = project.interfaceControls.filter((item) => item.parameter === parameter);
-    // Pads use `tone` as their trigger binding in older saved drum projects.
-    // Prefer an actual macro control so the first pad (value 0) cannot override
-    // the Neon template's Drive knob.
-    const control = matchingControls.find((item) => !["pad", "keyboard", "gain_meter", "vu_meter"].includes(item.kind))
-      || matchingControls[0];
-    if (!control) return fallback;
-    return Math.max(0, Math.min(100, Number(control.value) || 0));
+    return globalMacroValue(project.interfaceControls, parameter, fallback);
   };
 
   const applyWaveGeneratorExpression = (bendValue, vibratoSemitones = 0) => {
@@ -2493,7 +2723,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       }
       const analyser = audioContextRef.current.createAnalyser();
       analyser.fftSize = 2048;
-      analyser.smoothingTimeConstant = 0;
+      analyser.smoothingTimeConstant = 0.72;
       analyser.connect(audioContextRef.current.destination);
       attachStereoMeterTap(audioContextRef.current, analyser);
       meterAnalyserRef.current = analyser;
@@ -2558,6 +2788,43 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       try { node?.disconnect(); } catch { /* graph already disconnected */ }
     });
     waveDspGraphRef.current = null;
+  };
+
+  const releaseSamplerDspGraphs = () => {
+    samplerDspGraphsRef.current.forEach((graph) => {
+      [graph.input, graph.processor, graph.processorGain, graph.dryFallback, graph.output].forEach((node) => {
+        try { node?.disconnect(); } catch { /* graph already disconnected */ }
+      });
+    });
+    samplerDspGraphsRef.current.clear();
+  };
+
+  const ensureSamplerAnalyser = (context, samplerGroupId) => {
+    if (!context || !samplerGroupId) return null;
+    let analyser = samplerAnalyserRefs.current.get(samplerGroupId);
+    if (analyser?.context === context) return analyser;
+    analyser = context.createAnalyser();
+    analyser.fftSize = 2048;
+    analyser.smoothingTimeConstant = 0.72;
+    attachStereoMeterTap(context, analyser);
+    samplerAnalyserRefs.current.set(samplerGroupId, analyser);
+    return analyser;
+  };
+
+  const ensureSamplerMonitorRoute = (context, samplerGroupId, destination) => {
+    if (!context || !samplerGroupId || !destination) return null;
+    let route = samplerMonitorRoutesRef.current.get(samplerGroupId);
+    if (route?.context === context && route.destination === destination) return route;
+    if (route) [route.input, route.output].forEach((node) => { try { node.disconnect(); } catch { /* already disconnected */ } });
+    const input = context.createGain();
+    const output = context.createGain();
+    const analyser = ensureSamplerAnalyser(context, samplerGroupId);
+    input.connect(output);
+    output.connect(destination);
+    if (analyser) output.connect(analyser);
+    route = { context, samplerGroupId, destination, input, output };
+    samplerMonitorRoutesRef.current.set(samplerGroupId, route);
+    return route;
   };
 
   const releaseSamplerEffectsGraph = () => {
@@ -2641,6 +2908,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     const planSignature = JSON.stringify(plan);
     let graph = waveDspGraphRef.current;
     if (!graph || graph.context !== context) {
+      if (graph) releaseSamplerDspGraphs();
       releaseWaveDspGraph();
       const input = context.createGain();
       const output = context.createGain();
@@ -2692,6 +2960,90 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       graph.planSignature = planSignature;
     }
     return graph;
+  };
+
+  const ensureSamplerDspGraph = (context, samplerGroupId, plan, destination) => {
+    if (!context || !samplerGroupId || !destination || dspWorkletReadyContextRef.current !== context) return null;
+    const topology = plan.map(({ id, type }) => `${id}:${type}`).join("|");
+    const planSignature = JSON.stringify(plan);
+    let graph = samplerDspGraphsRef.current.get(samplerGroupId);
+    if (!graph || graph.context !== context || graph.destination !== destination) {
+      if (graph) {
+        [graph.input, graph.processor, graph.processorGain, graph.dryFallback, graph.output].forEach((node) => {
+          try { node?.disconnect(); } catch { /* graph already disconnected */ }
+        });
+      }
+      const input = context.createGain();
+      const output = context.createGain();
+      const processor = createNativeDspWorkletNode(context, plan);
+      attachDspMeterTarget(processor, meterAnalyserRef.current);
+      const processorGain = context.createGain();
+      const dryFallback = context.createGain();
+      processorGain.gain.value = 0;
+      dryFallback.gain.value = 1;
+      input.connect(processor); processor.connect(processorGain); processorGain.connect(output);
+      input.connect(dryFallback); dryFallback.connect(output);
+      output.connect(destination);
+      const analyser = ensureSamplerAnalyser(context, samplerGroupId);
+      if (analyser) output.connect(analyser);
+      graph = {
+        context, samplerGroupId, destination, input, output, processor, processorGain, dryFallback,
+        topology, planSignature, processorFailed: false, processorReady: false,
+      };
+      samplerDspGraphsRef.current.set(samplerGroupId, graph);
+      whenDspProcessorReady(processor, () => {
+        if (samplerDspGraphsRef.current.get(samplerGroupId) !== graph || graph.processor !== processor || graph.processorFailed) return;
+        const now = context.currentTime;
+        graph.processorReady = true;
+        processorGain.gain.cancelScheduledValues(now); processorGain.gain.setValueAtTime(0, now);
+        dryFallback.gain.cancelScheduledValues(now); dryFallback.gain.setValueAtTime(dryFallback.gain.value, now);
+        processorGain.gain.linearRampToValueAtTime(1, now + 0.04);
+        dryFallback.gain.linearRampToValueAtTime(0, now + 0.04);
+      });
+      processor.addEventListener?.("processorerror", () => {
+        if (samplerDspGraphsRef.current.get(samplerGroupId) !== graph || graph.processor !== processor) return;
+        const now = context.currentTime;
+        graph.processorFailed = true;
+        graph.processorReady = true;
+        processorGain.gain.cancelScheduledValues(now); processorGain.gain.setTargetAtTime(0, now, 0.003);
+        dryFallback.gain.cancelScheduledValues(now); dryFallback.gain.setTargetAtTime(1, now, 0.003);
+        setSamplerAudioStatus("DSP preview sampler terlalu berat; audio dialihkan ke jalur aman agar tidak mati.");
+      });
+      return graph;
+    }
+    if (graph.topology !== topology || graph.planSignature !== planSignature) {
+      graph.processor.port.postMessage({ type: "plan", plan });
+      graph.topology = topology;
+      graph.planSignature = planSignature;
+    }
+    return graph;
+  };
+
+  const ensureSamplerDspRoute = (context, samplerGroupId = null) => {
+    const postRackModules = (projectRef.current.engineModules || []).filter(isPostSourceDspModule);
+    if (!postRackModules.length) {
+      if (!samplerGroupId) return null;
+      const legacyGraph = ensureSamplerEffectsGraph(context);
+      return legacyGraph?.input ? ensureSamplerMonitorRoute(context, samplerGroupId, legacyGraph.input) : null;
+    }
+    const masterPlan = createDspPreviewPlan(
+      postRackModules,
+      projectRef.current.interfaceControls,
+      customImpulseTaps,
+      null,
+    );
+    const masterGraph = ensureWaveDspGraph(context, masterPlan);
+    if (!masterGraph) return null;
+    if (!samplerGroupId) return masterGraph;
+    const samplerPlan = createDspPreviewPlan(
+      postRackModules,
+      projectRef.current.interfaceControls,
+      customImpulseTaps,
+      samplerGroupId,
+    );
+    return ensureSamplerDspGraph(context, samplerGroupId, samplerPlan, masterGraph.input)
+      || ensureSamplerMonitorRoute(context, samplerGroupId, masterGraph.input)
+      || masterGraph;
   };
 
   const activatePendingWaveDspGraph = (context) => {
@@ -2837,7 +3189,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     const octave = Math.round(Number(parameters.octave ?? 0.5) * 4) - 2;
     const semitone = Math.round(Number(parameters.semitone ?? 0.5) * 24) - 12;
     const fine = Number(parameters.fine ?? 0.5) * 200 - 100;
-    const baseSemitones = octave * 12 + semitone + fine / 100 + dspGlobalTuningSemitones(projectRef.current.engineModules);
+    const baseSemitones = octave * 12 + semitone + fine / 100 + dspTuningSemitones(projectRef.current.engineModules);
     const osc2Octave = Math.round(unit("osc2_octave", 0.5) * 4) - 2;
     const frequencyFor = (midiPitch, additionalSemitones = 0) => 440 * (2 ** ((midiPitch - 69 + baseSemitones + additionalSemitones) / 12));
     const glideSeconds = 2 * (unit("glide", 0) ** 2);
@@ -2872,7 +3224,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     const fine = Number(parameters.fine ?? 0.5) * 200 - 100;
     const level = unit("level", 0.65);
     const moduleMix = Math.max(0, Math.min(1, Number(module.mix ?? 1)));
-    const baseSemitones = octave * 12 + semitone + fine / 100 + dspGlobalTuningSemitones(projectRef.current.engineModules);
+    const baseSemitones = octave * 12 + semitone + fine / 100 + dspTuningSemitones(projectRef.current.engineModules);
     const frequencyFor = (midiPitch, additionalSemitones = 0) => 440 * (2 ** ((midiPitch - 69 + baseSemitones + additionalSemitones) / 12));
     const unisonVoices = 1 + Math.round(unit("unison_voices", 0) * 7);
     const unisonDetune = unit("unison_detune", 0.12) * 50;
@@ -3159,6 +3511,11 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     activeWaveVoicesRef.current.forEach((voice, token) => stopWaveVoice(token, voice, true));
     sampleAudioUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
     try { meterAnalyserRef.current?.disconnect(); } catch { /* graph already disconnected */ }
+    samplerMonitorRoutesRef.current.forEach((route) => [route.input, route.output].forEach((node) => { try { node?.disconnect(); } catch { /* graph already disconnected */ } }));
+    samplerMonitorRoutesRef.current.clear();
+    samplerAnalyserRefs.current.forEach((analyser) => { try { analyser?.disconnect(); } catch { /* graph already disconnected */ } });
+    samplerAnalyserRefs.current.clear();
+    releaseSamplerDspGraphs();
     releaseWaveDspGraph();
     releaseSamplerEffectsGraph();
     try { audioContextRef.current?.close(); } catch { /* context already closed */ }
@@ -3215,22 +3572,18 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     nodes.chorusGain.gain.value = project.effects.chorus ? (isNeonDrums ? space * 0.06 : 0.04 + (space * 0.12)) : 0;
   };
 
-  const createAudioEffects = (audio, pan = 0) => {
+  const createAudioEffects = (audio, pan = 0, samplerGroupId = null) => {
     const context = ensureAudioContext();
     if (!context) return null;
     try {
-      const postRackModules = (projectRef.current.engineModules || []).filter(isPostSourceDspModule);
-      const rackPlan = postRackModules.length
-        ? createDspPreviewPlan(postRackModules, projectRef.current.interfaceControls, customImpulseTaps)
-        : [];
-      const sharedRack = rackPlan.length ? ensureWaveDspGraph(context, rackPlan) : null;
-      if (sharedRack) {
+      const dspRoute = ensureSamplerDspRoute(context, samplerGroupId);
+      if (dspRoute) {
         const source = context.createMediaElementSource(audio);
         const stereoPanner = context.createStereoPanner();
         stereoPanner.pan.value = Math.max(-1, Math.min(1, Number(pan) || 0));
         source.connect(stereoPanner);
-        stereoPanner.connect(sharedRack.input);
-        return { source, stereoPanner, sharedRack: true };
+        stereoPanner.connect(dspRoute.input);
+        return { source, stereoPanner, sharedRack: true, samplerGroupId };
       }
       const samplerGraph = ensureSamplerEffectsGraph(context);
       if (!samplerGraph) return null;
@@ -3271,8 +3624,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
         voice.audios.forEach((audio) => {
           audio._vstGlobalAttackMs = attackMs;
           const group = (project.samplerGroups || []).find((item) => item.name === voice.audioGroups?.get(audio));
-          const anySolo = (project.samplerGroups || []).some((item) => item.solo);
-          const audible = anySolo ? !!group?.solo : !group?.mute;
+          const audible = samplerGroupAudible(project.samplerGroups, group);
           const groupVolume = audible ? Math.max(0, Math.min(100, Number(group?.volume ?? 100))) / 100 : 0;
           const baseVolume = (voice.mappingGains?.get(audio) || 0) * groupVolume;
           voice.baseVolumes?.set(audio, baseVolume);
@@ -3294,15 +3646,26 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     const postRackModules = (project.engineModules || []).filter(isPostSourceDspModule);
     const hasWaveGenerator = (project.engineModules || []).some((module) => module.type === "wave_generator" && !module.bypassed);
     if (hasWaveGenerator || postRackModules.length) {
-      const plan = postRackModules.length
-        ? createDspPreviewPlan(postRackModules, project.interfaceControls, customImpulseTaps)
+      const masterPlan = postRackModules.length
+        ? createDspPreviewPlan(postRackModules, project.interfaceControls, customImpulseTaps, null)
         : [];
-      ensureWaveDspGraph(context, plan);
+      const masterGraph = ensureWaveDspGraph(context, masterPlan);
+      if (masterGraph) {
+        (project.samplerGroups || []).forEach((group) => {
+          const samplerPlan = createDspPreviewPlan(postRackModules, project.interfaceControls, customImpulseTaps, group.id);
+          ensureSamplerDspGraph(context, group.id, samplerPlan, masterGraph.input);
+        });
+        const activeSamplerGroupIds = new Set((project.samplerGroups || []).map((group) => group.id));
+        samplerDspGraphsRef.current.forEach((graph, groupId) => {
+          if (!activeSamplerGroupIds.has(groupId)) ensureSamplerDspGraph(context, groupId, [], masterGraph.input);
+        });
+      }
       return;
     }
     if (!waveDspGraphRef.current) return;
     activeSamplerVoicesRef.current.forEach((voice, token) => stopSamplerVoice(token, voice));
     activeWaveVoicesRef.current.forEach((voice, token) => stopWaveVoice(token, voice, true));
+    releaseSamplerDspGraphs();
     releaseWaveDspGraph();
   // Keep every active instrument source on the same current ordered rack.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3355,7 +3718,10 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       }), mergeKey);
       return;
     }
-    updateDesignerProject((current) => ({ ...current, ...updates }), mergeKey);
+    const featureUpdates = Array.isArray(updates?.samplerGroups)
+      ? { ...updates, samplerGroups: normalizeSamplerSoloState(updates.samplerGroups) }
+      : updates;
+    updateDesignerProject((current) => ({ ...current, ...featureUpdates }), mergeKey);
   };
 
   const restoreDesignerSnapshot = (snapshot) => {
@@ -3399,10 +3765,24 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
   };
 
   const updateSamplerGroup = (groupId, updates) => {
-    setProject((current) => ({
-      ...current,
-      samplerGroups: current.samplerGroups.map((group) => group.id === groupId ? normalizeSamplerGroup({ ...group, ...updates }) : group),
-    }));
+    setProject((current) => {
+      const updatedGroups = current.samplerGroups.map((group) => group.id === groupId ? normalizeSamplerGroup({ ...group, ...updates }) : group);
+      const samplerGroups = Object.hasOwn(updates, "solo")
+        ? setSamplerSolo(updatedGroups, groupId, updates.solo === true)
+        : Object.hasOwn(updates, "mute")
+          ? setSamplerMute(updatedGroups, groupId, updates.mute === true)
+          : updatedGroups;
+      return {
+        ...current,
+        samplerGroups,
+        interfaceControls: current.interfaceControls.map((control) => {
+          if (control.kind === "output_selector") return { ...control, value: outputSelectorDefaultValue(samplerGroups, control.sampler_group_id) };
+          if (!supportsSamplerControlBinding(control) || !control.sampler_group_id) return control;
+          const target = samplerGroups.find((group) => group.id === control.sampler_group_id);
+          return target ? { ...control, value: samplerControlValue(target, control.parameter, control.value) } : control;
+        }),
+      };
+    });
   };
 
   const renameSamplerGroup = (groupId, requestedName) => {
@@ -3446,11 +3826,42 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     const zoneCount = project.sampleMappings.filter((mapping) => normalizeSamplerName(mapping.groupName) === sampler.name).length;
     if (!window.confirm(`Hapus sampler “${sampler.name}”${zoneCount ? ` beserta ${zoneCount} zona mapping` : ""}? File audio tetap tersedia di Sumber suara.`)) return null;
     const remaining = project.samplerGroups.filter((group) => group.id !== groupId);
-    setProject((current) => ({
-      ...current,
-      samplerGroups: current.samplerGroups.filter((group) => group.id !== groupId),
-      sampleMappings: current.sampleMappings.filter((mapping) => normalizeSamplerName(mapping.groupName) !== sampler.name),
-    }));
+    setProject((current) => {
+      const retainedTuningTargets = new Set(current.engineModules
+        .filter((module) => module.type === "tuning" && dspModuleSamplerTarget(module) !== groupId)
+        .map((module) => tuningTargetKey(dspModuleSamplerTarget(module))));
+      const availableTuningTargets = [null, ...remaining.map((group) => group.id)]
+        .filter((target) => !retainedTuningTargets.has(tuningTargetKey(target)));
+      const removedTuningModuleIds = new Set();
+      const engineModules = normalizeDspRack(current.engineModules.flatMap((module) => {
+        if (dspModuleSamplerTarget(module) !== groupId) return [module];
+        if (module.type !== "tuning") return [{ ...module, samplerGroupId: null }];
+        const target = availableTuningTargets.shift();
+        if (target === undefined) {
+          removedTuningModuleIds.add(module.id);
+          return [];
+        }
+        return [{ ...module, samplerGroupId: target }];
+      }));
+      return {
+        ...current,
+        samplerGroups: current.samplerGroups.filter((group) => group.id !== groupId),
+        sampleMappings: current.sampleMappings.filter((mapping) => normalizeSamplerName(mapping.groupName) !== sampler.name),
+        engineModules,
+        interfaceControls: current.interfaceControls.map((rawControl) => {
+          const control = removedTuningModuleIds.has(rawControl.moduleId) ? { ...rawControl, moduleId: null } : rawControl;
+          if (!supportsAnySamplerBinding(control)) return control;
+          const samplerGroupId = control.sampler_group_id === groupId ? null : control.sampler_group_id;
+          if (control.kind === "output_selector") return { ...control, sampler_group_id: samplerGroupId, value: outputSelectorDefaultValue(remaining, samplerGroupId) };
+          const target = remaining.find((group) => group.id === samplerGroupId);
+          return {
+            ...control,
+            sampler_group_id: samplerGroupId,
+            ...(supportsSamplerControlBinding(control) && target ? { value: samplerControlValue(target, control.parameter, control.value) } : {}),
+          };
+        }),
+      };
+    });
     toast.success(`Sampler “${sampler.name}” dihapus`);
     return remaining[0]?.id || null;
   };
@@ -3540,10 +3951,9 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
   const groovePlayableMappings = (pitch, velocity) => {
     const liveProject = projectRef.current;
     const groups = liveProject.samplerGroups || [];
-    const anyGroupSoloed = groups.some((group) => group.solo);
     return (liveProject.sampleMappings || []).filter((mapping) => {
       const group = groups.find((item) => item.name === normalizeSamplerName(mapping.groupName));
-      const audible = anyGroupSoloed ? !!group?.solo : !group?.mute;
+      const audible = samplerGroupAudible(groups, group);
       return audible
         && pitch >= mapping.lowPitch && pitch <= mapping.highPitch
         && velocity >= mapping.velocityLow && velocity <= mapping.velocityHigh
@@ -3666,15 +4076,11 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     activeGrooveVoicesRef.current.forEach((voice, activeToken) => {
       if (chokeTargets.has(voice.pitch)) stopGrooveVoice(activeToken, scheduledAtPerformance);
     });
-    const postRackModules = (projectRef.current.engineModules || []).filter(isPostSourceDspModule);
-    const sharedRack = postRackModules.length
-      ? ensureWaveDspGraph(context, createDspPreviewPlan(postRackModules, projectRef.current.interfaceControls, customImpulseTaps))
-      : null;
-    const graph = sharedRack || ensureSamplerEffectsGraph(context);
-    if (!graph?.input) return false;
+    const hasDspRack = (projectRef.current.engineModules || []).some(isPostSourceDspModule);
+    const legacyGraph = hasDspRack ? null : ensureSamplerEffectsGraph(context);
+    if (!hasDspRack && !legacyGraph?.input) return false;
     const normalizedVelocity = velocity / 127;
     const layerVolume = Math.max(0.001, Math.min(1, ((normalizedVelocity * normalizedVelocity) * 0.85) / Math.sqrt(layers.length)));
-    const globalTuning = dspGlobalTuningSemitones(projectRef.current.engineModules);
     const attackSeconds = samplerAttackMilliseconds(macroValue("attack", 0) / 100) / 1000;
     const voice = { context, pitch, layers: [], releasing: false, held: true };
     layers.forEach(({ mapping, buffer }) => {
@@ -3682,13 +4088,17 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       const gain = context.createGain();
       const panner = context.createStereoPanner();
       const group = (projectRef.current.samplerGroups || []).find((item) => item.name === normalizeSamplerName(mapping.groupName));
+      const dspRoute = ensureSamplerDspRoute(context, group?.id || null);
+      const fallbackGraph = dspRoute ? null : (legacyGraph || ensureSamplerEffectsGraph(context));
+      const destination = dspRoute?.input || fallbackGraph?.input || meterAnalyserRef.current || context.destination;
       const groupVolume = Math.max(0, Math.min(1, Number(group?.volume ?? 100) / 100));
       const targetGain = clampUnit(layerVolume * groupVolume * (10 ** ((mapping.gainDb || 0) / 20)));
-      const semitones = Math.max(-60, Math.min(60, pitch - mapping.rootPitch)) + Number(mapping.tuneSemitones || 0) + Number(mapping.tuneCents || 0) / 100 + globalTuning;
+      const samplerTuning = dspTuningSemitones(projectRef.current.engineModules, group?.id || null);
+      const semitones = Math.max(-60, Math.min(60, pitch - mapping.rootPitch)) + Number(mapping.tuneSemitones || 0) + Number(mapping.tuneCents || 0) / 100 + samplerTuning;
       source.buffer = buffer;
       source.playbackRate.value = 2 ** (semitones / 12);
       panner.pan.value = Math.max(-1, Math.min(1, Number(mapping.pan || 0) + Number(group?.pan || 0)));
-      source.connect(gain); gain.connect(panner); panner.connect(graph.input);
+      source.connect(gain); gain.connect(panner); panner.connect(destination);
       const startOffset = buffer.duration * Math.max(0, Math.min(0.999, mapping.sampleStart ?? 0));
       const endOffset = buffer.duration * Math.max(0.001, Math.min(1, mapping.sampleEnd ?? 1));
       if (mapping.loopEnabled) {
@@ -3731,7 +4141,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     const previewContext = ensureAudioContext();
     hitPitchTokensRef.current.set(token, pitch);
     setPreviewPressedPitches((current) => new Set(current).add(pitch));
-    const waveStarted = playWaveGeneratorNote(pitch, velocity, token);
+    const waveStarted = samplerName ? false : playWaveGeneratorNote(pitch, velocity, token);
     // Build and schedule the oscillator synchronously inside the user gesture.
     // Waiting for resume() first adds first-note latency and can lose a quick
     // key-up before the voice/token has been registered.
@@ -3739,11 +4149,10 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       try { await previewContext.resume(); } catch { /* direct playback remains available as a fallback */ }
     }
     const samplerGroups = project.samplerGroups || [];
-    const anyGroupSoloed = samplerGroups.some((group) => group.solo);
     const groupForMapping = (mapping) => samplerGroups.find((group) => group.name === normalizeSamplerName(mapping.groupName));
     const playablePitchMappings = project.sampleMappings.filter((mapping) => {
       const group = groupForMapping(mapping);
-      const groupAudible = anyGroupSoloed ? !!group?.solo : !group?.mute;
+      const groupAudible = samplerGroupAudible(samplerGroups, group);
       return groupAudible
       && (!samplerName || normalizeSamplerName(mapping.groupName) === samplerName)
       && (
@@ -3870,17 +4279,17 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       // chromatic keyboard. The previous ±24-semitone limit made every note
       // above C5 sound identical when the root note was C3.
       const transposition = Math.max(-60, Math.min(60, pitch - mapping.rootPitch));
-      const globalTuning = dspGlobalTuningSemitones(projectRef.current.engineModules);
+      const samplerTuning = dspTuningSemitones(projectRef.current.engineModules, group?.id || null);
       const pitchRate = 2 ** ((
         transposition * 100
         + (mapping.tuneSemitones || 0) * 100
         + (mapping.tuneCents || 0)
-        + globalTuning * 100
+        + samplerTuning * 100
       ) / 1200);
       const tempoSyncEnabled = mapping.playbackMode === "tempo_sync" && mapping.sourceBpmConfirmed === true;
       const sourceBpm = Math.max(20, Math.min(300, Number(mapping.sourceBpm) || 120));
       const targetBpm = Math.max(20, Math.min(300, Number(projectRef.current.tempoBpm) || 120));
-      const baseSemitones = transposition + Number(mapping.tuneSemitones || 0) + Number(mapping.tuneCents || 0) / 100 + globalTuning;
+      const baseSemitones = transposition + Number(mapping.tuneSemitones || 0) + Number(mapping.tuneCents || 0) / 100 + samplerTuning;
       const bendSemitones = ((pitchBendRef.current - 50) / 50) * 2;
       const groupVolume = Math.max(0, Math.min(1, Number(group?.volume ?? 100) / 100));
       const baseVolume = clampUnit(layerVolume * groupVolume * (10 ** ((mapping.gainDb || 0) / 20)));
@@ -3891,16 +4300,10 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       let audio;
       let audioNodes;
       if (tempoSyncEnabled && previewContext) {
-        const postRackModules = (projectRef.current.engineModules || []).filter(isPostSourceDspModule);
-        const rackPlan = postRackModules.length
-          ? createDspPreviewPlan(postRackModules, projectRef.current.interfaceControls, customImpulseTaps)
-          : [];
-        const sharedRack = rackPlan.length
-          ? ensureWaveDspGraph(previewContext, rackPlan)
-          : null;
+        const dspRoute = ensureSamplerDspRoute(previewContext, group?.id || null);
         audio = await createTempoStretchPreviewVoice({
           context: previewContext,
-          destination: sharedRack?.input || meterAnalyserRef.current,
+          destination: dspRoute?.input || meterAnalyserRef.current,
           file: sample.file,
           startFraction: mapping.sampleStart ?? 0,
           endFraction: mapping.sampleEnd ?? 1,
@@ -3909,12 +4312,15 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
           loopEndFraction: mapping.loopEnd ?? mapping.sampleEnd ?? 1,
           tempoRate: targetBpm / sourceBpm,
           semitones: baseSemitones + bendSemitones,
-          pan: sharedRack ? combinedPan : tempoPreviewPan,
+          pan: dspRoute ? combinedPan : tempoPreviewPan,
         });
         audio._vstSourceBpm = sourceBpm;
         audio._vstBaseSemitones = baseSemitones;
         audioNodes = audio._vstAudioNodes;
-        if (sharedRack && audioNodes) audioNodes.sharedRack = true;
+        if (dspRoute && audioNodes) {
+          audioNodes.sharedRack = true;
+          audioNodes.samplerGroupId = group?.id || null;
+        }
       } else {
         let audioUrl = sampleAudioUrlsRef.current.get(sample.id);
         if (!audioUrl) {
@@ -3929,7 +4335,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
         audio.playbackRate = audio._vstBasePlaybackRate * (2 ** (bendSemitones / 12));
         if ("preservesPitch" in audio) audio.preservesPitch = false;
         if ("webkitPreservesPitch" in audio) audio.webkitPreservesPitch = false;
-        audioNodes = createAudioEffects(audio, combinedPan);
+        audioNodes = createAudioEffects(audio, combinedPan, group?.id || null);
       }
       audio._vstGlobalAttackMs = globalAttackMs;
       audio._vstEnvelopeGain = zoneFadeInMs > 0 || globalAttackMs > 0 ? 0 : 1;
@@ -4264,31 +4670,32 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
 
   const clearLivePatternTrigger = (trigger) => {
     if (!trigger) return;
-    hitPitchTokensRef.current.delete(trigger.visualToken);
+    const visualEntries = trigger.visualTokens instanceof Map
+      ? Array.from(trigger.visualTokens.values())
+      : [{ visualToken: trigger.visualToken, pitch: trigger.pitch }];
+    visualEntries.forEach(({ visualToken }) => hitPitchTokensRef.current.delete(visualToken));
     setPreviewPressedPitches((current) => {
-      if (Array.from(hitPitchTokensRef.current.values()).some((value) => value === trigger.pitch)) return current;
       const next = new Set(current);
-      next.delete(trigger.pitch);
+      visualEntries.forEach(({ pitch }) => {
+        if (!Array.from(hitPitchTokensRef.current.values()).some((value) => value === pitch)) next.delete(pitch);
+      });
       return next;
     });
   };
 
-  livePatternStartRef.current = (pitch, velocity, token) => {
-    if (!liveWavePatternConfig?.enabled) return false;
-    const activeGenerator = (projectRef.current.engineModules || []).some((module) => module.type === "wave_generator" && !module.bypassed);
-    if (!activeGenerator) return false;
+  const playLivePatternTrigger = (trigger) => {
     wavePatternTransport.stop();
-    stopLivePatternTrigger(livePatternTriggerRef.current);
-    clearLivePatternTrigger(livePatternTriggerRef.current);
-    const visualToken = `live-pattern-trigger-${token}`;
-    const trigger = { token, visualToken, pitch };
-    livePatternTriggerRef.current = trigger;
-    hitPitchTokensRef.current.set(visualToken, pitch);
-    setPreviewPressedPitches((current) => new Set(current).add(pitch));
+    stopLivePatternTrigger(trigger);
+    trigger.noteTokens = [];
+    const heldNotes = trigger.heldTokens instanceof Map ? Array.from(trigger.heldTokens.values()) : [{ pitch: trigger.pitch, velocity: trigger.velocity }];
+    if (!heldNotes.length) return;
+    const rootNote = heldNotes.slice().sort((left, right) => left.pitch - right.pitch)[0];
+    const triggerVelocity = Math.max(...heldNotes.map(({ velocity }) => velocity));
     const sequence = createWaveGeneratorSequence({
       ...liveWavePatternConfig,
-      triggerPitch: pitch,
-    }, `live-wave-pattern-${token}`);
+      triggerPitch: rootNote.pitch,
+      ...(liveWavePatternConfig.scale === "relative" ? { triggerPitches: heldNotes.map(({ pitch }) => pitch) } : {}),
+    }, `live-wave-pattern-${trigger.token}`);
     if (liveWavePatternConfig.mode === "chord" && liveWavePatternConfig.chordMode === "single") {
       const context = ensureAudioContext();
       if (context?.state === "suspended") context.resume().catch(() => {});
@@ -4297,8 +4704,8 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       trigger.noteTokens = sequence.events
         .filter((event) => event.type === "note_on" && event.tick === 0)
         .map((event, index) => {
-          const noteToken = `live-wave-chord-${token}-${index}`;
-          const chordVelocity = Math.max(1, Math.round(event.velocity * velocity / 127));
+          const noteToken = `live-wave-chord-${trigger.token}-${index}`;
+          const chordVelocity = Math.max(1, Math.round(event.velocity * triggerVelocity / 127));
           playWavePatternNote(event.note, chordVelocity, noteToken, null, null, null, {
             scheduledAtPerformance,
             scheduledAtAudioTime,
@@ -4309,13 +4716,60 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       wavePatternTransport.play(sequence);
     }
     const mode = WAVE_GENERATOR_MODES.find(({ id }) => id === liveWavePatternConfig.mode)?.label || "Generator";
-    setSamplerAudioStatus(`Live ${mode} · root ${WAVE_NOTE_NAMES[pitch % 12]}${Math.floor(pitch / 12) - 1} · lepas tuts untuk stop.`);
+    const chordText = liveWavePatternConfig.scale === "relative" && heldNotes.length > 1
+      ? heldNotes.slice().sort((left, right) => left.pitch - right.pitch).map(({ pitch }) => midiNoteName(pitch)).join("–")
+      : `root ${midiNoteName(rootNote.pitch)}`;
+    setSamplerAudioStatus(`Live ${mode} · ${chordText} · lepas tuts untuk stop.`);
+  };
+
+  livePatternStartRef.current = (pitch, velocity, token) => {
+    if (!liveWavePatternConfig?.enabled) return false;
+    const activeGenerator = (projectRef.current.engineModules || []).some((module) => module.type === "wave_generator" && !module.bypassed);
+    if (!activeGenerator) return false;
+    const relativeChord = liveWavePatternConfig.scale === "relative";
+    let trigger = relativeChord && livePatternTriggerRef.current?.relativeChord
+      ? livePatternTriggerRef.current
+      : null;
+    if (!trigger) {
+      wavePatternTransport.stop();
+      stopLivePatternTrigger(livePatternTriggerRef.current);
+      clearLivePatternTrigger(livePatternTriggerRef.current);
+      trigger = { token, pitch, velocity, relativeChord, heldTokens: new Map(), visualTokens: new Map(), noteTokens: [] };
+    }
+    trigger.token = token;
+    trigger.pitch = pitch;
+    trigger.velocity = velocity;
+    trigger.heldTokens.set(token, { pitch, velocity });
+    const visualToken = `live-pattern-trigger-${token}`;
+    trigger.visualTokens.set(token, { visualToken, pitch });
+    livePatternTriggerRef.current = trigger;
+    hitPitchTokensRef.current.set(visualToken, pitch);
+    setPreviewPressedPitches((current) => new Set(current).add(pitch));
+    playLivePatternTrigger(trigger);
     return true;
   };
 
   livePatternStopRef.current = (token) => {
     const trigger = livePatternTriggerRef.current;
-    if (!trigger || trigger.token !== token) return false;
+    if (!trigger || (!trigger.relativeChord && trigger.token !== token) || (trigger.relativeChord && !trigger.heldTokens.has(token))) return false;
+    if (trigger.relativeChord) {
+      const released = trigger.visualTokens.get(token);
+      trigger.heldTokens.delete(token);
+      trigger.visualTokens.delete(token);
+      if (released) {
+        hitPitchTokensRef.current.delete(released.visualToken);
+        setPreviewPressedPitches((current) => {
+          if (Array.from(hitPitchTokensRef.current.values()).some((value) => value === released.pitch)) return current;
+          const next = new Set(current);
+          next.delete(released.pitch);
+          return next;
+        });
+      }
+      if (trigger.heldTokens.size) {
+        playLivePatternTrigger(trigger);
+        return true;
+      }
+    }
     wavePatternTransport.stop();
     stopLivePatternTrigger(trigger);
     clearLivePatternTrigger(trigger);
@@ -4506,7 +4960,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       const appliedProjectBase = { ...restored, pricingTemplateId: template.id, licenseMaxActivations: 1 };
       const appliedProject = {
         ...appliedProjectBase,
-        pricingTemplateBaseline: createVstTemplatePricingBaseline(appliedProjectBase, templateSamples),
+        pricingTemplateBaseline: createVstTemplateBaseline(appliedProjectBase, templateSamples),
       };
       projectRef.current = appliedProject;
       setProject(appliedProject);
@@ -4641,7 +5095,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       };
       return {
         ...nextProject,
-        pricingTemplateBaseline: createVstTemplatePricingBaseline(nextProject, []),
+        pricingTemplateBaseline: createVstTemplateBaseline(nextProject, []),
       };
     });
     if (ampTemplateState) {
@@ -4709,9 +5163,9 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     const defaultLabel = variant?.label || INTERFACE_CONTROL_OPTIONS.find((option) => option.id === kind)?.label || "Control";
     const defaultSize = defaultControlSize(kind, variant);
     const lockKnobDefaultSize = usesClassicKnobDefaultSize(kind, variant);
-    const isToggle = kind === "button" || kind === "solo" || kind === "mute";
+    const isToggle = kind === "button" || kind === "solo" || kind === "mute" || kind === "solo_mute";
     const isMeter = kind === "gain_meter" || kind === "vu_meter";
-    const isVisual = kind === "visual" || kind === "spectrum" || kind === "indicator" || kind === "text" || kind === "image" || kind === "panel_button";
+    const isVisual = kind === "visual" || kind === "spectrum" || kind === "indicator" || kind === "text" || kind === "image" || kind === "panel_button" || kind === "output_selector";
     const control = {
       id: makeId(),
       kind,
@@ -4719,11 +5173,13 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       component_variant: variantId || (style === "filmstrip" ? "heritage" : "classic"),
       label: `${defaultLabel} ${count + 1}`,
       ...(kind === "button" ? { off_label: variant?.offLabel || `${defaultLabel} ${count + 1}`, on_label: variant?.onLabel || "ON" } : {}),
-      parameter: isVisual ? "visual" : resolveVariantParameter(variant) || (kind === "solo" ? "solo" : kind === "mute" ? "mute" : isMeter ? "output_level" : kind === "button" ? "space" : "tone"),
+      parameter: kind === "output_selector" ? "group_output" : kind === "solo_mute" ? "solo_mute" : isVisual ? "visual" : resolveVariantParameter(variant) || (kind === "solo" ? "solo" : kind === "mute" ? "mute" : isMeter ? "output_level" : kind === "button" ? "space" : "tone"),
       moduleId: null,
       x: position?.x ?? (kind === "keyboard" ? 50 : 20 + (count % 3) * 30),
       y: position?.y ?? (kind === "keyboard" ? 68 : 28 + (Math.floor(count / 3) % 2) * 40),
-      value: variant?.value ?? (isToggle || isMeter || isVisual || kind === "pad" || kind === "keyboard" ? 0 : 50),
+      value: variant?.value ?? (kind === "output_selector"
+        ? outputSelectorDefaultValue(project.samplerGroups, project.samplerGroups[0]?.id)
+        : (isToggle || isMeter || isVisual || kind === "pad" || kind === "keyboard" ? 0 : 50)),
       opacity: 100,
       ...(isMeter ? { meterMode: kind === "gain_meter" ? "stereo" : "mono" } : {}),
       notePitch: 60,
@@ -4733,9 +5189,26 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       ...(kind === "keyboard" ? { width: keyboardWidthForKeys(project.keyboardKeys) } : {}),
       showBackground: variant?.showBackground ?? !isVisual,
       ...(["visual", "spectrum"].includes(kind) ? { visualColor: variant?.color || (kind === "spectrum" ? "#22D3EE" : "#E8E0CF") } : {}),
+      ...(kind === "fader" ? {
+        faderMeterEnabled: variant?.faderMeterEnabled ?? true,
+        faderMeterPosition: variant?.faderMeterPosition ?? "right",
+        faderMeterColor: DEFAULT_FADER_METER_COLOR,
+        faderMeterGap: variant?.faderMeterGap ?? DEFAULT_FADER_METER_GAP,
+        faderMeterWidth: variant?.faderMeterWidth ?? DEFAULT_FADER_METER_WIDTH,
+        faderMeterHeight: variant?.faderMeterHeight ?? DEFAULT_FADER_METER_HEIGHT,
+        ...(isStudioMetalFaderVariant(variantId) ? { controlColor: variant?.capColor ?? DEFAULT_STUDIO_METAL_CAP_COLOR, textColor: variant?.indicatorColor ?? DEFAULT_STUDIO_METAL_INDICATOR_COLOR } : {}),
+      } : {}),
+      ...(kind === "solo_mute" ? {
+        sampler_group_id: project.samplerGroups[0]?.id || null,
+        soloMuteGap: DEFAULT_SOLO_MUTE_GAP,
+        soloColor: DEFAULT_SOLO_COLOR,
+        muteColor: DEFAULT_MUTE_COLOR,
+        buttonShape: "square",
+      } : {}),
       ...(kind === "indicator" ? { controlColor: variant?.color || project.accentColor, indicatorSourceId: null } : {}),
       ...(kind === "text" ? { textFont: "space-grotesk", textColor: "#F4F4F5" } : {}),
       ...(["pitch-bend-led", "modulation-led"].includes(variantId) ? { controlColor: project.accentColor } : {}),
+      ...(isOpenRingKnobVariant(variantId) ? { controlColor: project.accentColor, ringThickness: normalizeOpenRingThickness(variant?.ringThickness) } : {}),
       ...(kind === "pad" ? {
         padColor: defaultPadSurfaceColor(variantId || "rubber"),
         padActiveColor: defaultPadActiveColor(variantId || "rubber", 60, project.accentColor),
@@ -4747,7 +5220,14 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
         panelY: 52,
         panelWidth: 88,
         panelHeight: 78,
+        mixerShowDefaultControls: true,
         parentPanelId: null,
+      } : {}),
+      ...(kind === "output_selector" ? {
+        sampler_group_id: project.samplerGroups[0]?.id || null,
+        controlColor: "#111216",
+        textColor: "#F4F4F5",
+        outputFontSize: DEFAULT_OUTPUT_SELECTOR_FONT_SIZE,
       } : {}),
       ...overrides,
     };
@@ -4774,14 +5254,32 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     updateDesignerProject((current) => {
       const currentControl = current.interfaceControls.find((control) => control.id === controlId);
       let nextControl = currentControl ? { ...currentControl, ...updates } : null;
+      if (nextControl?.kind === "output_selector" && updates.sampler_group_id !== undefined && updates.value === undefined) {
+        nextControl = { ...nextControl, value: outputSelectorDefaultValue(current.samplerGroups, nextControl.sampler_group_id) };
+      }
       const bindingChanged = updates.moduleId !== undefined || updates.parameter !== undefined;
       if (nextControl?.moduleId && bindingChanged && updates.value === undefined) {
         const module = current.engineModules.find((item) => item.id === nextControl.moduleId);
         const bindingValue = dspBindingValue(module, nextControl.parameter);
         if (bindingValue !== null) nextControl = { ...nextControl, value: bindingValue * 100 };
       }
+      if (nextControl?.moduleId && nextControl.sampler_group_id) nextControl = { ...nextControl, sampler_group_id: null };
+      const samplerBinding = supportsSamplerControlBinding(nextControl) && nextControl.sampler_group_id
+        ? current.samplerGroups.find((group) => group.id === nextControl.sampler_group_id)
+        : null;
+      if (samplerBinding && (updates.sampler_group_id !== undefined || updates.parameter !== undefined) && updates.value === undefined) {
+        nextControl = { ...nextControl, value: samplerControlValue(samplerBinding, nextControl.parameter, nextControl.value) };
+      }
+      const samplerGroupUpdates = samplerBinding && updates.value !== undefined
+        ? samplerControlGroupUpdates(nextControl.parameter, updates.value)
+        : null;
+      const outputSelectorGroupId = nextControl?.kind === "output_selector" ? nextControl.sampler_group_id : null;
       const panMatch = /^group_(\d+)_pan$/.exec(nextControl?.parameter || "");
-      const shouldSyncParameterValue = updates.value !== undefined && Boolean(nextControl?.parameter) && !["output_level", "gain_reduction"].includes(nextControl.parameter);
+      const shouldSyncParameterValue = updates.value !== undefined
+        && !samplerBinding
+        && nextControl?.kind !== "output_selector"
+        && Boolean(nextControl?.parameter)
+        && !["output_level", "gain_reduction"].includes(nextControl.parameter);
       return {
         ...current,
         interfaceControls: current.interfaceControls.map((control) => {
@@ -4793,7 +5291,15 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
         ...(shouldSyncParameterValue ? {
           engineModules: syncDspRackFromControl(current.engineModules, nextControl),
         } : {}),
-        ...(panMatch && updates.value !== undefined ? {
+        ...(samplerGroupUpdates ? {
+          samplerGroups: Object.hasOwn(samplerGroupUpdates, "solo")
+            ? setSamplerSolo(current.samplerGroups, samplerBinding.id, samplerGroupUpdates.solo === true)
+            : Object.hasOwn(samplerGroupUpdates, "mute")
+              ? setSamplerMute(current.samplerGroups, samplerBinding.id, samplerGroupUpdates.mute === true)
+              : current.samplerGroups.map((group) => group.id === samplerBinding.id ? { ...group, ...samplerGroupUpdates } : group),
+        } : outputSelectorGroupId && updates.value !== undefined ? {
+          samplerGroups: current.samplerGroups.map((group) => group.id === outputSelectorGroupId ? { ...group, outputBus: Number(updates.value) >= 50 ? "separate" : "master" } : group),
+        } : panMatch && updates.value !== undefined ? {
           samplerGroups: current.samplerGroups.map((group, index) => index === Number(panMatch[1]) ? { ...group, pan: Math.max(-1, Math.min(1, (Number(updates.value) - 50) / 50)) } : group),
         } : {}),
       };
@@ -4899,7 +5405,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       return {
         ...control,
         id,
-        label: `${control.label || "Control"} Copy`.slice(0, 24),
+        label: control.label === "" ? "" : `${control.label ?? "Control"} Copy`.slice(0, 24),
         x: roundLayoutPercent(control.x),
         y: roundLayoutPercent(control.y),
       };
@@ -5248,9 +5754,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       toast.error("Isi nama developer dan versi plugin dengan format MAJOR.MINOR.PATCH");
       return null;
     }
-    const labeledControls = controlsWithDefaultLabels(currentProject.interfaceControls);
-    const labelsWereFilled = labeledControls.some((control, index) => control.label !== currentProject.interfaceControls[index]?.label);
-    const projectToSave = labelsWereFilled ? { ...currentProject, interfaceControls: labeledControls } : currentProject;
+    const projectToSave = currentProject;
     const currentSampleIds = new Set(currentSamples.map((sample) => sample.id));
     const currentMappingsValid = projectToSave.sampleMappings.length > 0 && projectToSave.sampleMappings.every((mapping) => (
       currentSampleIds.has(mapping.sampleId)
@@ -5279,10 +5783,6 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       setActiveEditorTab("interface");
       toast.error("Periksa label dan binding parameter pada kontrol panel");
       return null;
-    }
-    if (labelsWereFilled) {
-      projectRef.current = projectToSave;
-      setProject(projectToSave);
     }
     setSavingProject(true);
     const payload = toProjectPayload(projectToSave, currentSamples);
@@ -5475,62 +5975,23 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     }
   };
 
-  const updatePricingDraft = (section, key, value, nestedKey = null) => {
-    const credits = Math.max(0, Math.min(100000, Math.round(Number(value) || 0)));
-    setPricingDraft((current) => nestedKey === null
-      ? { ...current, [section]: { ...(current[section] || {}), [key]: credits } }
-      : {
-        ...current,
-        [section]: {
-          ...(current[section] || {}),
-          [key]: { ...(current[section]?.[key] || {}), [nestedKey]: credits },
-        },
-      });
-  };
-
-  const savePricingSettings = async () => {
-    if (customerMode || savingPricing) return;
-    setSavingPricing(true);
-    try {
-      const payload = {
-        credit_value_idr: Number(pricingDraft.credit_value_idr),
-        base_build_credits: Number(pricingDraft.base_build_credits),
-        included_instrument_samples: Number(pricingDraft.included_instrument_samples),
-        extra_sample_credits: Number(pricingDraft.extra_sample_credits),
-        included_effect_dsp: Number(pricingDraft.included_effect_dsp),
-        custom_background_credits: Number(pricingDraft.custom_background_credits),
-        component_prices: pricingDraft.component_prices,
-        dsp_prices: pricingDraft.dsp_prices,
-        instrument_effect_prices: pricingDraft.instrument_effect_prices,
-        template_credits: pricingDraft.template_credits,
-        license_activation_credits: pricingDraft.license_activation_credits,
-        distribution_license_credits: pricingDraft.distribution_license_credits,
-        distribution_pack_discounts: pricingDraft.distribution_pack_discounts,
-      };
-      const { data } = await api.put("/admin/vst-maker/pricing", payload);
-      const normalized = normalizeVstPricing(data);
-      setPricing(normalized);
-      setPricingDraft(normalized);
-      toast.success("Harga kredit VST Maker diperbarui");
-    } catch (error) {
-      toast.error(error.userMessage || "Harga kredit gagal disimpan");
-    } finally {
-      setSavingPricing(false);
-    }
-  };
-
   const saveBuildSettings = async () => {
     if (customerMode || savingBuildSettings) return;
     setSavingBuildSettings(true);
     try {
       const payload = {
-        customer_license_enabled: buildSettingsDraft.customer_license_enabled !== false,
-        show_no_serial_option: buildSettingsDraft.show_no_serial_option !== false,
+        customer_license_enabled: true,
+        show_no_serial_option: false,
         license_max_activations: Math.max(1, Math.min(3, Number(buildSettingsDraft.license_max_activations) || 2)),
       };
-      const { data } = await api.put("/admin/vst-maker/build-settings", payload);
-      setBuildSettings(data);
-      setBuildSettingsDraft(data);
+      const { data } = await api.put("/admin/vst-maker/build-settings", payload, { timeout: 15000 });
+      const saved = {
+        ...payload,
+        ...data,
+        license_max_activations: Math.max(1, Math.min(3, Number(data?.license_max_activations) || payload.license_max_activations)),
+      };
+      setBuildSettings(saved);
+      setBuildSettingsDraft(saved);
       toast.success("Pengaturan lisensi build diperbarui");
     } catch (error) {
       toast.error(error.userMessage || "Pengaturan lisensi build gagal disimpan");
@@ -5539,55 +6000,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     }
   };
 
-  const grantFreeCredits = async () => {
-    const normalizedEmail = grantEmail.trim().toLowerCase();
-    const credits = Math.max(1, Math.round(Number(grantCredits) || 0));
-    if (!normalizedEmail || grantBusy) return;
-    setGrantBusy("credits");
-    try {
-      const { data } = await api.post("/admin/vst-maker/credit-grants", { email: normalizedEmail, credits, note: grantNote.trim() });
-      setGrantEmail("");
-      setGrantNote("");
-      toast.success(`${credits.toLocaleString("id-ID")} kredit diberikan ke ${data.customer_email} · saldo ${Number(data.balance).toLocaleString("id-ID")}`);
-    } catch (error) {
-      toast.error(error.userMessage || "Kredit gratis gagal diberikan");
-    } finally {
-      setGrantBusy("");
-    }
-  };
-
-  const templateStartingCredits = (template) => {
-    const galleryBuildSettings = { ...buildSettings, customer_license_enabled: false };
-    if (template.publishedByAdmin && template.project) {
-      const templateProject = { ...template.project, pricing_template_id: template.id };
-      const templateSamples = template.project.samples || [];
-      return quoteVstProjectCredits({
-        ...templateProject,
-        samples: templateSamples,
-        pricing_template_baseline: createVstTemplatePricingBaseline(templateProject, templateSamples),
-      }, pricing, galleryBuildSettings).totalCredits;
-    }
-    const ampState = template.id === "ampsimulator"
-      ? createAmpSimulatorTemplateState(() => makeId())
-      : template.id === "obsidianhighgain"
-        ? createHighGainAmpTemplateState(() => makeId())
-        : null;
-    const templateProject = {
-      pluginKind: template.pluginKind || "instrument",
-      projectTemplate: template.id,
-      pricingTemplateId: template.id,
-      interfaceControls: ampState?.interfaceControls || createTemplateControls(template.id, template.keyboardKeys || 49),
-      engineModules: ampState?.engineModules || [],
-      effects: {},
-      samples: [],
-    };
-    return quoteVstProjectCredits({
-      ...templateProject,
-      pricingTemplateBaseline: createVstTemplatePricingBaseline(templateProject, []),
-    }, pricing, galleryBuildSettings).totalCredits;
-  };
-
-  const enqueuePlatformBuild = async (targetPlatform, distributionChoice = null, forceCorrectionRebuild = false) => {
+  const enqueuePlatformBuild = async (targetPlatform) => {
     if (readinessCount !== readinessItems.length) {
       toast.error("Lengkapi seluruh pemeriksaan kesiapan sebelum mengantrekan build");
       return;
@@ -5597,31 +6010,8 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     try {
       const saved = await saveProject();
       if (!saved?.id) return;
-      const { data: job } = await api.post(`${apiBase}/projects/${encodeURIComponent(saved.id)}/builds`, {
-        force_correction_rebuild: forceCorrectionRebuild,
-        target_platform: targetPlatform,
-      });
+      const { data: job } = await api.post(`${apiBase}/projects/${encodeURIComponent(saved.id)}/builds`, { target_platform: targetPlatform });
       setBuildJobs((current) => [job, ...current.filter((item) => item.id !== job.id)]);
-      if (customerMode && Number.isFinite(Number(job.credit_balance_after_charge))) setCreditBalance(Number(job.credit_balance_after_charge));
-      if (customerMode && distributionChoice?.enabled) {
-        try {
-          const { data: purchase } = await api.post("/customer/license-distributions/purchase", {
-            build_job_id: job.id,
-            quantity: distributionChoice.quantity,
-            max_activations: distributionChoice.maxActivations,
-          });
-          if (Number.isFinite(Number(purchase.balance))) setCreditBalance(Number(purchase.balance));
-          if (purchase.api_key) {
-            navigator.clipboard?.writeText(purchase.api_key).catch(() => {});
-            toast.success(`${purchase.quantity} lisensi distribusi dibeli. API key baru disalin; pengelolaan tersedia di Dashboard.`);
-          } else {
-            toast.success(`${purchase.quantity} lisensi distribusi ditambahkan. Kelola serial di Dashboard.`);
-          }
-        } catch (distributionError) {
-          toast.error(`Build sudah masuk antrean, tetapi paket distribusi gagal dibeli: ${distributionError.userMessage || "coba kembali melalui Dashboard"}`);
-          return;
-        }
-      }
       const platformLabel = targetPlatform === "macos" ? "macOS" : "Windows";
       toast.success(job.duplicate ? `Eksport ${platformLabel} identik sudah tersedia atau berada di antrean` : `Eksport VST ${platformLabel} masuk antrean`);
     } catch (error) {
@@ -5632,7 +6022,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     }
   };
 
-  const requestPlatformBuild = async (targetPlatform, forceCorrectionRebuild = false) => {
+  const requestPlatformBuild = async (targetPlatform) => {
     if (readinessCount !== readinessItems.length) {
       toast.error("Lengkapi seluruh pemeriksaan kesiapan sebelum mengantrekan build");
       return;
@@ -5642,41 +6032,37 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       if (!saved?.id) return;
       try {
         const { data } = await api.get(`${apiBase}/projects/${encodeURIComponent(saved.id)}/build-quote`, {
-          params: { force_correction_rebuild: forceCorrectionRebuild, target_platform: targetPlatform },
+          params: { target_platform: targetPlatform },
         });
         setAuthoritativeBuildQuote({
-          ...buildCreditQuote,
-          totalCredits: Number(data.total_credits),
-          standardTotalCredits: Number(data.standard_total_credits ?? data.total_credits),
-          licenseMaxActivations: Number(data.license_max_activations || 0),
-          licenseCredits: Number(data.license_credits || 0),
-          correctionRebuild: data.correction_rebuild || null,
+          ...data,
+          planId: data.plan_id,
+          planName: data.plan_name,
+          canBuild: data.can_build !== false,
+          licenseMaxActivations: Number(data.license_max_activations || 1),
+          buildLimit: data.build_limit,
+          buildsUsed: Number(data.builds_used || 0),
+          buildsRemaining: data.builds_remaining,
         });
-        if (Number.isFinite(Number(data.balance))) setCreditBalance(Number(data.balance));
-        setBuildRequestMode(forceCorrectionRebuild ? "correction" : "export");
         setBuildTargetPlatform(targetPlatform);
         setBuildLicenseDialogOpen(true);
       } catch (error) {
-        toast.error(error.userMessage || "Perhitungan biaya build gagal dimuat");
+        toast.error(error.userMessage || "Hak build gagal diperiksa");
       }
       return;
     }
-    enqueuePlatformBuild(targetPlatform, null, forceCorrectionRebuild);
+    enqueuePlatformBuild(targetPlatform);
   };
 
-  const selectPlatformBuild = (targetPlatform, forceCorrectionRebuild = false) => {
+  const selectPlatformBuild = (targetPlatform) => {
     setBuildActionMenuOpen(null);
-    requestPlatformBuild(targetPlatform, forceCorrectionRebuild);
+    requestPlatformBuild(targetPlatform);
   };
 
   const updateBuildJob = async (job, action) => {
     try {
       const { data } = await api.post(`${apiBase}/builds/${encodeURIComponent(job.id)}/${action}`);
       setBuildJobs((current) => current.map((item) => item.id === data.id ? data : item));
-      if (customerMode) {
-        const nextBalance = action === "cancel" ? data.credit_balance_after_refund : data.credit_balance_after_charge;
-        if (Number.isFinite(Number(nextBalance))) setCreditBalance(Number(nextBalance));
-      }
       toast.success(action === "cancel" ? "Build dibatalkan" : "Build dimasukkan kembali ke antrean");
     } catch (error) {
       toast.error(error.userMessage || "Status build gagal diperbarui");
@@ -5852,11 +6238,17 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
 
   const addEngineModule = (type) => {
     const moduleId = makeId();
+    if (type === "wave_generator" && project.engineModules.some((module) => module.type === type)) return;
+    const tuningTarget = type === "tuning" ? nextDspTuningTarget(project.engineModules, project.samplerGroups) : null;
+    if (type === "tuning" && tuningTarget === undefined) {
+      toast.error("Semua target Tuning sudah memiliki modul");
+      return;
+    }
     updateDesignerProject((current) => ({
       ...current,
-      engineModules: ["wave_generator", "tuning"].includes(type) && current.engineModules.some((module) => module.type === type)
-        ? current.engineModules
-        : appendDspRackModule(current.engineModules, type, moduleId),
+      engineModules: normalizeDspRack(appendDspRackModule(current.engineModules, type, moduleId).map((module) => (
+        module.id === moduleId && type === "tuning" ? { ...module, samplerGroupId: tuningTarget } : module
+      ))),
     }));
     if (type !== "wave_generator") {
       setExpandedDspModuleId(moduleId);
@@ -6058,7 +6450,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
               R2 {formatBytes(r2Storage.used_bytes)} / 8 GB
             </span>}
             {customerMode && <Link to="/vst-maker/billing" className="inline-flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-300/[0.06] px-4 py-2.5 text-xs font-bold text-emerald-200 hover:bg-emerald-300/10">
-              <CreditCard className="h-3.5 w-3.5" /> {formatCredits(creditBalance)}
+              <CreditCard className="h-3.5 w-3.5" /> {entitlement?.business_plan?.plan_name || (entitlement?.partner_active ? "Partner" : "Pilih paket")}
             </Link>}
             {!customerMode && <Link to="/vst-maker/billing" className="inline-flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-300/[0.06] px-4 py-2.5 text-xs font-bold text-emerald-200 hover:bg-emerald-300/10">
               <CreditCard className="h-3.5 w-3.5" /> Billing & plans
@@ -6111,7 +6503,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
                       <span className="text-left">
                         <span className="block text-xs font-bold text-white">VST Basic</span>
                         <span className="mt-1 block text-[9px] leading-4 text-zinc-500">Project instrumen kosong</span>
-                        <span className="mt-1.5 inline-flex items-center gap-1 text-[9px] font-black text-amber-200"><Coins className="h-3 w-3 text-amber-300" />{formatCredits(templateStartingCredits(publishedTemplates.find((template) => template.id === "basicvst") || PROJECT_TEMPLATE_OPTIONS.find((template) => template.id === "basicvst") || { id: "basicvst" }))}</span>
+                        <span className="mt-1.5 block text-[9px] font-semibold text-emerald-200">Bebas dirancang</span>
                       </span>
                     </button>
                     <button type="button" onClick={() => resetDraft("effect")}>
@@ -6119,7 +6511,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
                       <span className="text-left">
                         <span className="block text-xs font-bold text-white">Plugin Basic</span>
                         <span className="mt-1 block text-[9px] leading-4 text-zinc-500">Project audio effect kosong</span>
-                        <span className="mt-1.5 inline-flex items-center gap-1 text-[9px] font-black text-amber-200"><Coins className="h-3 w-3 text-amber-300" />{formatCredits(templateStartingCredits(publishedTemplates.find((template) => template.id === "basicfx") || PROJECT_TEMPLATE_OPTIONS.find((template) => template.id === "basicfx") || { id: "basicfx", pluginKind: "effect" }))}</span>
+                        <span className="mt-1.5 block text-[9px] font-semibold text-emerald-200">Bebas dirancang</span>
                       </span>
                     </button>
                   </div>
@@ -6223,10 +6615,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
               {sampleMessage && <p className="mt-3 text-xs text-zinc-400" role="status">{sampleMessage}</p>}
               {samples.length > 0 ? (
                 <div className="mt-3 space-y-1">
-                  {samples.map((sample, sampleIndex) => {
-                    const included = buildCreditQuote.templateBundleActive
-                      ? templateIncludedSampleIds.has(String(sample.id))
-                      : sampleIndex < Number(pricing.included_instrument_samples);
+                  {samples.map((sample) => {
                     return (
                     <div
                       key={sample.id}
@@ -6240,9 +6629,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
                     >
                       <FileAudio className="h-3.5 w-3.5 shrink-0 text-[#fb7185]" />
                       <span className="min-w-0 flex-1 truncate text-xs text-zinc-300">{sample.name}</span>
-                      <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[9px] font-semibold ${included ? "border-emerald-300/15 bg-emerald-300/[0.05] text-emerald-200/75" : "border-amber-300/15 bg-amber-300/[0.05] text-amber-200/80"}`}>
-                        {included ? "Termasuk" : `+${pricing.extra_sample_credits} kredit`}
-                      </span>
+                      <span className="shrink-0 rounded-full border border-emerald-300/15 bg-emerald-300/[0.05] px-2 py-0.5 text-[9px] font-semibold text-emerald-200/75">Termasuk editor</span>
                       <span className={`text-[9px] ${sampleUploadProgress[sample.id] !== undefined || sample.uploaded ? "text-emerald-300/80" : "text-amber-200/70"}`}>
                         {sampleUploadProgress[sample.id] !== undefined
                           ? `Upload ${sampleUploadProgress[sample.id]}%`
@@ -6284,8 +6671,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
                 brandY={project.brandY}
                 brandAlign={project.brandAlign}
                 samples={samples}
-                pricing={pricing}
-                includedSampleIds={buildCreditQuote.templateBundleActive ? templateIncludedSampleIds : null}
+                includedSampleIds={templateIncludedSampleIds}
                 mappings={project.sampleMappings}
                 samplerGroups={project.samplerGroups}
                 rootNote={project.rootNote}
@@ -6387,26 +6773,6 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
                       </section>
                     )}
                   </div>
-                  <FreeCreditAdminPanel
-                    email={grantEmail}
-                    credits={grantCredits}
-                    note={grantNote}
-                    busy={grantBusy}
-                    onEmailChange={setGrantEmail}
-                    onCreditsChange={setGrantCredits}
-                    onNoteChange={setGrantNote}
-                    onGrantCredits={grantFreeCredits}
-                  />
-                  <PricingAdminPanel
-                    pricing={pricingDraft}
-                    templates={allProjectTemplates}
-                    variants={COMPONENT_VARIANTS}
-                    dspOptions={DSP_RACK_MODULE_OPTIONS}
-                    saving={savingPricing}
-                    onScalarChange={(key, value) => setPricingDraft((current) => ({ ...current, [key]: Math.max(0, Math.round(Number(value) || 0)) }))}
-                    onPriceChange={updatePricingDraft}
-                    onSave={savePricingSettings}
-                  />
                 </>
               )}
               <div className="maker-template-category-filter mt-6" role="tablist" aria-label="Kategori template project">
@@ -6466,7 +6832,6 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
                       className="maker-project-template__apply"
                     >
                     <span className={`maker-project-template__preview maker-project-template__preview--${template.id} ${template.customThumbnail ? "is-custom-thumbnail" : ""}`} style={{ backgroundImage: (template.thumbnailUrl || template.backgroundUrl) ? template.customThumbnail ? `url(${template.thumbnailUrl || template.backgroundUrl})` : `linear-gradient(rgba(0, 0, 0, 0.06), rgba(0, 0, 0, 0.5)), url(${template.thumbnailUrl || template.backgroundUrl})` : undefined, "--template-accent": template.accentColor }} aria-hidden="true">
-                      <CreditCoinBadge value={templateStartingCredits(template)} prefix="Mulai" />
                       {!template.customThumbnail && <span className="maker-project-template__mock-controls">{DRUM_PROJECT_TEMPLATE_IDS.has(template.id) ? Array.from({ length: 16 }, (_, index) => <i key={index} />) : Array.from({ length: template.templateCategory === "amp" ? 8 : 5 }, (_, index) => <i key={index} />)}</span>}
                       {!template.customThumbnail && !DRUM_PROJECT_TEMPLATE_IDS.has(template.id) && <span className="maker-project-template__mock-meter"><i /><i /></span>}
                       {!template.customThumbnail && !DRUM_PROJECT_TEMPLATE_IDS.has(template.id) && template.pluginKind !== "effect" && <VstMiniKeyboard className="maker-project-template__mock-keys" />}
@@ -6518,13 +6883,6 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
               <div className="maker-designer-heading-row" style={{ zIndex: 40 }}>
                 <SectionHeading number="01" title="Plugin & VST Designer" description="Tambahkan knob, fader, pad, atau keyboard, lalu susun di kanvas." />
                 <div className="maker-designer-project-actions">
-                  {customerMode && (
-                    <CreditEstimatePopup
-                      quote={buildCreditQuote}
-                      balance={creditBalance}
-                      insufficient={insufficientCredits}
-                    />
-                  )}
                   <div ref={buildActionMenuRef} className="maker-build-actions">
                     <button
                       type="button"
@@ -6539,45 +6897,28 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
                       <span>Export</span>
                       <ChevronDown className={`h-3.5 w-3.5 transition-transform ${buildActionMenuOpen === "export" ? "rotate-180" : ""}`} />
                     </button>
-                    {hasRebuildSlots && (
-                      <button
-                        type="button"
-                        onClick={() => setBuildActionMenuOpen((current) => current === "rebuild" ? null : "rebuild")}
-                        disabled={savingProject || queueingBuild || buildInProgress || readinessCount !== readinessItems.length}
-                        aria-expanded={buildActionMenuOpen === "rebuild"}
-                        aria-haspopup="menu"
-                        title="Pilih platform untuk Rebuild Koreksi"
-                        className="maker-build-action-button is-rebuild"
-                      >
-                        <Repeat2 className="h-3.5 w-3.5" />
-                        <span>Rebuild</span>
-                        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${buildActionMenuOpen === "rebuild" ? "rotate-180" : ""}`} />
-                      </button>
-                    )}
                     {buildActionMenuOpen && (
-                      <div className={`maker-build-platform-menu is-${buildActionMenuOpen}`} role="menu" aria-label={buildActionMenuOpen === "rebuild" ? "Pilih platform rebuild" : "Pilih platform export"}>
+                      <div className="maker-build-platform-menu is-export" role="menu" aria-label="Pilih platform export">
                         <button
                           type="button"
                           role="menuitem"
-                          onClick={() => selectPlatformBuild("windows", buildActionMenuOpen === "rebuild")}
-                          disabled={buildActionMenuOpen === "rebuild" && windowsRebuildSlots <= 0}
+                          onClick={() => selectPlatformBuild("windows")}
                         >
                           <span className="maker-build-platform-menu__icon is-windows"><WindowsIcon /></span>
                           <span className="maker-build-platform-menu__copy">
-                            <strong>{buildActionMenuOpen === "rebuild" ? "Rebuild Windows" : "Export Windows"}</strong>
-                            <small>{buildActionMenuOpen === "rebuild" ? windowsRebuildSlots > 0 ? `${windowsRebuildSlots} slot tersedia` : "Slot tidak tersedia" : "VST3 untuk Windows"}</small>
+                            <strong>Export Windows</strong>
+                            <small>VST3 untuk Windows</small>
                           </span>
                         </button>
                         <button
                           type="button"
                           role="menuitem"
-                          onClick={() => selectPlatformBuild("macos", buildActionMenuOpen === "rebuild")}
-                          disabled={buildActionMenuOpen === "rebuild" && macRebuildSlots <= 0}
+                          onClick={() => selectPlatformBuild("macos")}
                         >
                           <span className="maker-build-platform-menu__icon is-macos"><MacIcon /></span>
                           <span className="maker-build-platform-menu__copy">
-                            <strong>{buildActionMenuOpen === "rebuild" ? "Rebuild macOS" : "Export macOS"}</strong>
-                            <small>{buildActionMenuOpen === "rebuild" ? macRebuildSlots > 0 ? `${macRebuildSlots} slot tersedia` : "Slot tidak tersedia" : "Universal Apple Silicon + Intel"}</small>
+                            <strong>Export macOS</strong>
+                            <small>Universal Apple Silicon + Intel</small>
                           </span>
                         </button>
                       </div>
@@ -6615,7 +6956,6 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
                 backgroundImageWidth={project.backgroundImageWidth}
                 backgroundImageHeight={project.backgroundImageHeight}
                 componentStyle={project.componentStyle}
-                pricing={pricing}
                 gridSnapEnabled={project.gridSnapEnabled}
                 gridSize={project.gridSize}
                 resizeAspectLocked={project.resizeAspectLocked}
@@ -6640,6 +6980,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
                 onPitchBendChange={setPerformancePitchBend}
                 onModulationChange={setPerformanceModulation}
                 meterAnalyserRef={meterAnalyserRef}
+                samplerAnalyserRefs={samplerAnalyserRefs}
                 controls={project.interfaceControls}
                 engineModules={project.engineModules}
                 presets={project.presets}
@@ -6684,7 +7025,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
                         <span className="rounded-full border border-white/10 bg-black/25 px-2 py-0.5 text-[9px] font-bold text-zinc-400">{dspRackModules.length} modul</span>
                         {dspRackModules.some((module) => module.bypassed) && <span className="rounded-full border border-amber-300/20 bg-amber-300/[0.08] px-2 py-0.5 text-[9px] font-bold text-amber-200">{dspRackModules.filter((module) => module.bypassed).length} bypass</span>}
                       </div>
-                      <p className="mt-1 max-w-2xl text-xs leading-5 text-zinc-500">Susun alur suara dari kiri ke kanan. Buka satu modul untuk mengedit parameternya.</p>
+                      <p className="mt-1 max-w-2xl text-xs leading-5 text-zinc-500">Susun alur suara dari kiri ke kanan. Setiap modul dapat diarahkan ke Master atau ke DSP sampler tertentu.</p>
                     </div>
                     <div className="flex shrink-0 flex-wrap gap-2">
                       <button type="button" onClick={installAmpSimulatorRack} className="rounded-xl border border-rose-300/20 bg-rose-300/[0.06] px-3 py-2 text-[10px] font-bold uppercase tracking-[0.12em] text-rose-200 hover:bg-rose-300/10">
@@ -6731,7 +7072,6 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
                                 <button key={option.type} type="button" onClick={() => addEngineModule(option.type)} className={`group flex min-h-12 items-center gap-2 rounded-xl border px-3 py-2 text-left ${group.id === "amp" ? "border-rose-300/10 bg-rose-300/[0.025] hover:border-rose-300/30 hover:bg-rose-300/[0.06]" : "border-white/[0.08] bg-black/20 hover:border-sky-300/25 hover:bg-sky-300/[0.05]"}`}>
                                   <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border bg-white/[0.035] ${group.id === "amp" ? "border-rose-300/10 text-rose-300/70 group-hover:text-rose-200" : "border-white/[0.08] text-zinc-500 group-hover:text-sky-200"}`}><Plus className="h-3.5 w-3.5" /></span>
                                   <span className="min-w-0 flex-1"><span className="block truncate text-[10px] font-bold text-zinc-300 group-hover:text-white">{option.name}</span><span className="block text-[9px] text-zinc-600">{option.parameters?.length || 1} parameter</span></span>
-                                  <span className="maker-inline-credit"><Coins aria-hidden="true" />{pricing.dsp_prices?.[option.type] ?? 15}</span>
                                 </button>
                               ))}
                             </div>
@@ -6766,11 +7106,23 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
                               </button>
                               <button type="button" disabled={index === 0} onClick={() => moveEngineModule(module.id, -1)} className="rounded-lg border border-white/10 px-2 py-1.5 text-xs text-zinc-400 disabled:opacity-25" aria-label={`Naikkan ${module.name}`}>↑</button>
                               <button type="button" disabled={index === dspRackModules.length - 1} onClick={() => moveEngineModule(module.id, 1)} className="rounded-lg border border-white/10 px-2 py-1.5 text-xs text-zinc-400 disabled:opacity-25" aria-label={`Turunkan ${module.name}`}>↓</button>
+                              {!isEffectProject && (
+                                <select
+                                  className="h-8 max-w-40 rounded-lg border border-white/10 bg-zinc-950 px-2 text-[9px] font-bold text-zinc-300"
+                                  value={module.samplerGroupId || ""}
+                                  onChange={(event) => updateEngineModule(module.id, { samplerGroupId: event.target.value || null })}
+                                  aria-label={`Target DSP ${module.name}`}
+                                  title="Pilih jalur yang diproses modul ini"
+                                >
+                                  <option value="" disabled={module.type === "tuning" && tuningTargetInUse(dspRackModules, null, module.id)}>DSP Master</option>
+                                  {project.samplerGroups.map((group) => <option key={group.id} value={group.id} disabled={module.type === "tuning" && tuningTargetInUse(dspRackModules, group.id, module.id)}>DSP · {group.name}</option>)}
+                                </select>
+                              )}
                               <button type="button" aria-pressed={module.bypassed} onClick={() => updateEngineModule(module.id, { bypassed: !module.bypassed })} className={`rounded-lg border px-2.5 py-1.5 text-[9px] font-bold uppercase tracking-wide ${module.bypassed ? "border-amber-300/25 bg-amber-300/10 text-amber-200" : "border-white/10 text-zinc-500 hover:text-zinc-300"}`}>{module.bypassed ? "Bypass aktif" : "Bypass"}</button>
                               <button type="button" onClick={() => deleteEngineModule(module.id)} className="rounded-lg border border-red-300/10 p-1.5 text-red-300/60 hover:bg-red-300/10 hover:text-red-200" aria-label={`Hapus ${module.name}`}><Trash2 className="h-3.5 w-3.5" /></button>
                             </div>
                             {isExpanded && <div className="border-t border-white/[0.07] p-3 md:p-4">
-                            <div className="mb-3 flex items-center justify-between gap-3"><span className="text-[9px] font-bold uppercase tracking-[0.14em] text-zinc-500">Parameter modul</span><code className="text-[8px] text-zinc-700">{module.type} · {module.id.slice(0, 8)}</code></div>
+                            <div className="mb-3 flex items-center justify-between gap-3"><span className="text-[9px] font-bold uppercase tracking-[0.14em] text-zinc-500">Parameter modul · {project.samplerGroups.find((group) => group.id === module.samplerGroupId)?.name || "Master"}</span><code className="text-[8px] text-zinc-700">{module.type} · {module.id.slice(0, 8)}</code></div>
                             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                               {parameterDefinitions.map((definition) => {
                                 const parameterValue = Number(module.parameters?.[definition.key] ?? definition.defaultValue);
@@ -6853,7 +7205,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
                         <button type="button" onClick={() => deleteEngineModule(waveGeneratorModule.id)} className="rounded-lg border border-red-300/15 px-3 py-2 text-[10px] font-bold text-red-200 hover:bg-red-300/10"><Trash2 className="mr-1 inline h-3 w-3" /> Hapus</button>
                       </div>
                     ) : (
-                      <button type="button" onClick={() => addEngineModule("wave_generator")} className="rounded-lg border border-cyan-300/20 bg-cyan-300/[0.08] px-3 py-2 text-[10px] font-bold text-cyan-100 hover:bg-cyan-300/15"><Plus className="mr-1 inline h-3 w-3" /> Tambahkan <span className="maker-inline-credit"><Coins aria-hidden="true" />{pricing.dsp_prices?.wave_generator ?? 20}</span></button>
+                      <button type="button" onClick={() => addEngineModule("wave_generator")} className="rounded-lg border border-cyan-300/20 bg-cyan-300/[0.08] px-3 py-2 text-[10px] font-bold text-cyan-100 hover:bg-cyan-300/15"><Plus className="mr-1 inline h-3 w-3" /> Tambahkan</button>
                     )}
                   </div>
                   {waveGeneratorModule && (() => {
@@ -6982,27 +7334,15 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       </div>
       {customerMode && buildLicenseDialogOpen && (
         <CustomerBuildLicenseDialog
-          mode={buildRequestMode}
           platform={buildTargetPlatform}
-          settings={buildSettings}
-          pricing={pricing}
-          selectedActivations={project.licenseMaxActivations}
           quote={buildDialogQuote}
-          balance={creditBalance}
-          distributionChoice={distributionBuildChoice}
           busy={queueingBuild || savingProject}
-          onChange={(value) => updateProject("licenseMaxActivations", value)}
-          onDistributionChange={setDistributionBuildChoice}
           onClose={() => {
             setBuildLicenseDialogOpen(false);
-            setBuildRequestMode("export");
-            updateProject("licenseMaxActivations", 1);
           }}
           onConfirm={async () => {
             setBuildLicenseDialogOpen(false);
-            await enqueuePlatformBuild(buildTargetPlatform, distributionBuildChoice, buildRequestMode === "correction");
-            setBuildRequestMode("export");
-            updateProject("licenseMaxActivations", 1);
+            await enqueuePlatformBuild(buildTargetPlatform);
           }}
         />
       )}
@@ -7101,16 +7441,6 @@ function BuildProgressPanel({ build, onCancel, onRetry, downloadBuilds = [], onD
             </div>
             <button type="button" onClick={() => navigator.clipboard.writeText(build.license_key).then(() => toast.success("Serial lisensi disalin")).catch(() => toast.error("Serial tidak dapat disalin"))} className="inline-flex items-center gap-2 rounded-xl border border-amber-300/20 px-4 py-2.5 text-xs font-bold text-amber-100 hover:bg-amber-300/10"><Copy className="h-4 w-4" />Salin serial</button>
             <p className="w-full text-[10px] leading-4 text-zinc-500">Saat plugin pertama dibuka, salin serial ini lalu tekan Aktivasi dari Clipboard. Aktivasi tersimpan aman pada komputer tersebut.</p>
-          </div>
-        )}
-
-        {ready && build.correction_window_expires_at && (
-          <div className="mt-4 rounded-2xl border border-sky-300/15 bg-sky-300/[0.05] px-4 py-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <strong className="text-xs text-sky-100">Kesempatan Rebuild Koreksi</strong>
-              <span className="text-[10px] font-bold text-sky-300">{Number(build.correction_rebuilds_remaining ?? 0)} kesempatan tersisa · sampai {new Date(build.correction_window_expires_at).toLocaleDateString("id-ID")}</span>
-            </div>
-            <p className="mt-1 text-[10px] leading-4 text-zinc-500">Perbaikan ringan mulai 15 kredit. Maksimal 3 komponen baru, 3 sample baru, dan 3 pergantian skin tetap dihitung sebagai rebuild; harga tambahannya dibayar sesuai selisih.</p>
           </div>
         )}
 
@@ -7237,12 +7567,11 @@ function DesignerColorField({ label, value, onChange, colorClipboard, onCopy, ar
   );
 }
 
-function ToggleRow({ title, description, creditPrice = null, checked, onChange }) {
+function ToggleRow({ title, description, checked, onChange }) {
   return (
     <button type="button" onClick={onChange} aria-pressed={checked} className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors ${checked ? "border-[#fb7185]/20 bg-[#fb7185]/[0.06]" : "border-white/5 bg-black/20 hover:border-white/10"}`}>
       <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${checked ? "border-[#fb7185] bg-[#fb7185] text-black" : "border-white/15 bg-black text-transparent"}`}>{checked && <Check className="h-3.5 w-3.5" />}</span>
       <span className="min-w-0 flex-1"><span className="block text-xs font-semibold text-zinc-200">{title}</span><span className="mt-0.5 block text-[10px] text-zinc-600">{description}</span></span>
-      {creditPrice !== null && <span className="maker-inline-credit"><Coins aria-hidden="true" />{creditPrice}</span>}
       <Plus className={`h-3.5 w-3.5 transition-transform ${checked ? "rotate-45 text-[#fb7185]" : "text-zinc-700"}`} />
     </button>
   );
@@ -7283,7 +7612,11 @@ function WaveGeneratorPatternStudio({ liveConfig, midiSequences, onLiveConfigCha
   const generatedSequences = midiSequences.filter((sequence) => GENERATED_SEQUENCE_PREFIXES.some((prefix) => String(sequence.name || "").startsWith(prefix)));
   const activeMode = WAVE_GENERATOR_MODES.find(({ id }) => id === config.mode) || WAVE_GENERATOR_MODES[0];
   const updateConfig = (key, value) => {
-    const next = normalizeWaveGeneratorConfig({ ...config, [key]: value });
+    const next = normalizeWaveGeneratorConfig({
+      ...config,
+      [key]: value,
+      ...(key === "mode" && value === "step" && config.scale === "relative" ? { scale: "major" } : {}),
+    });
     setConfig(next);
   };
   const generate = () => {
@@ -7318,7 +7651,9 @@ function WaveGeneratorPatternStudio({ liveConfig, midiSequences, onLiveConfigCha
       </div>
 
       <div className={`mt-3 rounded-lg border px-3 py-2 text-[10px] leading-4 ${liveEnabled ? "border-emerald-300/20 bg-emerald-300/[0.06] text-emerald-100/80" : "border-white/[0.06] bg-black/20 text-zinc-600"}`}>
-        {liveEnabled && liveConfig.mode === "chord" && liveConfig.chordMode === "single"
+        {liveEnabled && liveConfig.scale === "relative"
+          ? "Scale Relative aktif. Tahan beberapa tuts sekaligus; pola mengikuti jarak nada dan bentuk chord yang dimainkan, termasuk major, minor, maj7, min7, sus, dan voicing lain."
+          : liveEnabled && liveConfig.mode === "chord" && liveConfig.chordMode === "single"
           ? "Preset Live Trigger 1 Chord aktif. Tekan satu tuts untuk memainkan satu chord dan tahan sampai tuts dilepas."
           : liveEnabled
           ? `Satu preset ${WAVE_GENERATOR_MODES.find(({ id }) => id === liveConfig.mode)?.label || "generator"} dipilih. Tekan dan tahan tuts; pola berhenti saat tuts dilepas.`
@@ -7337,7 +7672,7 @@ function WaveGeneratorPatternStudio({ liveConfig, midiSequences, onLiveConfigCha
           <select className={fieldClass} value={config.root} onChange={(event) => updateConfig("root", event.target.value)}>{WAVE_NOTE_NAMES.map((note, index) => <option key={note} value={index}>{note}</option>)}</select>
         </label>
         <label className={fieldLabel}>Scale
-          <select className={fieldClass} value={config.scale} onChange={(event) => updateConfig("scale", event.target.value)}>{WAVE_SCALE_OPTIONS.map((scale) => <option key={scale.id} value={scale.id}>{scale.label}</option>)}</select>
+          <select className={fieldClass} value={config.scale} onChange={(event) => updateConfig("scale", event.target.value)}>{WAVE_SCALE_OPTIONS.filter((scale) => config.mode !== "step" || scale.id !== "relative").map((scale) => <option key={scale.id} value={scale.id}>{scale.label}</option>)}</select>
         </label>
         <label className={fieldLabel}>Octave
           <select className={fieldClass} value={config.octave} onChange={(event) => updateConfig("octave", event.target.value)}>{[1, 2, 3, 4, 5, 6].map((octave) => <option key={octave} value={octave}>{octave}</option>)}</select>
@@ -7900,13 +8235,18 @@ function PanelFeatureContent({ panel, controls, engineModules = [], presets, mid
       </div>
     </div>
   );
+  if (panel.panelType === "mixer" && panel.mixerShowDefaultControls === false) return (
+    <div className="maker-functional-panel__body maker-panel-mixer">
+      {!controls.some((control) => control.parentPanelId === panel.id) && <div className="maker-functional-panel__empty">Kontrol bawaan disembunyikan. Tambahkan knob, fader, Solo, atau Mute lalu pilih sampler target di inspector.</div>}
+    </div>
+  );
   if (panel.panelType === "mixer") return (
     <div className="maker-functional-panel__body maker-panel-mixer">
       {samplerGroups.map((group) => <div key={group.id} className="maker-panel-channel">
         <strong>{group.name}</strong>
-        <label>VOL<input type="range" min="0" max="100" value={group.volume} onChange={(event) => onFeatureChange({ samplerGroups: samplerGroups.map((item) => item.id === group.id ? { ...item, volume: Number(event.target.value) } : item) })} /></label>
-        <label>PAN<input type="range" min="-1" max="1" step="0.01" value={group.pan} onChange={(event) => onFeatureChange({ samplerGroups: samplerGroups.map((item) => item.id === group.id ? { ...item, pan: Number(event.target.value) } : item) })} /></label>
-        <div><button type="button" className={group.mute ? "is-active" : ""} onClick={() => onFeatureChange({ samplerGroups: samplerGroups.map((item) => item.id === group.id ? { ...item, mute: !item.mute } : item) })}>M</button><button type="button" className={group.solo ? "is-active" : ""} onClick={() => onFeatureChange({ samplerGroups: samplerGroups.map((item) => item.id === group.id ? { ...item, solo: !item.solo } : item) })}>S</button></div>
+        <label>VOL<input type="range" min="0" max="100" value={group.volume} onChange={(event) => onFeatureChange({ samplerGroups: samplerGroups.map((item) => item.id === group.id ? { ...item, volume: Number(event.target.value) } : item) })} {...mappingRangeResetProps(() => onFeatureChange({ samplerGroups: samplerGroups.map((item) => item.id === group.id ? { ...item, volume: 100 } : item) }))} /></label>
+        <label>PAN<input type="range" min="-1" max="1" step="0.01" value={group.pan} onChange={(event) => onFeatureChange({ samplerGroups: samplerGroups.map((item) => item.id === group.id ? { ...item, pan: Number(event.target.value) } : item) })} {...mappingRangeResetProps(() => onFeatureChange({ samplerGroups: samplerGroups.map((item) => item.id === group.id ? { ...item, pan: 0 } : item) }))} /></label>
+        <div><button type="button" className={group.mute ? "is-active" : ""} onClick={() => onFeatureChange({ samplerGroups: setSamplerMute(samplerGroups, group.id, !group.mute) })}>M</button><button type="button" className={group.solo ? "is-active" : ""} onClick={() => onFeatureChange({ samplerGroups: setSamplerSolo(samplerGroups, group.id, !group.solo) })}>S</button></div>
       </div>)}
     </div>
   );
@@ -7941,8 +8281,11 @@ function PanelFeatureContent({ panel, controls, engineModules = [], presets, mid
   );
 }
 
-function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentColor, uiColor = "#09090b", pluginName, manufacturerName, pluginVersion, pluginKind = "instrument", instrumentType, brandTagline, brandFont, brandSize = 24, brandX = 18, brandY = 13, brandAlign = "left", uiTemplate, projectTemplate, keyboardKeys, onKeyboardKeysChange, canvasWidth, canvasHeight, backgroundImageUrl, backgroundImageName, backgroundFit, backgroundOpacity, backgroundImageX = 50, backgroundImageY = 50, backgroundImageWidth = 100, backgroundImageHeight = 100, componentStyle = "css", pricing = DEFAULT_VST_PRICING, gridSnapEnabled = true, gridSize = 8, resizeAspectLocked = true, backgroundUploadEndpoint, customBackgroundEnabled = true, imageUploadEndpoint = "", imageUploadEnabled = false, onCanvasChange, canUndo = false, canRedo = false, onUndo, onRedo, midiPressedPitches, activeHitPitches = new Set(), activeHitTriggers = new Map(), velocity, sustainEnabled, pitchBendEnabled = true, modulationEnabled = true, pitchBendValue, modulationValue, onPitchBendChange, onModulationChange, meterAnalyserRef, controls, engineModules, presets = [], midiSequences = [], samplerGroups = [], livePatternConfig = null, onLivePatternConfigChange, onFeatureChange, selectedControlId, selectedControlIds = [], onNoteOn, onNoteOff, onAdd, onSelect, onUpdate, onUpdateMany, onMoveLayer, onRemove, onRemoveSelected, onDrop }) {
+function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentColor, uiColor = "#09090b", pluginName, manufacturerName, pluginVersion, pluginKind = "instrument", instrumentType, brandTagline, brandFont, brandSize = 24, brandX = 18, brandY = 13, brandAlign = "left", uiTemplate, projectTemplate, keyboardKeys, onKeyboardKeysChange, canvasWidth, canvasHeight, backgroundImageUrl, backgroundImageName, backgroundFit, backgroundOpacity, backgroundImageX = 50, backgroundImageY = 50, backgroundImageWidth = 100, backgroundImageHeight = 100, componentStyle = "css", gridSnapEnabled = true, gridSize = 8, resizeAspectLocked = true, backgroundUploadEndpoint, customBackgroundEnabled = true, imageUploadEndpoint = "", imageUploadEnabled = false, onCanvasChange, canUndo = false, canRedo = false, onUndo, onRedo, midiPressedPitches, activeHitPitches = new Set(), activeHitTriggers = new Map(), velocity, sustainEnabled, pitchBendEnabled = true, modulationEnabled = true, pitchBendValue, modulationValue, onPitchBendChange, onModulationChange, meterAnalyserRef, samplerAnalyserRefs, controls, engineModules, presets = [], midiSequences = [], samplerGroups = [], livePatternConfig = null, onLivePatternConfigChange, onFeatureChange, selectedControlId, selectedControlIds = [], onNoteOn, onNoteOff, onAdd, onSelect, onUpdate, onUpdateMany, onMoveLayer, onRemove, onRemoveSelected, onDrop }) {
   const selectedControl = controls.find((control) => control.id === selectedControlId);
+  const selectedControlSampler = selectedControl?.sampler_group_id
+    ? samplerGroups.find((group) => group.id === selectedControl.sampler_group_id) || null
+    : null;
   const selectedKeyboardPitches = selectedControl?.kind === "keyboard"
     ? Array.from({ length: selectedControl.keyCount ?? keyboardKeys }, (_, index) => 36 + index)
     : [];
@@ -7954,15 +8297,12 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
   const backgroundTargets = selectedControls.length ? selectedControls : selectedControl ? [selectedControl] : [];
   const backgroundVisibleCount = backgroundTargets.filter((control) => control.showBackground !== false).length;
   const backgroundSelectionMixed = backgroundVisibleCount > 0 && backgroundVisibleCount < backgroundTargets.length;
-  const replacementVariantsFor = (control) => {
-    if (!control) return [];
+  const componentCategoryForControl = (control) => {
+    if (!control) return "knob";
     const currentVariant = COMPONENT_VARIANTS.find((variant) => variant.kind === control.kind && variant.id === control.component_variant);
-    return COMPONENT_VARIANTS.filter((variant) => {
-    if (variant.kind !== control.kind) return false;
-    if (["pad", "hit_pad"].includes(currentVariant?.category) && variant.category !== currentVariant.category) return false;
-    if (["pitch_bend", "modulation"].includes(control.parameter)) return variant.parameter === control.parameter;
-    return !variant.parameter || resolveVariantParameter(variant) === control.parameter;
-    });
+    return currentVariant?.category
+      || COMPONENT_CATEGORIES.find((category) => category.kinds.includes(control.kind))?.id
+      || "knob";
   };
   const canvasRef = useRef(null);
   const previewViewportRef = useRef(null);
@@ -7977,6 +8317,7 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
   const [componentCategory, setComponentCategory] = useState("knob");
   const [componentPickerOpen, setComponentPickerOpen] = useState(false);
   const [replaceControlId, setReplaceControlId] = useState(null);
+  const [replaceComponentCategory, setReplaceComponentCategory] = useState("knob");
   const [backgroundTemplatePickerOpen, setBackgroundTemplatePickerOpen] = useState(false);
   const [brandFontPickerOpen, setBrandFontPickerOpen] = useState(false);
   const [colorClipboard, setColorClipboard] = useState("");
@@ -7993,13 +8334,20 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
   const prismAnalyzers = controls.filter((control) => control.kind === "spectrum" && (control.component_variant || "realtime-spectrum") === "realtime-spectrum");
   const indicatorActiveFor = (control) => {
     if (control.captureLevel !== undefined) return Number(control.captureLevel) >= 0.5;
+    const directSampler = control.sampler_group_id ? samplerGroups.find((group) => group.id === control.sampler_group_id) : null;
+    if (directSampler && SAMPLER_CONTROL_PARAMETERS.has(control.parameter)) {
+      return samplerControlValue(directSampler, control.parameter, control.value) >= 50;
+    }
     const sourceId = control.indicatorSourceId ?? control.indicator_source_id;
     const source = sourceId ? controls.find((candidate) => candidate.id === sourceId) : null;
     if (!source) return Number(control.value) >= 50;
     if (source.kind === "panel_button") return openPanelId === source.id;
     if (source.midiSequenceId ?? source.midi_sequence_id) return livePatternConfig?.enabled === true && livePatternConfig.sourceSequenceId === (source.midiSequenceId ?? source.midi_sequence_id);
     if (source.kind === "pad") return activeHitPitches.has(source.notePitch ?? 60) || midiPressedPitches.has(source.notePitch ?? 60);
-    const sourceValue = Number(source.value) || 0;
+    const sourceSampler = source.sampler_group_id ? samplerGroups.find((group) => group.id === source.sampler_group_id) : null;
+    const sourceValue = sourceSampler && supportsSamplerControlBinding(source)
+      ? samplerControlValue(sourceSampler, source.parameter, source.value)
+      : Number(source.value) || 0;
     if (source.kind === "button" && source.parameter === "bypass") return sourceValue < 50;
     if (["button", "solo", "mute"].includes(source.kind)) return sourceValue > 0;
     return sourceValue >= 50;
@@ -8028,18 +8376,70 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
     if (openPanelId && !controls.some((control) => control.id === openPanelId && control.kind === "panel_button")) setOpenPanelId(null);
   }, [controls, openPanelId]);
   const replaceControl = controls.find((control) => control.id === replaceControlId) || null;
-  const replaceControlVariants = replacementVariantsFor(replaceControl);
-  // Keep the component library identical for instruments and effects. Older
-  // effect templates may still use instrument-oriented controls as generic UI
-  // elements, so filtering by plugin kind makes valid components disappear.
-  const availableComponentCategories = COMPONENT_CATEGORIES;
+  // Keep legacy instrument-oriented controls available to effect templates,
+  // but hide output routing because effect builds do not expose sampler buses.
+  const availableComponentCategories = COMPONENT_CATEGORIES.filter((category) => (
+    pluginKind !== "effect" || category.id !== "output"
+  ));
   const addComponentVariants = componentCategory
     ? COMPONENT_VARIANTS.filter((variant) => variant.category === componentCategory)
+    : [];
+  const replaceControlVariants = replaceComponentCategory
+    ? COMPONENT_VARIANTS.filter((variant) => variant.category === replaceComponentCategory)
     : [];
   const replaceVariantId = replaceControl?.component_variant
     || (replaceControl?.kind === "pad" ? "rubber"
       : replaceControl?.kind === "gain_meter" ? "led"
         : replaceControl?.kind === "vu_meter" ? "dark-vu" : "classic");
+  const replacementUpdatesForVariant = (control, variant) => {
+    const kind = variant.kind;
+    const kindChanged = control.kind !== kind;
+    const isMeter = ["gain_meter", "vu_meter"].includes(kind);
+    const isVisual = ["visual", "spectrum", "indicator", "text", "image", "panel_button", "output_selector"].includes(kind);
+    const isToggle = ["button", "solo", "mute", "solo_mute"].includes(kind);
+    const defaultSize = defaultControlSize(kind, variant);
+    const defaultParameter = kind === "output_selector" ? "group_output"
+      : kind === "solo_mute" ? "solo_mute"
+        : isVisual ? "visual"
+          : resolveVariantParameter(variant) || (kind === "solo" ? "solo" : kind === "mute" ? "mute" : isMeter ? "output_level" : kind === "button" ? "space" : "tone");
+    const moduleBindingKinds = new Set(["knob", "fader", "button", "gain_meter", "vu_meter", "spectrum", "indicator"]);
+    const preservesModuleBinding = Boolean(control.moduleId) && (control.kind === kind || moduleBindingKinds.has(kind));
+    const preservesSamplerParameter = Boolean(control.sampler_group_id) && samplerParametersForControl({ kind }).includes(control.parameter);
+    const preservesSharedValueBinding = ["knob", "fader", "button"].includes(control.kind) && ["knob", "fader", "button"].includes(kind);
+    const parameter = preservesModuleBinding || preservesSamplerParameter || preservesSharedValueBinding || (!kindChanged && !variant.parameter)
+      ? control.parameter
+      : defaultParameter;
+    const moduleId = preservesModuleBinding ? control.moduleId : null;
+    const samplerCandidate = { ...control, kind, parameter, moduleId };
+    const previousSamplerExists = samplerGroups.some((group) => group.id === control.sampler_group_id);
+    const requiresSampler = ["solo_mute", "output_selector"].includes(kind);
+    const samplerGroupId = supportsAnySamplerBinding(samplerCandidate)
+      ? (previousSamplerExists ? control.sampler_group_id : requiresSampler ? samplerGroups[0]?.id || null : null)
+      : null;
+    return {
+      kind,
+      component_style: isVisual ? "css" : variant.style,
+      component_variant: variant.id,
+      parameter,
+      moduleId,
+      sampler_group_id: samplerGroupId,
+      value: control.value ?? variant.value ?? (isToggle || isMeter || isVisual || ["pad", "keyboard"].includes(kind) ? 0 : 50),
+      width: control.width ?? variant.width ?? defaultSize.width,
+      height: control.height ?? variant.height ?? defaultSize.height,
+      showBackground: control.showBackground ?? variant.showBackground ?? !isVisual,
+      parentPanelId: kind === "panel_button" ? null : control.parentPanelId ?? null,
+      ...(isMeter ? { meterMode: control.meterMode ?? control.meter_mode ?? (kind === "gain_meter" ? "stereo" : "mono") } : {}),
+      ...(kind === "fader" ? { faderMeterEnabled: isStudioMetalFaderVariant(variant.id) ? true : control.faderMeterEnabled ?? variant.faderMeterEnabled ?? true, faderMeterPosition: control.faderMeterPosition ?? variant.faderMeterPosition ?? "right", faderMeterColor: control.faderMeterColor ?? DEFAULT_FADER_METER_COLOR, faderMeterGap: control.faderMeterGap ?? variant.faderMeterGap ?? DEFAULT_FADER_METER_GAP, faderMeterWidth: control.faderMeterWidth ?? variant.faderMeterWidth ?? DEFAULT_FADER_METER_WIDTH, faderMeterHeight: control.faderMeterHeight ?? variant.faderMeterHeight ?? DEFAULT_FADER_METER_HEIGHT, ...(isStudioMetalFaderVariant(variant.id) ? { controlColor: control.controlColor ?? control.control_color ?? variant.capColor ?? DEFAULT_STUDIO_METAL_CAP_COLOR, textColor: control.textColor ?? control.text_color ?? variant.indicatorColor ?? DEFAULT_STUDIO_METAL_INDICATOR_COLOR } : {}) } : {}),
+      ...(kind === "knob" && isOpenRingKnobVariant(variant.id) ? { controlColor: control.controlColor ?? control.control_color ?? accentColor, ringThickness: normalizeOpenRingThickness(control.ringThickness ?? control.ring_thickness ?? control.waveformLineWidth ?? control.waveform_line_width ?? variant.ringThickness) } : {}),
+      ...(kind === "solo_mute" ? { soloMuteGap: control.soloMuteGap ?? DEFAULT_SOLO_MUTE_GAP, soloColor: control.soloColor ?? DEFAULT_SOLO_COLOR, muteColor: control.muteColor ?? DEFAULT_MUTE_COLOR, buttonShape: control.buttonShape ?? "square" } : {}),
+      ...(kind === "indicator" ? { controlColor: control.controlColor ?? control.control_color ?? variant.color ?? accentColor, indicatorSourceId: control.indicatorSourceId ?? control.indicator_source_id ?? null } : {}),
+      ...(kind === "text" ? { textFont: control.textFont ?? control.text_font ?? "space-grotesk", textColor: control.textColor ?? control.text_color ?? "#F4F4F5" } : {}),
+      ...(kind === "pad" ? { padColor: control.padColor ?? control.pad_color ?? defaultPadSurfaceColor(variant.id), padActiveColor: control.padActiveColor ?? control.pad_active_color ?? defaultPadActiveColor(variant.id, control.notePitch ?? 60, accentColor) } : {}),
+      ...(kind === "keyboard" ? { keyCount: control.keyCount ?? control.key_count ?? keyboardKeys } : {}),
+      ...(kind === "panel_button" ? { panelType: control.panelType ?? control.panel_type ?? variant.panelType ?? "preset_browser", panelX: control.panelX ?? control.panel_x ?? 50, panelY: control.panelY ?? control.panel_y ?? 52, panelWidth: control.panelWidth ?? control.panel_width ?? 88, panelHeight: control.panelHeight ?? control.panel_height ?? 78, mixerShowDefaultControls: control.mixerShowDefaultControls ?? control.mixer_show_default_controls ?? true } : {}),
+      ...(kind === "output_selector" ? { controlColor: control.controlColor ?? control.control_color ?? "#111216", textColor: control.textColor ?? control.text_color ?? "#F4F4F5", outputFontSize: control.outputFontSize ?? control.output_font_size ?? DEFAULT_OUTPUT_SELECTOR_FONT_SIZE } : {}),
+    };
+  };
   const [backgroundSelected, setBackgroundSelected] = useState(false);
   const [brandSelected, setBrandSelected] = useState(false);
   const [previewScale, setPreviewScale] = useState(1);
@@ -8693,6 +9093,18 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
             )}
             {visibleControls.map((control) => {
               const canvasPosition = canvasPositionFor(control);
+              const boundSampler = control.sampler_group_id ? samplerGroups.find((group) => group.id === control.sampler_group_id) : null;
+              const controlAnalyserRef = boundSampler && supportsSamplerMonitoringBinding(control)
+                ? { get current() { return samplerAnalyserRefs?.current?.get(boundSampler.id) || null; } }
+                : meterAnalyserRef;
+              const faderMeterAnalyserRef = boundSampler
+                ? { get current() { return samplerAnalyserRefs?.current?.get(boundSampler.id) || null; } }
+                : meterAnalyserRef;
+              const boundControlValue = control.captureLevel !== undefined
+                ? control.value
+                : boundSampler && supportsSamplerControlBinding(control)
+                ? samplerControlValue(boundSampler, control.parameter, control.value)
+                : control.value;
               const boundMidiSequenceId = control.midiSequenceId ?? control.midi_sequence_id ?? "";
               const boundMidiSequence = midiSequences.find((sequence) => sequence.id === boundMidiSequenceId) || null;
               const boundLivePattern = boundMidiSequence?.generatorConfig ? boundMidiSequence : null;
@@ -8711,8 +9123,8 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
               <article
                 key={control.id}
                 data-vst-control={control.id}
-                className={`maker-canvas-control maker-canvas-control--${control.kind} maker-label-position--${normalizeLabelPosition(control.labelPosition ?? control.label_position)} ${control.parentPanelId ? "is-panel-child" : ""} ${["hit-effect", "diffuse-hit", "smooth-diffuse-hit"].includes(control.component_variant) ? "maker-canvas-control--hit-pad" : ""} ${projectTemplate === "neonpopdrums" && control.kind === "pad" && !["hit-effect", "diffuse-hit", "smooth-diffuse-hit"].includes(control.component_variant) ? "maker-canvas-control--drum-hotspot" : ""} ${selectedControlIdSet.has(control.id) ? "is-selected" : ""} ${selectedControlId === control.id ? "is-primary-selected" : ""} ${control.showBackground === false ? "is-background-hidden" : ""} ${PRISM_CONTEXT_PARAMETERS.has(control.parameter) && prismContextModeFor(control) !== "contextual" ? "is-prism-context-hidden" : ""} ${PRISM_CONTEXT_PARAMETERS.has(control.parameter) && !selectedPrismBandEnabled ? "is-prism-context-disabled" : ""}`}
-                style={{ left: `${canvasPosition.x}%`, top: `${canvasPosition.y}%`, width: `${control.width ?? CONTROL_DEFAULT_SIZES[control.kind]?.width ?? 112}px`, height: `${control.height ?? CONTROL_DEFAULT_SIZES[control.kind]?.height ?? 122}px`, zIndex: (control.parentPanelId ? 300 : 10) + (surfaceLayerIndex.get(control.id) || 0), "--maker-accent": accentColor, "--maker-label-gap": normalizeLabelGap(control.labelGap ?? control.label_gap), "--maker-state-label-gap": normalizeMechanicalStateLabelGap(control.stateLabelGap ?? (DEFAULT_MECHANICAL_STATE_LABEL_GAP + Number(control.labelY ?? control.label_y ?? 0))), "--maker-component-opacity": Math.max(0, Math.min(100, Number(control.opacity ?? 100))) / 100, "--maker-component-rotation": `${normalizeComponentRotation(control.rotation)}deg` }}
+                className={`maker-canvas-control maker-canvas-control--${control.kind} maker-label-position--${normalizeLabelPosition(control.labelPosition ?? control.label_position)} ${control.label === "" ? "is-label-empty" : ""} ${control.parentPanelId ? "is-panel-child" : ""} ${["hit-effect", "diffuse-hit", "smooth-diffuse-hit"].includes(control.component_variant) ? "maker-canvas-control--hit-pad" : ""} ${projectTemplate === "neonpopdrums" && control.kind === "pad" && !["hit-effect", "diffuse-hit", "smooth-diffuse-hit"].includes(control.component_variant) ? "maker-canvas-control--drum-hotspot" : ""} ${selectedControlIdSet.has(control.id) ? "is-selected" : ""} ${selectedControlId === control.id ? "is-primary-selected" : ""} ${control.showBackground === false ? "is-background-hidden" : ""} ${PRISM_CONTEXT_PARAMETERS.has(control.parameter) && prismContextModeFor(control) !== "contextual" ? "is-prism-context-hidden" : ""} ${PRISM_CONTEXT_PARAMETERS.has(control.parameter) && !selectedPrismBandEnabled ? "is-prism-context-disabled" : ""}`}
+                style={{ left: `${canvasPosition.x}%`, top: `${canvasPosition.y}%`, width: `${control.width ?? CONTROL_DEFAULT_SIZES[control.kind]?.width ?? 112}px`, height: `${control.height ?? CONTROL_DEFAULT_SIZES[control.kind]?.height ?? 122}px`, zIndex: (control.parentPanelId ? 300 : 10) + (surfaceLayerIndex.get(control.id) || 0), "--maker-accent": accentColor, "--maker-label-gap": normalizeLabelGap(control.labelGap ?? control.label_gap), "--maker-state-label-gap": normalizeMechanicalStateLabelGap(control.stateLabelGap ?? (DEFAULT_MECHANICAL_STATE_LABEL_GAP + Number(control.labelY ?? control.label_y ?? 0))), "--maker-component-opacity": Math.max(0, Math.min(100, Number(control.opacity ?? 100))) / 100, "--maker-component-rotation": `${normalizeComponentRotation(control.rotation)}deg`, ...(control.kind === "output_selector" ? { "--maker-output-bg": control.controlColor ?? control.control_color ?? "#111216", "--maker-output-text": control.textColor ?? control.text_color ?? "#F4F4F5", "--maker-output-font-size": `${normalizeOutputSelectorFontSize(control.outputFontSize ?? control.output_font_size)}px` } : {}) }}
                 aria-selected={selectedControlIdSet.has(control.id)}
                 onPointerDownCapture={(event) => beginControlSelectionGesture(event, control)}
                 onPointerMoveCapture={updateControlSelectionGesture}
@@ -8728,7 +9140,6 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                   onPointerCancel={endCanvasInteraction}
                 >
                   <span>{control.label ?? INTERFACE_CONTROL_OPTIONS.find((option) => option.id === control.kind)?.label}</span>
-                  <span className="maker-canvas-control__drag-mark" aria-hidden="true">⠿</span>
                 </div>
                 {!PRISM_CONTEXT_PARAMETERS.has(control.parameter) && <button
                   type="button"
@@ -8748,7 +9159,7 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                     else onRemove(control.id);
                   }}
                 ><X aria-hidden="true" /></button>}
-                {selectedControlId === control.id && replacementVariantsFor(control).length > 1 && (
+                {selectedControlId === control.id && availableComponentCategories.length > 0 && (
                   <button
                     type="button"
                     className="maker-canvas-control__replace"
@@ -8762,34 +9173,62 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                       event.preventDefault();
                       event.stopPropagation();
                       onSelect(control.id);
+                      setReplaceComponentCategory(componentCategoryForControl(control));
                       setReplaceControlId(control.id);
                     }}
                   ><RotateCcw aria-hidden="true" /></button>
                 )}
-                {control.kind === "panel_button" ? (
+                {control.kind === "output_selector" ? (
+                  <SamplerOutputSelector
+                    ariaLabel={control.label || "Output sampler"}
+                    samplerName={boundSampler ? samplerOutputLabel(samplerGroups, boundSampler.id) : "Pilih sampler"}
+                    separateLabel={boundSampler ? samplerOutputChoiceLabel(samplerGroups, boundSampler.id, controls) : "Out"}
+                    value={(control.captureLevel !== undefined ? Number(control.value) || 0 : outputSelectorDefaultValue(samplerGroups, control.sampler_group_id)) >= 50 ? "separate" : "master"}
+                    onChange={(nextValue) => {
+                      const outputBus = nextValue === "separate" ? "separate" : "master";
+                      onUpdate(control.id, { value: outputBus === "separate" ? 100 : 0 });
+                    }}
+                  />
+                ) : control.kind === "panel_button" ? (
                   <button type="button" className={`maker-panel-launcher maker-panel-launcher--${control.panelType} ${openPanelId === control.id ? "is-open" : ""}`} onClick={() => { setOpenPanelId((current) => current === control.id ? null : control.id); onSelect(control.id); }}>
                     <span>{control.panelType === "preset_browser" ? "PRESETS" : control.panelType === "mixer" ? "MIXER" : "MIDI"}</span>
                     <small>{openPanelId === control.id ? "CLOSE" : "OPEN"}</small>
                   </button>
+                ) : control.kind === "solo_mute" ? (
+                  <SoloMutePair
+                    label={control.label}
+                    solo={boundSampler?.solo === true}
+                    mute={boundSampler?.mute === true}
+                    gap={control.soloMuteGap ?? control.solo_mute_gap}
+                    soloColor={control.soloColor ?? control.solo_color}
+                    muteColor={control.muteColor ?? control.mute_color}
+                    shape={control.buttonShape ?? control.button_shape}
+                    disabled={!boundSampler}
+                    onSoloChange={(enabled) => onFeatureChange({ samplerGroups: setSamplerSolo(samplerGroups, boundSampler.id, enabled) })}
+                    onMuteChange={(enabled) => onFeatureChange({ samplerGroups: setSamplerMute(samplerGroups, boundSampler.id, enabled) })}
+                  />
                 ) : control.kind === "button" || control.kind === "solo" || control.kind === "mute" ? (
                   <FilmstripButton
-                    value={boundLivePattern ? (boundLivePatternActive ? 100 : 0) : control.value}
+                    value={boundLivePattern ? (boundLivePatternActive ? 100 : 0) : boundControlValue}
                     label={control.label}
                     offLabel={control.off_label}
                     onLabel={control.on_label}
                     inverted={control.parameter === "bypass"}
                     kind={control.kind}
                     variant={control.component_variant || "classic"}
+                    neutralValue={neutralControlValue(control, projectTemplate)}
                     asset={filmstripAssetFor(control, componentStyle, "button")}
                     onChange={(value) => boundLivePattern ? toggleBoundLivePattern() : onUpdate(control.id, { value })}
                   />
                 ) : control.kind === "knob" ? (
                   <RotaryKnob
-                    value={PRISM_CONTEXT_PARAMETERS.has(control.parameter) ? prismContextValue(control) : control.value}
-                    valueText={PRISM_CONTEXT_PARAMETERS.has(control.parameter) ? prismContextValueText(control) : undefined}
+                    value={PRISM_CONTEXT_PARAMETERS.has(control.parameter) ? prismContextValue(control) : boundControlValue}
+                    valueText={PRISM_CONTEXT_PARAMETERS.has(control.parameter) ? prismContextValueText(control) : tuningKnobValueText({ ...control, value: boundControlValue }, engineModules)}
                     disabled={PRISM_CONTEXT_PARAMETERS.has(control.parameter) && (!selectedPrismBandEnabled || ((control.prismContext ?? control.prism_context) === "gain" && selectedPrismBandIndex === 1))}
                     neutralValue={neutralControlValue(control, projectTemplate)} label={control.label}
                     variant={control.component_variant || "classic"} asset={filmstripAssetFor(control, componentStyle, "knob")}
+                    ringThickness={control.ringThickness ?? control.ring_thickness ?? control.waveformLineWidth ?? control.waveform_line_width}
+                    ringColor={control.controlColor ?? control.control_color ?? accentColor}
                     onChange={(value) => {
                       if (PRISM_CONTEXT_PARAMETERS.has(control.parameter)) updatePrismContext(control, value);
                       else onUpdate(control.id, {
@@ -8798,27 +9237,43 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                       });
                     }}
                   />
-                ) : control.kind === "fader" && ["pitch_bend", "modulation"].includes(control.parameter) ? (
-                  <KeyboardPerformanceWheel
-                    value={control.parameter === "pitch_bend" ? (pitchBendEnabled ? (pitchBendValue ?? control.value) : 50) : (modulationEnabled ? (modulationValue ?? control.value) : 0)}
-                    label={control.label}
-                    spring={control.parameter === "pitch_bend"}
-                    led={['pitch-bend-led', 'modulation-led'].includes(control.component_variant)}
-                    color={control.controlColor ?? control.control_color ?? accentColor}
-                    disabled={control.parameter === "pitch_bend" ? !pitchBendEnabled : !modulationEnabled}
-                    onChange={control.parameter === "pitch_bend" ? (onPitchBendChange || ((value) => onUpdate(control.id, { value }))) : (onModulationChange || ((value) => onUpdate(control.id, { value })))}
-                  />
                 ) : control.kind === "fader" ? (
-                  <FilmstripFader
-                    value={control.value}
-                    neutralValue={neutralControlValue(control, projectTemplate)}
-                    valueText={faderValueText(control)}
-                    showUnityMarker={["input", "output"].includes(String(control.parameter || "").toLowerCase())}
-                    label={control.label}
-                    variant={control.component_variant || "classic"}
-                    asset={filmstripAssetFor(control, componentStyle, "fader")}
-                    onChange={(value) => onUpdate(control.id, { value })}
-                  />
+                  <FaderMeterLayout
+                    enabled={isStudioMetalFaderVariant(control.component_variant) || (control.faderMeterEnabled !== false && control.fader_meter_enabled !== false)}
+                    position={control.faderMeterPosition ?? control.fader_meter_position}
+                    color={control.faderMeterColor ?? control.fader_meter_color ?? DEFAULT_FADER_METER_COLOR}
+                    gap={control.faderMeterGap ?? control.fader_meter_gap}
+                    width={control.faderMeterWidth ?? control.fader_meter_width}
+                    height={control.faderMeterHeight ?? control.fader_meter_height}
+                    meterVariant={isStudioMetalFaderVariant(control.component_variant) ? "continuous" : "led"}
+                    analyserRef={faderMeterAnalyserRef}
+                    captureLevel={control.captureLevel}
+                  >
+                    {["pitch_bend", "modulation"].includes(control.parameter) ? (
+                      <KeyboardPerformanceWheel
+                        value={control.parameter === "pitch_bend" ? (pitchBendEnabled ? (pitchBendValue ?? control.value) : 50) : (modulationEnabled ? (modulationValue ?? control.value) : 0)}
+                        label={control.label}
+                        spring={control.parameter === "pitch_bend"}
+                        led={['pitch-bend-led', 'modulation-led'].includes(control.component_variant)}
+                        color={control.controlColor ?? control.control_color ?? accentColor}
+                        disabled={control.parameter === "pitch_bend" ? !pitchBendEnabled : !modulationEnabled}
+                        onChange={control.parameter === "pitch_bend" ? (onPitchBendChange || ((value) => onUpdate(control.id, { value }))) : (onModulationChange || ((value) => onUpdate(control.id, { value })))}
+                      />
+                    ) : (
+                      <FilmstripFader
+                        value={boundControlValue}
+                        neutralValue={neutralControlValue(control, projectTemplate)}
+                        valueText={faderValueText({ ...control, value: boundControlValue })}
+                        showUnityMarker={["input", "output"].includes(String(control.parameter || "").toLowerCase())}
+                        label={control.label}
+                        variant={control.component_variant || "classic"}
+                        capColor={control.controlColor ?? control.control_color}
+                        indicatorColor={control.textColor ?? control.text_color}
+                        asset={filmstripAssetFor(control, componentStyle, "fader")}
+                        onChange={(value) => onUpdate(control.id, { value })}
+                      />
+                    )}
+                  </FaderMeterLayout>
                 ) : control.kind === "pad" ? (
                   <SamplerPad
                     controlId={control.id}
@@ -8831,7 +9286,7 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                     variant={control.component_variant || "rubber"}
                     externalPressed={boundLivePattern ? boundLivePatternActive : activeHitPitches.has(control.notePitch ?? 60) || midiPressedPitches.has(control.notePitch ?? 60)}
                     externalTrigger={activeHitTriggers.get(control.notePitch ?? 60) || 0}
-                    onNoteOn={boundLivePattern ? toggleBoundLivePattern : onNoteOn}
+                    onNoteOn={boundLivePattern ? toggleBoundLivePattern : (pitch, noteVelocity, token) => onNoteOn(pitch, noteVelocity, token, null, null, boundSampler?.name || null)}
                     onNoteOff={boundLivePattern ? () => {} : onNoteOff}
                   />
                 ) : control.kind === "keyboard" ? (
@@ -8851,11 +9306,11 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                       onSelect(control.id);
                       setKeyboardColorSelection({ controlId: control.id, pitch });
                     }}
-                    onNoteOn={onNoteOn}
+                    onNoteOn={(pitch, noteVelocity, token) => onNoteOn(pitch, noteVelocity, token, null, null, boundSampler?.name || null)}
                     onNoteOff={onNoteOff}
                   />
                 ) : control.kind === "gain_meter" || control.kind === "vu_meter" ? (
-                  <PreviewOutputMeter captureLevel={control.captureLevel} kind={control.kind} meterSource={control.parameter} moduleId={control.moduleId} meterMode={control.meterMode ?? control.meter_mode ?? (control.kind === "gain_meter" ? "stereo" : "mono")} variant={control.component_variant || (control.kind === "vu_meter" ? "dark-vu" : "led")} analyserRef={meterAnalyserRef} accentColor={accentColor} asset={filmstripAssetFor(control, componentStyle, "meter")} />
+                  <PreviewOutputMeter captureLevel={control.captureLevel} kind={control.kind} meterSource={control.parameter} moduleId={control.moduleId} meterMode={control.meterMode ?? control.meter_mode ?? (control.kind === "gain_meter" ? "stereo" : "mono")} variant={control.component_variant || (control.kind === "vu_meter" ? "dark-vu" : "led")} analyserRef={controlAnalyserRef} accentColor={accentColor} asset={filmstripAssetFor(control, componentStyle, "meter")} />
                 ) : control.kind === "indicator" ? (
                   <RoundLedIndicator active={indicatorActiveFor(control)} color={control.controlColor ?? control.control_color ?? accentColor} />
                 ) : control.kind === "image" ? (
@@ -8868,14 +9323,14 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                   />
                 ) : control.kind === "spectrum" ? (
                   control.component_variant === "stereo-vectorscope" ? (
-                    <StereoVectorscopeDisplay analyserRef={meterAnalyserRef} accentColor={control.visualColor ?? control.visual_color ?? accentColor} showCorrelationMeter={control.showCorrelationMeter !== false && control.show_correlation_meter !== false} />
+                    <StereoVectorscopeDisplay analyserRef={controlAnalyserRef} accentColor={control.visualColor ?? control.visual_color ?? accentColor} showCorrelationMeter={control.showCorrelationMeter !== false && control.show_correlation_meter !== false} />
                   ) : control.component_variant === "realtime-waveform" ? (
-                    <RealtimeWaveformDisplay analyserRef={meterAnalyserRef} accentColor={control.visualColor ?? control.visual_color ?? accentColor} />
+                    <RealtimeWaveformDisplay analyserRef={controlAnalyserRef} accentColor={control.visualColor ?? control.visual_color ?? accentColor} lineWidth={control.waveformLineWidth ?? control.waveform_line_width ?? 1.8} />
                   ) : control.component_variant === "bar-spectrum-visualizer" ? (
-                    <BarSpectrumVisualizer analyserRef={meterAnalyserRef} accentColor={control.visualColor ?? control.visual_color ?? accentColor} />
+                    <BarSpectrumVisualizer analyserRef={controlAnalyserRef} accentColor={control.visualColor ?? control.visual_color ?? accentColor} barWidthRatio={control.barWidthRatio ?? control.bar_width_ratio ?? 0.54} />
                   ) : (
                     <PrismSpectrumDisplay
-                      analyserRef={meterAnalyserRef}
+                      analyserRef={controlAnalyserRef}
                       prismModule={engineModules.find((module) => module.id === control.moduleId && module.type === "prism_eq") || engineModules.find((module) => module.type === "prism_eq")}
                       selectedBandIndex={selectedPrismBandIndex}
                       accentColor={control.visualColor ?? control.visual_color ?? accentColor}
@@ -8899,7 +9354,7 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                 ) : control.kind === "visual" ? (
                   <ScaleRing variant={control.component_variant || "scale-classic"} color={control.visualColor ?? control.visual_color ?? "#E8E0CF"} />
                 ) : control.kind === "text" ? (
-                  <div className="maker-canvas-text-component" style={{ color: control.textColor ?? control.text_color ?? "#F4F4F5", fontFamily: BRAND_FONT_OPTIONS.find((font) => font.id === (control.textFont ?? control.text_font))?.family || BRAND_FONT_OPTIONS[2].family }}>{control.label || "Text"}</div>
+                  <div className="maker-canvas-text-component" style={{ color: control.textColor ?? control.text_color ?? "#F4F4F5", fontFamily: BRAND_FONT_OPTIONS.find((font) => font.id === (control.textFont ?? control.text_font))?.family || BRAND_FONT_OPTIONS[2].family }}>{control.label ?? "Text"}</div>
                 ) : null}
                 {control.kind === "keyboard" && (
                   <button
@@ -8975,7 +9430,6 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                           setComponentCategory("knob");
                         }}
                       >
-                        <CreditCoinBadge value={componentCreditPrice(variant.kind, variant.id, pricing)} />
                         <ComponentThumbnail variant={variant} />
                         <span className="maker-gallery-card__title">{variant.label}</span>
                         <span className="maker-gallery-card__detail"><span>{variant.detail}</span><Plus aria-hidden="true" size={13} /></span>
@@ -9020,19 +9474,24 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                 </section>
               </div>
             )}
-            {replaceControl && replaceControlVariants.length > 1 && (
+            {replaceControl && (
               <div className="maker-component-replace-backdrop" role="presentation" onPointerDown={(event) => { if (event.target === event.currentTarget) setReplaceControlId(null); }}>
                 <section className="maker-component-replace-dialog" role="dialog" aria-modal="true" aria-labelledby={`replace-component-label-${replaceControl.id}`}>
                   <div className="flex items-start justify-between gap-4">
                     <div>
                       <div id={`replace-component-label-${replaceControl.id}`} className="text-sm font-bold text-white">Ganti komponen · {replaceControl.label}</div>
-                      <p className="mt-1 text-[10px] leading-4 text-zinc-500">Pilih tampilan baru. Fungsi, posisi, ukuran, dan nilainya tidak berubah.</p>
+                      <p className="mt-1 text-[10px] leading-4 text-zinc-500">Pilih kategori dan komponen pengganti. Dialog selalu dibuka pada kategori komponen saat ini.</p>
                     </div>
                     <button type="button" onClick={() => setReplaceControlId(null)} className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-white/10 text-zinc-400 hover:bg-white/5 hover:text-white" aria-label="Tutup pilihan komponen"><X className="h-4 w-4" /></button>
                   </div>
+                  <div className="maker-component-add-categories mt-4" role="tablist" aria-label="Kategori komponen pengganti">
+                    {availableComponentCategories.map((category) => (
+                      <button key={category.id} type="button" role="tab" aria-selected={replaceComponentCategory === category.id} onClick={() => setReplaceComponentCategory(category.id)}>{category.label}</button>
+                    ))}
+                  </div>
                   <div className="maker-component-replacer mt-4">
                     {replaceControlVariants.map((variant) => {
-                      const selected = replaceVariantId === variant.id;
+                      const selected = replaceControl.kind === variant.kind && replaceVariantId === variant.id;
                       return (
                         <button
                           key={componentVariantKey(variant)}
@@ -9040,14 +9499,19 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                           className="maker-gallery-card"
                           aria-pressed={selected}
                           onClick={() => {
-                            const prismModule = variant.kind === "spectrum" && variant.id === "realtime-spectrum"
+                            const needsPrismModule = variant.kind === "spectrum" && variant.id === "realtime-spectrum" && !replaceControl.moduleId;
+                            const prismModule = needsPrismModule
                               ? engineModules.find((module) => module.type === "prism_eq")
                               : null;
-                            const prismModuleId = prismModule?.id || (variant.kind === "spectrum" && variant.id === "realtime-spectrum" ? makeId() : null);
+                            const prismModuleId = prismModule?.id || (needsPrismModule ? makeId() : null);
                             if (prismModuleId && !prismModule) onFeatureChange({ engineModules: appendDspRackModule(engineModules, "prism_eq", prismModuleId) });
+                            if (replaceControl.kind === "panel_button" && variant.kind !== "panel_button") {
+                              const children = controls.filter((control) => control.parentPanelId === replaceControl.id);
+                              if (children.length) onUpdateMany(children.map((control) => ({ id: control.id, updates: { parentPanelId: null } })));
+                              if (openPanelId === replaceControl.id) setOpenPanelId(null);
+                            }
                             onUpdate(replaceControl.id, {
-                              component_style: variant.style,
-                              component_variant: variant.id,
+                              ...replacementUpdatesForVariant(replaceControl, variant),
                               ...(prismModuleId ? { moduleId: prismModuleId, parameter: "output_level" } : {}),
                               ...(["pitch-bend-led", "modulation-led"].includes(variant.id) && !isHexColor(replaceControl.controlColor ?? replaceControl.control_color) ? { controlColor: accentColor } : {}),
                               ...(variant.showBackground !== undefined ? { showBackground: variant.showBackground } : {}),
@@ -9055,7 +9519,6 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                             setReplaceControlId(null);
                           }}
                         >
-                          <CreditCoinBadge value={componentCreditPrice(variant.kind, variant.id, pricing)} />
                           <ComponentThumbnail variant={variant} />
                           <span className="maker-gallery-card__title">{variant.label}</span>
                           <span className="maker-gallery-card__detail"><span>{variant.detail}</span>{selected ? <Check aria-label="Sedang digunakan" size={13} /> : <span>Pilih</span>}</span>
@@ -9085,12 +9548,12 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
           {imageUploadEnabled && <label className={`inline-flex items-center gap-2 rounded-xl border border-sky-300/20 bg-sky-300/[0.07] px-4 py-2.5 text-xs font-bold text-sky-200 hover:bg-sky-300/10 ${componentImageUploading ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}>
             <input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" disabled={componentImageUploading} onChange={(event) => { uploadCanvasImage(event.target.files?.[0]); event.target.value = ""; }} />
             {componentImageUploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
-            {componentImageUploading ? "Mengunggah gambar…" : <>Upload gambar · +{componentCreditPrice("image", "default", pricing)} kredit</>}
+            {componentImageUploading ? "Mengunggah gambar…" : "Upload gambar"}
           </label>}
           {customBackgroundEnabled ? <label className={`inline-flex items-center gap-2 rounded-xl bg-[#e11d48] px-4 py-2.5 text-xs font-bold text-white hover:bg-[#be123c] ${backgroundUploading ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}>
             <input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" disabled={backgroundUploading} onChange={(event) => { uploadCanvasBackground(event.target.files?.[0]); event.target.value = ""; }} />
             {backgroundUploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
-            {backgroundUploading ? "Mengunggah…" : <>{backgroundImageUrl ? "Ganti background" : "Upload background"} · {isCustomVstBackground(backgroundImageUrl) ? "harga tetap " : "+"}{pricing.custom_background_credits} kredit</>}
+            {backgroundUploading ? "Mengunggah…" : (backgroundImageUrl ? "Ganti background" : "Upload background")}
           </label> : <span className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-xs font-semibold text-zinc-500">
             <Upload className="h-3.5 w-3.5" /> Upload background tersedia mulai paket Pro
           </span>}
@@ -9108,6 +9571,18 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
             <div className="mt-1 text-xs font-semibold text-white">{selectedControl.label}{selectedControlIds.length > 1 ? ` · ${selectedControlIds.length} komponen dipilih` : ""}</div>
             <p className="mt-1 text-[9px] leading-4 text-zinc-600">Atur fungsi, posisi, dan ukuran komponen yang dipilih pada preview.</p>
           </div>
+          {selectedControl.kind === "spectrum" && selectedControl.component_variant === "realtime-waveform" && (
+            <label className="rounded-xl border border-violet-300/20 bg-violet-300/[0.05] p-3 md:col-span-2">
+              <div className="flex items-center justify-between gap-3"><FieldLabel>Ketebalan garis Realtime Waveform</FieldLabel><span className="font-mono text-[10px] text-violet-200">{Number(selectedControl.waveformLineWidth ?? selectedControl.waveform_line_width ?? 1.8).toFixed(1)} px</span></div>
+              <input type="range" min="0.5" max="8" step="0.1" value={selectedControl.waveformLineWidth ?? selectedControl.waveform_line_width ?? 1.8} onChange={(event) => onUpdate(selectedControl.id, { waveformLineWidth: Number(event.target.value) })} className="maker-range mt-2" />
+            </label>
+          )}
+          {selectedControl.kind === "spectrum" && selectedControl.component_variant === "bar-spectrum-visualizer" && (
+            <label className="rounded-xl border border-cyan-300/20 bg-cyan-300/[0.05] p-3 md:col-span-2">
+              <div className="flex items-center justify-between gap-3"><FieldLabel>Ketebalan batang Bar Spectrum</FieldLabel><span className="font-mono text-[10px] text-cyan-200">{Math.round(Number(selectedControl.barWidthRatio ?? selectedControl.bar_width_ratio ?? 0.54) * 100)}%</span></div>
+              <input type="range" min="0.1" max="1" step="0.01" value={selectedControl.barWidthRatio ?? selectedControl.bar_width_ratio ?? 0.54} onChange={(event) => onUpdate(selectedControl.id, { barWidthRatio: Number(event.target.value) })} className="maker-range mt-2" />
+            </label>
+          )}
           <div className="md:col-span-2 rounded-xl border border-white/10 bg-black/20 p-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -9126,7 +9601,7 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
           </div>
           <label>
             <FieldLabel>{selectedControl.kind === "text" ? "Isi text" : "Label komponen"}</FieldLabel>
-            <input className="maker-input mt-2" value={selectedControl.label} maxLength={selectedControl.kind === "text" ? 80 : 24} onChange={(event) => onUpdate(selectedControl.id, { label: event.target.value })} />
+            <input className="maker-input mt-2" value={selectedControl.label ?? ""} maxLength={selectedControl.kind === "text" ? 80 : 24} onChange={(event) => onUpdate(selectedControl.id, { label: event.target.value })} />
           </label>
           {selectedControl.kind === "text" && <label>
             <FieldLabel>Font text</FieldLabel>
@@ -9160,6 +9635,100 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
               title="Atur jarak vertikal label; tidak menggeser label ke kiri atau kanan"
             />
           </label>}
+          {selectedControl.kind === "fader" && <>
+            <label>
+              <FieldLabel>{isStudioMetalFaderVariant(selectedControl.component_variant) ? "Metering kontinu non-LED" : "Metering di samping fader"}</FieldLabel>
+              <select className="maker-input mt-2" disabled={isStudioMetalFaderVariant(selectedControl.component_variant)} value={isStudioMetalFaderVariant(selectedControl.component_variant) || (selectedControl.faderMeterEnabled !== false && selectedControl.fader_meter_enabled !== false) ? "visible" : "hidden"} onChange={(event) => onUpdate(selectedControl.id, { faderMeterEnabled: event.target.value === "visible" })}>
+                <option value="visible">Tampilkan</option>
+                <option value="hidden">Sembunyikan</option>
+              </select>
+            </label>
+            {(isStudioMetalFaderVariant(selectedControl.component_variant) || (selectedControl.faderMeterEnabled !== false && selectedControl.fader_meter_enabled !== false)) && <>
+              <label>
+                <FieldLabel>Posisi metering</FieldLabel>
+                <select className="maker-input mt-2" value={normalizeFaderMeterPosition(selectedControl.faderMeterPosition ?? selectedControl.fader_meter_position)} onChange={(event) => onUpdate(selectedControl.id, { faderMeterPosition: event.target.value })}>
+                  <option value="right">Kanan fader</option>
+                  <option value="left">Kiri fader</option>
+                </select>
+              </label>
+              <label>
+                <FieldLabel>Jarak fader ke metering · {normalizeFaderMeterGap(selectedControl.faderMeterGap ?? selectedControl.fader_meter_gap)} px</FieldLabel>
+                <input className="maker-range mt-4 w-full" type="range" min="0" max="32" step="1" value={normalizeFaderMeterGap(selectedControl.faderMeterGap ?? selectedControl.fader_meter_gap)} onChange={(event) => onUpdate(selectedControl.id, { faderMeterGap: Number(event.target.value) })} />
+              </label>
+              <label>
+                <FieldLabel>Lebar metering · {normalizeFaderMeterWidth(selectedControl.faderMeterWidth ?? selectedControl.fader_meter_width)} px</FieldLabel>
+                <input className="maker-range mt-4 w-full" type="range" min="4" max="32" step="1" value={normalizeFaderMeterWidth(selectedControl.faderMeterWidth ?? selectedControl.fader_meter_width)} onChange={(event) => onUpdate(selectedControl.id, { faderMeterWidth: Number(event.target.value) })} />
+              </label>
+              <label>
+                <FieldLabel>Tinggi metering · {normalizeFaderMeterHeight(selectedControl.faderMeterHeight ?? selectedControl.fader_meter_height)}%</FieldLabel>
+                <input className="maker-range mt-4 w-full" type="range" min="20" max="100" step="1" value={normalizeFaderMeterHeight(selectedControl.faderMeterHeight ?? selectedControl.fader_meter_height)} onChange={(event) => onUpdate(selectedControl.id, { faderMeterHeight: Number(event.target.value) })} />
+              </label>
+              <DesignerColorField
+                label="Warna metering bergerak"
+                value={isHexColor(selectedControl.faderMeterColor ?? selectedControl.fader_meter_color) ? (selectedControl.faderMeterColor ?? selectedControl.fader_meter_color) : DEFAULT_FADER_METER_COLOR}
+                onChange={(color) => onUpdate(selectedControl.id, { faderMeterColor: color })}
+                colorClipboard={colorClipboard}
+                onCopy={setColorClipboard}
+              />
+            </>}
+            {isStudioMetalFaderVariant(selectedControl.component_variant) && <>
+              <DesignerColorField
+                label="Warna badan cap fader"
+                value={isHexColor(selectedControl.controlColor ?? selectedControl.control_color) ? (selectedControl.controlColor ?? selectedControl.control_color) : DEFAULT_STUDIO_METAL_CAP_COLOR}
+                onChange={(color) => onUpdate(selectedControl.id, { controlColor: color })}
+                colorClipboard={colorClipboard}
+                onCopy={setColorClipboard}
+              />
+              <DesignerColorField
+                label="Warna garis indikator cap"
+                value={isHexColor(selectedControl.textColor ?? selectedControl.text_color) ? (selectedControl.textColor ?? selectedControl.text_color) : DEFAULT_STUDIO_METAL_INDICATOR_COLOR}
+                onChange={(color) => onUpdate(selectedControl.id, { textColor: color })}
+                colorClipboard={colorClipboard}
+                onCopy={setColorClipboard}
+              />
+            </>}
+          </>}
+          {selectedControl.kind === "knob" && isOpenRingKnobVariant(selectedControl.component_variant) && <>
+            <label>
+              <FieldLabel>Ketebalan ring · {normalizeOpenRingThickness(selectedControl.ringThickness ?? selectedControl.ring_thickness ?? selectedControl.waveformLineWidth ?? selectedControl.waveform_line_width)} px</FieldLabel>
+              <input className="maker-range mt-4 w-full" type="range" min="1" max="16" step="0.5" value={normalizeOpenRingThickness(selectedControl.ringThickness ?? selectedControl.ring_thickness ?? selectedControl.waveformLineWidth ?? selectedControl.waveform_line_width)} onChange={(event) => onUpdate(selectedControl.id, { ringThickness: Number(event.target.value) })} />
+            </label>
+            <DesignerColorField
+              label="Warna nyala ring"
+              value={isHexColor(selectedControl.controlColor ?? selectedControl.control_color) ? (selectedControl.controlColor ?? selectedControl.control_color) : accentColor}
+              onChange={(color) => onUpdate(selectedControl.id, { controlColor: color })}
+              colorClipboard={colorClipboard}
+              onCopy={setColorClipboard}
+            />
+          </>}
+          {selectedControl.kind === "solo_mute" && <>
+            <label>
+              <FieldLabel>Bentuk tombol</FieldLabel>
+              <select className="maker-input mt-2" value={normalizeSoloMuteShape(selectedControl.buttonShape ?? selectedControl.button_shape)} onChange={(event) => onUpdate(selectedControl.id, { buttonShape: event.target.value })}>
+                <option value="square">Kotak</option>
+                <option value="capsule">Kapsul</option>
+                <option value="round">Bulat</option>
+              </select>
+            </label>
+            <label>
+              <FieldLabel>Jarak antar tombol · {normalizeSoloMuteGap(selectedControl.soloMuteGap ?? selectedControl.solo_mute_gap)} px</FieldLabel>
+              <input className="maker-range mt-4 w-full" type="range" min="0" max="48" step="1" value={normalizeSoloMuteGap(selectedControl.soloMuteGap ?? selectedControl.solo_mute_gap)} onChange={(event) => onUpdate(selectedControl.id, { soloMuteGap: Number(event.target.value) })} />
+            </label>
+            <DesignerColorField
+              label="Warna Solo saat menyala"
+              value={isHexColor(selectedControl.soloColor ?? selectedControl.solo_color) ? (selectedControl.soloColor ?? selectedControl.solo_color) : DEFAULT_SOLO_COLOR}
+              onChange={(color) => onUpdate(selectedControl.id, { soloColor: color })}
+              colorClipboard={colorClipboard}
+              onCopy={setColorClipboard}
+            />
+            <DesignerColorField
+              label="Warna Mute saat menyala"
+              value={isHexColor(selectedControl.muteColor ?? selectedControl.mute_color) ? (selectedControl.muteColor ?? selectedControl.mute_color) : DEFAULT_MUTE_COLOR}
+              onChange={(color) => onUpdate(selectedControl.id, { muteColor: color })}
+              colorClipboard={colorClipboard}
+              onCopy={setColorClipboard}
+            />
+          </>}
           {selectedControl.kind === "button" && (
             <>
               <label>
@@ -9189,7 +9758,58 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
               </div>}
             </>
           )}
-          {selectedControl.kind === "panel_button" ? (
+          {selectedControl.kind === "output_selector" ? (
+            <>
+              <label>
+                <FieldLabel>Sampler target</FieldLabel>
+                <select className="maker-input mt-2" value={selectedControl.sampler_group_id || ""} onChange={(event) => onUpdate(selectedControl.id, { sampler_group_id: event.target.value || null })}>
+                  <option value="">Pilih sampler</option>
+                  {samplerGroups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
+                </select>
+              </label>
+              {selectedControlSampler && <label>
+                <FieldLabel>Output awal · {selectedControlSampler.name}</FieldLabel>
+                <select className="maker-input mt-2" value={selectedControlSampler.outputBus === "separate" ? "separate" : "master"} onChange={(event) => {
+                  onUpdate(selectedControl.id, { value: event.target.value === "separate" ? 100 : 0 });
+                }}>
+                  <option value="master">Master</option>
+                  <option value="separate">{samplerOutputChoiceLabel(samplerGroups, selectedControlSampler.id, controls)}</option>
+                </select>
+                <span className="mt-1 block text-[9px] text-zinc-500">Pilihan sampler menentukan channel yang dikontrol. Output awal menentukan tulisan yang tampil di Combo Box saat plugin dibuka.</span>
+              </label>}
+              <label>
+                <FieldLabel>Ukuran teks pilihan · {normalizeOutputSelectorFontSize(selectedControl.outputFontSize ?? selectedControl.output_font_size)} px</FieldLabel>
+                <input
+                  className="maker-range mt-4 w-full"
+                  type="range"
+                  min="6"
+                  max="32"
+                  step="1"
+                  value={normalizeOutputSelectorFontSize(selectedControl.outputFontSize ?? selectedControl.output_font_size)}
+                  onChange={(event) => onUpdate(selectedControl.id, { outputFontSize: Number(event.target.value) })}
+                />
+              </label>
+              <DesignerColorField
+                label="Warna combo box"
+                value={isHexColor(selectedControl.controlColor ?? selectedControl.control_color) ? (selectedControl.controlColor ?? selectedControl.control_color) : "#111216"}
+                onChange={(color) => onUpdate(selectedControl.id, { controlColor: color })}
+                colorClipboard={colorClipboard}
+                onCopy={setColorClipboard}
+              />
+              <DesignerColorField
+                label="Warna teks pilihan"
+                value={isHexColor(selectedControl.textColor ?? selectedControl.text_color) ? (selectedControl.textColor ?? selectedControl.text_color) : "#F4F4F5"}
+                onChange={(color) => onUpdate(selectedControl.id, { textColor: color })}
+                colorClipboard={colorClipboard}
+                onCopy={setColorClipboard}
+              />
+              <div className="rounded-xl border border-cyan-300/15 bg-cyan-300/[0.04] px-3 py-2.5">
+                <FieldLabel>Pilihan output</FieldLabel>
+                <span className="mt-1 block text-[10px] text-zinc-400">Master{selectedControlSampler ? ` + ${samplerOutputChoiceLabel(samplerGroups, selectedControlSampler.id, controls)}` : " · pilih sampler target"}</span>
+                <span className="mt-1 block text-[9px] text-zinc-600">Nilai awal mengikuti Output DAW sampler target. Pilihan di Combo Box dapat diubah pengguna di dalam plugin.</span>
+              </div>
+            </>
+          ) : selectedControl.kind === "panel_button" ? (
             <>
               <label>
                 <FieldLabel>Fungsi panel</FieldLabel>
@@ -9203,6 +9823,14 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                 <FieldLabel>Isi panel</FieldLabel>
                 <span className="mt-1 block text-[10px] text-zinc-400">Buka panel lalu gunakan Tambah komponen. Komponen baru otomatis masuk ke panel ini.</span>
               </div>
+              {selectedControl.panelType === "mixer" && <label className="md:col-span-2">
+                <FieldLabel>Kontrol bawaan Mixer</FieldLabel>
+                <select className="maker-input mt-2" value={selectedControl.mixerShowDefaultControls === false ? "hidden" : "visible"} onChange={(event) => onUpdate(selectedControl.id, { mixerShowDefaultControls: event.target.value === "visible" })}>
+                  <option value="visible">Tampilkan slider Volume/Pan dan tombol M/S bawaan</option>
+                  <option value="hidden">Sembunyikan · gunakan komponen editable sendiri</option>
+                </select>
+                <span className="mt-1 block text-[9px] text-zinc-500">Setelah disembunyikan, tambahkan knob, fader, Solo, atau Mute ke dalam panel. Komponen itu dapat dihapus dan diganti skin seperti komponen Designer lain.</span>
+              </label>}
               <label><FieldLabel>Lebar panel · {Math.round(selectedControl.panelWidth ?? 88)}%</FieldLabel><input className="maker-range mt-4 w-full" type="range" min="35" max="96" value={selectedControl.panelWidth ?? 88} onChange={(event) => onUpdate(selectedControl.id, { panelWidth: Number(event.target.value) })} /></label>
               <label><FieldLabel>Tinggi panel · {Math.round(selectedControl.panelHeight ?? 78)}%</FieldLabel><input className="maker-range mt-4 w-full" type="range" min="30" max="92" value={selectedControl.panelHeight ?? 78} onChange={(event) => onUpdate(selectedControl.id, { panelHeight: Number(event.target.value) })} /></label>
             </>
@@ -9280,6 +9908,20 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                 colorClipboard={colorClipboard}
                 onCopy={setColorClipboard}
               />
+              {pluginKind !== "effect" && <label>
+                <FieldLabel>Sampler sumber</FieldLabel>
+                <select className="maker-input mt-2" value={selectedControl.sampler_group_id || ""} onChange={(event) => onUpdate(selectedControl.id, { sampler_group_id: event.target.value || null, moduleId: null, indicatorSourceId: null, ...(event.target.value ? { parameter: SAMPLER_CONTROL_PARAMETERS.has(selectedControl.parameter) ? selectedControl.parameter : "mute" } : {}) })}>
+                  <option value="">Master / komponen lain</option>
+                  {samplerGroups.map((group) => <option key={group.id} value={group.id}>Sampler · {group.name}</option>)}
+                </select>
+              </label>}
+              {selectedControl.sampler_group_id && <label>
+                <FieldLabel>Parameter sampler</FieldLabel>
+                <select className="maker-input mt-2" value={selectedControl.parameter} onChange={(event) => onUpdate(selectedControl.id, { parameter: event.target.value })}>
+                  <option value="volume">Volume</option><option value="pan">Pan</option><option value="mute">Mute</option><option value="solo">Solo</option>
+                </select>
+              </label>}
+              {!selectedControl.sampler_group_id && <>
               <label>
                 <FieldLabel>Sumber indikator</FieldLabel>
                 <select className="maker-input mt-2" value={selectedControl.indicatorSourceId ?? selectedControl.indicator_source_id ?? ""} onChange={(event) => onUpdate(selectedControl.id, { indicatorSourceId: event.target.value || null })}>
@@ -9296,6 +9938,7 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                   </select>
                 </label>
               )}
+              </>}
               <div className="rounded-xl border border-cyan-300/15 bg-cyan-300/[0.04] px-3 py-2.5">
                 <FieldLabel>Fungsi native</FieldLabel>
                 <span className="mt-1 block text-[10px] text-zinc-400">Lampu mengikuti status komponen sumber pada preview browser dan hasil VST3 native.</span>
@@ -9306,7 +9949,7 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
               {imageUploadEnabled && <label className={`inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-sky-300/20 bg-sky-300/[0.07] px-3 py-2.5 text-xs font-bold text-sky-200 hover:bg-sky-300/10 ${componentImageUploading ? "pointer-events-none opacity-50" : ""}`}>
                 <input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" disabled={componentImageUploading} onChange={(event) => { uploadCanvasImage(event.target.files?.[0], selectedControl.id); event.target.value = ""; }} />
                 {componentImageUploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
-                Ganti gambar · harga tetap {componentCreditPrice("image", "default", pricing)} kredit
+                Ganti gambar
               </label>}
               <label>
                 <FieldLabel>Penempatan gambar</FieldLabel>
@@ -9327,6 +9970,13 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
             </>
           ) : selectedControl.kind === "spectrum" ? (
             <>
+              {pluginKind !== "effect" && <label>
+                <FieldLabel>Sumber monitoring</FieldLabel>
+                <select className="maker-input mt-2" value={selectedControl.sampler_group_id || ""} onChange={(event) => onUpdate(selectedControl.id, { sampler_group_id: event.target.value || null, ...(event.target.value ? { moduleId: null, parameter: "output_level" } : {}) })}>
+                  <option value="">Master plugin</option>
+                  {samplerGroups.map((group) => <option key={group.id} value={group.id}>Sampler · {group.name}</option>)}
+                </select>
+              </label>}
               <DesignerColorField
                 label="Warna analyzer"
                 value={isHexColor(selectedControl.visualColor ?? selectedControl.visual_color) ? (selectedControl.visualColor ?? selectedControl.visual_color) : accentColor}
@@ -9372,7 +10022,7 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                     ? "48 band FFT 2048-point · RMS/Peak LR-max · tilt 4,5 dB/oct · attack/release berbasis waktu · aktif pada preview browser dan hasil VST3 native"
                   : selectedControl.component_variant === "pure-spectrum"
                     ? "FFT output real-time murni tanpa node atau kontrol EQ · aktif pada preview browser dan hasil VST3 native"
-                    : "FFT output real-time · aktif pada preview browser dan hasil VST3 native · band EQ yang ditambahkan dari analyzer sudah termasuk dan tidak menambah biaya komponen"}</span>
+                    : "FFT output real-time · aktif pada preview browser dan hasil VST3 native · band EQ dapat ditambahkan langsung dari analyzer"}</span>
               </div>
             </>
           ) : selectedControl.kind === "visual" ? (
@@ -9396,7 +10046,7 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                 <select className="maker-input mt-2" value={selectedControl.parameter === "gain_reduction" ? "gain_reduction" : "output_level"} onChange={(event) => {
                   const parameter = event.target.value;
                   const firstCompressor = engineModules.find((module) => module.type === "linked_compressor");
-                  onUpdate(selectedControl.id, { parameter, moduleId: parameter === "gain_reduction" ? (selectedControl.moduleId || firstCompressor?.id || null) : null });
+                  onUpdate(selectedControl.id, { parameter, moduleId: parameter === "gain_reduction" ? (selectedControl.moduleId || firstCompressor?.id || null) : null, ...(parameter === "gain_reduction" ? { sampler_group_id: null } : {}) });
                 }}>
                   <option value="output_level">Output level</option>
                   <option value="gain_reduction">Gain Reduction compressor</option>
@@ -9407,10 +10057,17 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                   <FieldLabel>Compressor target</FieldLabel>
                   <select className="maker-input mt-2" value={selectedControl.moduleId || ""} onChange={(event) => onUpdate(selectedControl.id, { moduleId: event.target.value || null })}>
                     <option value="">Compressor pertama di rack</option>
-                    {engineModules.filter((module) => module.type === "linked_compressor").map((module) => <option key={module.id} value={module.id}>{module.name}</option>)}
+                    {engineModules.filter((module) => module.type === "linked_compressor").map((module) => <option key={module.id} value={module.id}>{dspModuleBindingLabel(module, engineModules, samplerGroups)}</option>)}
                   </select>
                 </label>
               )}
+              {selectedControl.parameter !== "gain_reduction" && pluginKind !== "effect" && <label>
+                <FieldLabel>Sumber monitoring</FieldLabel>
+                <select className="maker-input mt-2" value={selectedControl.sampler_group_id || ""} onChange={(event) => onUpdate(selectedControl.id, { sampler_group_id: event.target.value || null, moduleId: null })}>
+                  <option value="">Master plugin</option>
+                  {samplerGroups.map((group) => <option key={group.id} value={group.id}>Sampler · {group.name}</option>)}
+                </select>
+              </label>}
               <label>
                 <FieldLabel>Mode meter</FieldLabel>
                 <select className="maker-input mt-2" value={selectedControl.meterMode ?? selectedControl.meter_mode ?? (selectedControl.kind === "gain_meter" ? "stereo" : "mono")} onChange={(event) => onUpdate(selectedControl.id, { meterMode: event.target.value })}>
@@ -9423,10 +10080,10 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                 <span className="mt-1 block text-[10px] text-zinc-400">{selectedControl.parameter === "gain_reduction" ? "Reduksi gain aktual dari compressor yang dipilih" : selectedControl.kind === "gain_meter" ? "Peak output aktual" : "RMS / VU output aktual"}</span>
               </div>
             </>
-          ) : ["solo", "mute"].includes(selectedControl.kind) ? (
+          ) : ["solo", "mute", "solo_mute"].includes(selectedControl.kind) ? (
             <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2.5">
               <FieldLabel>Fungsi native</FieldLabel>
-              <span className="mt-1 block text-[10px] text-zinc-400">{selectedControl.kind === "solo" ? "Solo-safe output" : "Mute output"}</span>
+              <span className="mt-1 block text-[10px] text-zinc-400">{selectedControl.kind === "solo" ? "Solo-safe output" : selectedControl.kind === "mute" ? "Mute output" : "Pasangan Solo/Mute satu sampler · native menunggu tahap sinkronisasi"}</span>
             </div>
           ) : (
             <>
@@ -9453,10 +10110,17 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                   });
                 }}>
                   <option value="">Macro DSP otomatis</option>
-                  {engineModules.map((module) => <option key={module.id} value={module.id}>{module.name} · {module.type}</option>)}
+                  {engineModules.map((module) => <option key={module.id} value={module.id}>{dspModuleBindingLabel(module, engineModules, samplerGroups)}</option>)}
                 </select>
               </label>
-              {selectedControl.moduleId ? (
+              {selectedControl.sampler_group_id ? (
+                <label>
+                  <FieldLabel>Parameter sampler</FieldLabel>
+                  <select className="maker-input mt-2" value={selectedControl.parameter} onChange={(event) => onUpdate(selectedControl.id, { parameter: event.target.value })}>
+                    {samplerParametersForControl(selectedControl).map((parameter) => <option key={parameter} value={parameter}>{parameter === "volume" ? "Volume" : parameter === "pan" ? "Pan" : parameter === "mute" ? "Mute" : "Solo"}</option>)}
+                  </select>
+                </label>
+              ) : selectedControl.moduleId ? (
                 <label>
                   <FieldLabel>Parameter modul</FieldLabel>
                   <select className="maker-input mt-2" value={selectedControl.parameter} onChange={(event) => onUpdate(selectedControl.id, { parameter: event.target.value })}>
@@ -9469,7 +10133,6 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                 <label>
                   <FieldLabel>Master / Macro DSP</FieldLabel>
                   <select className="maker-input mt-2" value={selectedControl.parameter} onChange={(event) => onUpdate(selectedControl.id, { parameter: event.target.value })}>
-                    {pluginKind !== "effect" && <option value="group_0_pan">Pan Sampler</option>}
                     {CONTROL_OPTIONS.filter((option) => {
                       const binding = INTERNAL_DSP_MACRO_BINDINGS[option.id];
                       return !binding || engineModules.some((module) => module.type === binding.type);
@@ -9479,6 +10142,45 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                 </label>
               )}
             </>
+          )}
+          {pluginKind !== "effect" && selectedControl.kind === "solo_mute" && (
+            <label className="md:col-span-2">
+              <FieldLabel>Target Solo + Mute</FieldLabel>
+              <select className="maker-input mt-2" value={selectedControl.sampler_group_id || ""} onChange={(event) => onUpdate(selectedControl.id, { sampler_group_id: event.target.value || null, moduleId: null })}>
+                <option value="">Pilih sampler</option>
+                {samplerGroups.map((group) => <option key={group.id} value={group.id}>Sampler · {group.name}</option>)}
+              </select>
+              <span className="mt-1 block text-[9px] text-zinc-500">Kedua tombol selalu mengontrol sampler yang sama. Menyalakan Solo mematikan Mute target, dan sebaliknya.</span>
+            </label>
+          )}
+          {pluginKind !== "effect" && selectedControl.kind !== "solo_mute" && canChooseSamplerTarget(selectedControl) && (
+            <label className="md:col-span-2">
+              <FieldLabel>{selectedControl.kind === "solo" ? "Target Solo" : selectedControl.kind === "mute" ? "Target Mute" : "Target kontrol"}</FieldLabel>
+              <select className="maker-input mt-2" value={selectedControl.sampler_group_id || ""} onChange={(event) => {
+                const samplerGroupId = event.target.value || null;
+                const compatibleParameters = samplerParametersForControl(selectedControl);
+                const samplerParameter = compatibleParameters.includes(selectedControl.parameter)
+                  ? selectedControl.parameter
+                  : compatibleParameters.includes("pan") && isPanKnobVariant(selectedControl.component_variant) ? "pan"
+                    : compatibleParameters[0];
+                onUpdate(selectedControl.id, { sampler_group_id: samplerGroupId, ...(samplerGroupId ? { parameter: samplerParameter, moduleId: null } : {}) });
+              }}>
+                <option value="">Master plugin</option>
+                {samplerGroups.map((group) => <option key={group.id} value={group.id}>Sampler · {group.name}</option>)}
+              </select>
+              <span className="mt-1 block text-[9px] text-zinc-500">{["solo", "mute"].includes(selectedControl.kind)
+                ? `${selectedControl.kind === "solo" ? "Solo" : "Mute"} membaca dan mengubah status sampler yang dipilih. M dan S pada sampler yang sama selalu bergantian; menyalakan satu mematikan yang lain.`
+                : "Fader/knob baru otomatis menjadi Volume saat sampler dipilih; skin Pan otomatis menjadi Pan. Nilainya membaca dan mengubah sampler tersebut."}</span>
+            </label>
+          )}
+          {pluginKind !== "effect" && supportsSamplerNoteBinding(selectedControl) && (
+            <label className="md:col-span-2">
+              <FieldLabel>Sampler pemicu</FieldLabel>
+              <select className="maker-input mt-2" value={selectedControl.sampler_group_id || ""} onChange={(event) => onUpdate(selectedControl.id, { sampler_group_id: event.target.value || null })}>
+                <option value="">Master plugin · semua sampler</option>
+                {samplerGroups.map((group) => <option key={group.id} value={group.id}>Sampler · {group.name}</option>)}
+              </select>
+            </label>
           )}
           {["button", "pad"].includes(selectedControl.kind) && (
             <label className="md:col-span-2">
@@ -9603,6 +10305,27 @@ function PanLedRing({ value, type = "dots" }) {
   );
 }
 
+function OpenRingKnobVisual({ value, pan = false, thickness = 5, color = "#67E8F9" }) {
+  const normalized = Math.max(0, Math.min(100, Number(value) || 0));
+  const strokeWidth = normalizeOpenRingThickness(thickness);
+  const activeColor = isHexColor(color) ? color : "#67E8F9";
+  const segmentStart = pan ? Math.min(50, normalized) : 0;
+  const segmentLength = pan ? Math.abs(normalized - 50) : normalized;
+  const pointAt = (percent) => {
+    const angle = (135 + (Math.max(0, Math.min(100, percent)) * 2.7)) * (Math.PI / 180);
+    return [50 + (Math.cos(angle) * 38), 50 + (Math.sin(angle) * 38)];
+  };
+  const segmentEnd = segmentStart + segmentLength;
+  const [activeStartX, activeStartY] = pointAt(segmentStart);
+  const [activeEndX, activeEndY] = pointAt(segmentEnd);
+  const activePath = `M ${activeStartX.toFixed(2)} ${activeStartY.toFixed(2)} A 38 38 0 ${segmentLength > (200 / 3) ? 1 : 0} 1 ${activeEndX.toFixed(2)} ${activeEndY.toFixed(2)}`;
+  return <svg className="maker-open-ring-knob__svg" viewBox="0 0 100 100" aria-hidden="true" style={{ "--maker-open-ring-color": activeColor }}>
+    <path className="maker-open-ring-knob__track" d="M 23.13 76.87 A 38 38 0 1 1 76.87 76.87" pathLength="100" strokeWidth={strokeWidth} />
+    {segmentLength > 0 && <path className="maker-open-ring-knob__active" d={activePath} stroke={activeColor} strokeWidth={strokeWidth} />}
+    {pan && segmentLength > 0 && <circle className="maker-open-ring-knob__center" cx="50" cy="12" r={Math.max(1.4, strokeWidth * 0.52)} fill={activeColor} />}
+  </svg>;
+}
+
 const SCALE_RING_SETTINGS = {
   "scale-classic": { count: 11, majorEvery: 5 },
   "scale-fine": { count: 21, majorEvery: 5 },
@@ -9639,282 +10362,19 @@ function ScaleRing({ variant = "scale-classic", color = "#E8E0CF" }) {
   );
 }
 
-function CreditCoinBadge({ value, prefix = "" }) {
-  return (
-    <span className="maker-credit-badge" aria-label={`${prefix ? `${prefix} ` : ""}${value} kredit`}>
-      {prefix && <span>{prefix}</span>}
-      <Coins aria-hidden="true" />
-      <strong>{Number(value || 0).toLocaleString("id-ID")}</strong>
-    </span>
-  );
-}
-
-const CREDIT_COMPONENT_KIND_LABELS = {
-  knob: "Knob",
-  button: "Button",
-  solo: "Button Solo",
-  mute: "Button Mute",
-  fader: "Fader",
-  gain_meter: "Gain Meter",
-  vu_meter: "VU Meter",
-  pad: "Pad",
-  keyboard: "Keyboard",
-  visual: "Visual",
-  spectrum: "Spectrum",
-  indicator: "Lampu LED",
-  text: "Text",
-  panel_button: "Panel Button",
-  image: "Gambar upload",
-};
-
-const creditItemLabel = (value = "") => String(value)
-  .replaceAll("_", " ")
-  .replaceAll("-", " ")
-  .replace(/\b\w/g, (letter) => letter.toUpperCase());
-
-function CreditEstimateRow({ label, detail, credits, included = false, nested = false }) {
-  return (
-    <div className={`maker-credit-popup__row ${nested ? "is-nested" : ""}`}>
-      <span><strong>{label}</strong>{detail && <small>{detail}</small>}</span>
-      <b className={included ? "is-included" : ""}>{included ? "Termasuk" : formatCredits(credits)}</b>
-    </div>
-  );
-}
-
-function CreditEstimatePopup({ quote, balance, insufficient }) {
-  const remaining = Number(balance || 0) - Number(quote.totalCredits || 0);
-  const dspLabel = (line) => line.name || dspRackOption(line.type)?.name || creditItemLabel(line.type);
-  return (
-    <div className="maker-credit-estimate">
-      <span className={`maker-credit-estimate__total ${insufficient ? "is-insufficient" : ""}`}>
-        Estimasi {formatCredits(quote.totalCredits)}
-      </span>
-      <details className="maker-credit-popup">
-        <summary>Lihat rincian</summary>
-        <div className="maker-credit-popup__panel">
-          <div className="maker-credit-popup__heading">
-            <span><Coins aria-hidden="true" /><strong>Rincian estimasi kredit</strong></span>
-            <small>Berubah otomatis mengikuti isi project.</small>
-          </div>
-          <div className="maker-credit-popup__body">
-            <CreditEstimateRow
-              label="Biaya build dasar"
-              detail={quote.templateBundleActive ? "Sudah termasuk dalam harga template" : quote.includedDspCount ? `Termasuk Input, Output, dan ${quote.includedDspCount} DSP pertama` : "Fondasi build native Steinberg VST3"}
-              credits={quote.baseCredits}
-              included={quote.templateBundleActive}
-            />
-            <CreditEstimateRow
-              label="Template"
-              detail={quote.templateId ? creditItemLabel(quote.templateId) : "Template dasar"}
-              credits={quote.templateCredits}
-              included={!quote.templateCredits}
-            />
-            <CreditEstimateRow
-              label={`Komponen (${quote.componentCount})`}
-              detail={quote.templateBundleActive ? `${quote.templateIncludedComponentCount} bawaan template termasuk · sisanya penambahan/penggantian` : "Total komponen pada Designer"}
-              credits={quote.componentCredits}
-              included={!quote.componentCredits}
-            />
-            {quote.componentLines.map((line) => (
-              <CreditEstimateRow
-                key={`${line.kind}:${line.variant}:${line.unitCredits}`}
-                label={`${CREDIT_COMPONENT_KIND_LABELS[line.kind] || creditItemLabel(line.kind)} · ${creditItemLabel(line.variant)} (${line.quantity})`}
-                detail={`${formatCredits(line.unitCredits)} per komponen`}
-                credits={line.credits}
-                nested
-              />
-            ))}
-            <CreditEstimateRow
-              label={`DSP & Processor (${quote.dspLines.length})`}
-              detail={quote.templateBundleActive ? `${quote.includedDspCount} bawaan template termasuk · DSP baru berbayar` : quote.includedDspCount ? `${quote.includedDspCount} DSP pertama termasuk untuk Plugin FX` : "Processor yang digunakan project"}
-              credits={quote.dspCredits}
-              included={!quote.dspCredits}
-            />
-            {quote.dspLines.map((line, index) => (
-              <CreditEstimateRow
-                key={`${line.type}:${index}`}
-                label={dspLabel(line)}
-                detail={creditItemLabel(line.type)}
-                credits={line.credits}
-                included={line.included}
-                nested
-              />
-            ))}
-            <CreditEstimateRow
-              label={`Sample (${quote.sampleCount})`}
-              detail={quote.templateBundleActive ? `${quote.templateIncludedSampleCount} bawaan template termasuk · ${quote.extraSampleCount} baru/pengganti × ${formatCredits(quote.extraSampleCredits)}` : quote.includedSamples ? `${Math.min(quote.sampleCount, quote.includedSamples)} termasuk · ${quote.extraSampleCount} berbayar × ${formatCredits(quote.extraSampleCredits)}` : "Tidak dikenakan pada Plugin FX"}
-              credits={quote.sampleCredits}
-              included={!quote.sampleCredits}
-            />
-            <CreditEstimateRow
-              label="Background custom"
-              detail={quote.backgroundIncludedByTemplate ? "Background bawaan sudah termasuk harga template" : quote.hasCustomBackground ? "Background upload baru digunakan" : "Background bawaan atau tanpa background"}
-              credits={quote.backgroundCredits}
-              included={!quote.backgroundCredits}
-            />
-            <CreditEstimateRow
-              label={quote.licenseMaxActivations ? `Lisensi · ${quote.licenseMaxActivations} komputer` : "Tanpa serial number"}
-              detail={quote.licenseMaxActivations ? "Kapasitas aktivasi per serial" : "Tidak memakai aktivasi perangkat"}
-              credits={quote.licenseCredits}
-              included={!quote.licenseCredits}
-            />
-          </div>
-          <div className="maker-credit-popup__footer">
-            <div><span>Total estimasi</span><strong>{formatCredits(quote.totalCredits)}</strong></div>
-            <div><span>Saldo saat ini</span><strong>{formatCredits(balance)}</strong></div>
-            <div className={remaining < 0 ? "is-negative" : ""}><span>Sisa setelah build</span><strong>{formatCredits(remaining)}</strong></div>
-          </div>
-          <p className="maker-credit-popup__note">Harga final tetap dihitung ulang oleh server saat Export. Rebuild Koreksi, bila memenuhi syarat, ditampilkan pada langkah konfirmasi.</p>
-        </div>
-      </details>
-    </div>
-  );
-}
-
-function FreeCreditAdminPanel({ email, credits, note, busy, onEmailChange, onCreditsChange, onNoteChange, onGrantCredits }) {
-  return (
-    <section className="maker-grants-admin mt-6">
-      <div className="maker-grants-admin__heading">
-        <div><span>Hadiah kredit</span><small>Email harus sudah terdaftar sebagai customer.</small></div>
-        <Coins aria-hidden="true" />
-      </div>
-      <div className="maker-grants-admin__form">
-        <label><span>Email customer</span><input type="email" value={email} placeholder="customer@email.com" onChange={(event) => onEmailChange(event.target.value)} /></label>
-        <label><span>Jumlah kredit gratis</span><input type="number" min="1" max="1000000" value={credits} onChange={(event) => onCreditsChange(event.target.value)} /></label>
-        <label><span>Catatan audit (opsional)</span><input type="text" maxLength="240" value={note} placeholder="Contoh: bonus komunitas" onChange={(event) => onNoteChange(event.target.value)} /></label>
-        <div className="maker-grants-admin__buttons">
-          <button type="button" disabled={!email.trim() || Number(credits) < 1 || !!busy} onClick={onGrantCredits}>{busy === "credits" ? <Loader2 className="animate-spin" /> : <Coins />}Berikan kredit gratis</button>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function PricingAdminPanel({ pricing, templates, variants, dspOptions, saving, onScalarChange, onPriceChange, onSave }) {
-  const basicProjectPrices = [
-    { id: "basicvst", name: "VST Basic" },
-    { id: "basicfx", name: "Plugin Basic" },
-  ];
-  const additionalTemplates = templates.filter((template) => !basicProjectPrices.some((basic) => basic.id === template.id));
-  const componentRows = [];
-  const seenComponents = new Set();
-  variants.forEach((variant) => {
-    const priceKind = ["button", "solo", "mute"].includes(variant.kind) ? "button" : ["gain_meter", "vu_meter"].includes(variant.kind) ? "meter" : variant.kind;
-    const key = `${priceKind}:${variant.id}`;
-    if (seenComponents.has(key)) return;
-    seenComponents.add(key);
-    componentRows.push({ ...variant, priceKind });
-  });
-  componentRows.push({ id: "default", label: "Gambar upload", category: "Visual", kind: "image", priceKind: "image" });
-  return (
-    <details className="maker-pricing-admin mt-6">
-      <summary><span><Coins aria-hidden="true" /> Kelola harga kredit</span><small>Backend resmi · perubahan berlaku untuk build baru</small></summary>
-      <div className="maker-pricing-admin__body">
-        <div className="maker-pricing-admin__section">
-          <h3>Harga dasar</h3>
-          <div className="maker-pricing-admin__grid maker-pricing-admin__grid--base">
-            {[
-              ["base_build_credits", "Build dasar"],
-              ["extra_sample_credits", "Sampel tambahan"],
-              ["included_instrument_samples", "Sampel termasuk"],
-              ["included_effect_dsp", "DSP termasuk (Plugin FX)"],
-              ["custom_background_credits", "Background custom"],
-            ].map(([key, label]) => <label key={key}><span>{label}</span><input type="number" min="0" max="100000" value={pricing[key]} onChange={(event) => onScalarChange(key, event.target.value)} /></label>)}
-          </div>
-        </div>
-        <div className="maker-pricing-admin__section">
-          <h3>Harga pilihan Project baru</h3>
-          <p>Harga ini tampil pada popup Project baru. Nama dibuat khusus agar tidak tertukar dengan template bergambar di galeri.</p>
-          <div className="maker-pricing-admin__grid">
-            {basicProjectPrices.map((template) => <label key={template.id}><span>{template.name}</span><input type="number" min="0" max="100000" value={pricing.template_credits?.[template.id] || 0} onChange={(event) => onPriceChange("template_credits", template.id, event.target.value)} /></label>)}
-          </div>
-        </div>
-        <div className="maker-pricing-admin__section">
-          <h3>Harga template tambahan</h3>
-          <p>Jika nilainya di atas 0, angka ini menjadi harga bundel template dan sudah mencakup build dasar serta isi bawaan template. Badge galeri memakai kalkulasi yang sama dengan rincian sebelum build.</p>
-          <div className="maker-pricing-admin__grid">
-            {additionalTemplates.map((template) => <label key={template.id}><span>{template.name}</span><input type="number" min="0" max="100000" value={pricing.template_credits?.[template.id] || 0} onChange={(event) => onPriceChange("template_credits", template.id, event.target.value)} /></label>)}
-          </div>
-        </div>
-        <div className="maker-pricing-admin__section">
-          <h3>Harga komponen</h3>
-          <div className="maker-pricing-admin__grid">
-            {componentRows.map((variant) => <label key={`${variant.priceKind}:${variant.id}`}><span>{variant.label}<small>{variant.category}</small></span><input type="number" min="0" max="100000" value={pricing.component_prices?.[variant.priceKind]?.[variant.id] ?? componentCreditPrice(variant.kind, variant.id, pricing)} onChange={(event) => onPriceChange("component_prices", variant.priceKind, event.target.value, variant.id)} /></label>)}
-          </div>
-        </div>
-        <div className="maker-pricing-admin__section">
-          <h3>Harga DSP</h3>
-          <div className="maker-pricing-admin__grid">
-            {dspOptions.map((option) => <label key={option.type}><span>{option.name}</span><input type="number" min="0" max="100000" value={pricing.dsp_prices?.[option.type] ?? 15} onChange={(event) => onPriceChange("dsp_prices", option.type, event.target.value)} /></label>)}
-          </div>
-        </div>
-        <div className="maker-pricing-admin__section">
-          <h3>Efek instrumen</h3>
-          <div className="maker-pricing-admin__grid maker-pricing-admin__grid--base">
-            {Object.entries(pricing.instrument_effect_prices || {}).map(([effect, credits]) => <label key={effect}><span>{effect}</span><input type="number" min="0" max="100000" value={credits} onChange={(event) => onPriceChange("instrument_effect_prices", effect, event.target.value)} /></label>)}
-          </div>
-        </div>
-        <div className="maker-pricing-admin__section">
-          <h3>Harga lisensi per kapasitas perangkat</h3>
-          <p>Nilai ini ditambahkan ke harga project ketika proteksi lisensi build customer aktif.</p>
-          <div className="maker-pricing-admin__grid maker-pricing-admin__grid--base">
-            {[1, 2, 3].map((count) => <label key={count}><span>{count} komputer</span><input type="number" min="0" max="100000" value={pricing.license_activation_credits?.[count] || 0} onChange={(event) => onPriceChange("license_activation_credits", String(count), event.target.value)} /></label>)}
-          </div>
-        </div>
-        <div className="maker-pricing-admin__section">
-          <h3>Lisensi distribusi</h3>
-          <p>Harga per serial untuk VST yang dijual kembali. Diskon diterapkan ketika customer membeli paket kuota.</p>
-          <div className="maker-pricing-admin__grid maker-pricing-admin__grid--base">
-            {[1, 2, 3].map((count) => <label key={count}><span>Serial · {count} komputer</span><input type="number" min="0" max="100000" value={pricing.distribution_license_credits?.[count] || 0} onChange={(event) => onPriceChange("distribution_license_credits", String(count), event.target.value)} /></label>)}
-            {[10, 50, 100, 1000].map((quantity) => <label key={quantity}><span>Diskon paket {quantity}</span><input type="number" min="0" max="100" value={pricing.distribution_pack_discounts?.[quantity] || 0} onChange={(event) => onPriceChange("distribution_pack_discounts", String(quantity), event.target.value)} /></label>)}
-          </div>
-        </div>
-        <div className="maker-pricing-admin__footer">
-          <span>Harga 0 diperbolehkan untuk item yang ingin digratiskan.</span>
-          <button type="button" onClick={onSave} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}{saving ? "Menyimpan…" : "Simpan semua harga"}</button>
-        </div>
-      </div>
-    </details>
-  );
-}
-
 function BuildLicenseAdminPanel({ settings, savedSettings, saving, onChange, onSave }) {
-  const dirty = settings.customer_license_enabled !== savedSettings.customer_license_enabled
-    || settings.show_no_serial_option !== savedSettings.show_no_serial_option
-    || Number(settings.license_max_activations) !== Number(savedSettings.license_max_activations);
+  const dirty = Number(settings.license_max_activations) !== Number(savedSettings.license_max_activations);
   return (
-    <section className="maker-pricing-admin mb-6">
-      <div className="maker-pricing-admin__body">
-        <div className="maker-pricing-admin__section">
+    <section className="maker-build-settings-admin mb-6">
+      <div className="maker-build-settings-admin__body">
+        <div className="maker-build-settings-admin__section">
           <h3>Lisensi build customer</h3>
-          <p>Pengaturan ini berlaku untuk build customer baru. Build dan serial yang sudah dibuat tidak diubah.</p>
-          <div className="maker-pricing-admin__grid maker-pricing-admin__grid--base">
+          <p>Tetapkan jumlah komputer yang dapat memakai setiap serial Creator Commercial, Studio Commercial, dan Partner. Personal dan Creator selalu satu komputer.</p>
+          <div className="maker-build-settings-admin__grid maker-build-settings-admin__grid--base">
             <label>
-              <span>Proteksi lisensi</span>
-              <select
-                value={settings.customer_license_enabled === false ? "off" : "on"}
-                onChange={(event) => onChange((current) => ({ ...current, customer_license_enabled: event.target.value === "on" }))}
-              >
-                <option value="on">Aktif · serial wajib</option>
-                <option value="off">Nonaktif · tanpa serial</option>
-              </select>
-            </label>
-            <label>
-              <span>Opsi tanpa serial number</span>
-              <select
-                value={settings.show_no_serial_option === false ? "hidden" : "visible"}
-                disabled={settings.customer_license_enabled === false}
-                onChange={(event) => onChange((current) => ({ ...current, show_no_serial_option: event.target.value === "visible" }))}
-              >
-                <option value="visible">Tampil di langkah terakhir</option>
-                <option value="hidden">Sembunyikan dari customer</option>
-              </select>
-            </label>
-            <label>
-              <span>Maksimal pilihan komputer</span>
+              <span>Komputer per lisensi</span>
               <select
                 value={settings.license_max_activations}
-                disabled={settings.customer_license_enabled === false}
                 onChange={(event) => onChange((current) => ({ ...current, license_max_activations: Number(event.target.value) }))}
               >
                 {[1, 2, 3].map((count) => <option key={count} value={count}>{count} komputer</option>)}
@@ -9922,147 +10382,63 @@ function BuildLicenseAdminPanel({ settings, savedSettings, saving, onChange, onS
             </label>
           </div>
         </div>
-        <div className="maker-pricing-admin__footer">
-          <span>{settings.customer_license_enabled === false ? "Build customer baru tidak akan meminta aktivasi." : settings.show_no_serial_option === false ? `Customer wajib memilih lisensi 1–${settings.license_max_activations} komputer.` : `Customer dapat memilih tanpa serial atau lisensi 1–${settings.license_max_activations} komputer.`}</span>
-          <button type="button" onClick={onSave} disabled={saving || !dirty}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}{saving ? "Menyimpan…" : "Simpan pengaturan lisensi"}</button>
+        <div className="maker-build-settings-admin__footer">
+          <span>Setiap serial Creator Commercial, Studio Commercial, dan Partner berlaku untuk {settings.license_max_activations} komputer.</span>
+          <button type="button" onClick={onSave} disabled={saving || !dirty} aria-busy={saving}>
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : dirty ? <Save className="h-4 w-4" /> : <Check className="h-4 w-4" />}
+            {saving ? "Menyimpan…" : dirty ? "Simpan pengaturan lisensi" : "Tersimpan"}
+          </button>
         </div>
       </div>
     </section>
   );
 }
 
-function CustomerBuildLicenseDialog({ mode = "export", platform = "windows", settings, pricing, selectedActivations, quote, balance, distributionChoice, busy, onChange, onDistributionChange, onClose, onConfirm }) {
-  const enabled = settings.customer_license_enabled !== false;
-  const showNoSerialOption = settings.show_no_serial_option !== false;
-  const maximum = Math.max(1, Math.min(3, Number(settings.license_max_activations) || 2));
-  const selected = showNoSerialOption && Number(selectedActivations) === 0 ? 0 : Math.max(1, Math.min(maximum, Number(selectedActivations) || 1));
-  const distributionEnabled = enabled && selected > 0 && distributionChoice?.enabled === true;
-  const distributionQuantity = [10, 50, 100, 1000].includes(Number(distributionChoice?.quantity)) ? Number(distributionChoice.quantity) : 10;
-  const distributionActivations = Math.max(1, Math.min(3, Number(distributionChoice?.maxActivations) || 1));
-  const distributionUnitCredits = Number(pricing.distribution_license_credits?.[distributionActivations] || 0);
-  const distributionDiscount = Number(pricing.distribution_pack_discounts?.[distributionQuantity] || 0);
-  const distributionSubtotal = distributionQuantity * distributionUnitCredits;
-  const distributionDiscountCredits = distributionEnabled
-    ? Math.max(0, distributionSubtotal - Math.ceil(distributionSubtotal * (100 - distributionDiscount) / 100))
-    : 0;
-  const distributionCredits = distributionEnabled
-    ? distributionSubtotal - distributionDiscountCredits
-    : 0;
-  const correction = quote.correctionRebuild || null;
-  const correctionEligible = correction?.eligible === true;
-  const existingBuildAvailable = correction?.mode === "download_existing";
-  const grandTotal = Number(quote.totalCredits) + distributionCredits;
-  const insufficient = Number(balance) < grandTotal;
+function CustomerBuildLicenseDialog({ platform = "windows", quote, busy, onClose, onConfirm }) {
+  const planId = quote.planId || "free";
+  const personalPlan = ["personal", "creator_personal"].includes(planId);
+  const selected = personalPlan ? 1 : Math.max(1, Math.min(3, Number(quote.licenseMaxActivations) || 1));
+  const canBuild = quote.canBuild !== false;
+  const buildLimit = quote.buildLimit;
+  const buildsRemaining = quote.buildsRemaining;
+  const includedSerials = planId === "creator" ? 100 : planId === "studio" ? 1000 : 0;
   return (
     <div className="fixed inset-0 z-[300] grid place-items-center bg-black/75 px-4 py-8 backdrop-blur-sm" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
       <section className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-amber-300/20 bg-[#0a0a0d] p-5 shadow-2xl md:p-7" role="dialog" aria-modal="true" aria-labelledby="build-license-dialog-title">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <div className="text-[10px] font-black uppercase tracking-[0.18em] text-amber-300">{mode === "correction" ? "Konfirmasi build ulang" : "Langkah terakhir sebelum build"}</div>
-            <h2 id="build-license-dialog-title" className="mt-2 font-[Outfit] text-2xl font-black text-white">{mode === "correction" ? `Rebuild Koreksi VST3 ${platform === "macos" ? "macOS" : "Windows"}` : `Lisensi VST3 ${platform === "macos" ? "macOS" : "Windows"}`}</h2>
+            <div className="text-[10px] font-black uppercase tracking-[0.18em] text-amber-300">Langkah terakhir sebelum build</div>
+            <h2 id="build-license-dialog-title" className="mt-2 font-[Outfit] text-2xl font-black text-white">Lisensi VST3 {platform === "macos" ? "macOS" : "Windows"}</h2>
           </div>
           <button type="button" onClick={onClose} disabled={busy} className="rounded-full border border-white/10 p-2 text-zinc-500 hover:text-white disabled:opacity-40" aria-label="Tutup pilihan lisensi"><X className="h-4 w-4" /></button>
         </div>
         <div className="mt-5">
-          {enabled ? (
-            <>
-              <p className="text-sm leading-6 text-zinc-400">{showNoSerialOption ? "Pilih build tanpa serial number untuk distribusi bebas, atau gunakan serial number unik dan aktivasi perangkat untuk melindungi plugin." : "Pilih jumlah komputer untuk serial number unik dan aktivasi perangkat yang melindungi plugin."} Setelah aktivasi pertama, plugin berlisensi tetap dapat digunakan offline tanpa batas waktu.</p>
-              <div className="maker-license-options" role="radiogroup" aria-label="Jumlah komputer untuk lisensi build">
-                {[...(showNoSerialOption ? [0] : []), ...Array.from({ length: maximum }, (_, index) => index + 1)].map((count) => {
-                  const credits = Number(pricing.license_activation_credits?.[count] || 0);
-                  return (
-                    <button key={count} type="button" role="radio" aria-checked={selected === count} className={selected === count ? "is-active" : ""} onClick={() => {
-                      onChange(count);
-                      if (count === 0) onDistributionChange((current) => ({ ...current, enabled: false }));
-                    }}>
-                      <strong>{count === 0 ? "Tanpa serial number" : `${count} komputer`}</strong>
-                      <span>{count === 0 ? "Tanpa aktivasi" : credits ? `+${formatCredits(credits)}` : "Termasuk"}</span>
-                    </button>
-                  );
-                })}
-              </div>
-              <p className="mt-3 text-xs leading-5 text-zinc-500">{selected === 0 ? "Build tidak meminta serial number dan dapat dibuka tanpa aktivasi perangkat." : "Serial diterbitkan saat build masuk antrean dan baru dapat diaktivasi setelah build berhasil."}</p>
+          <div className="rounded-2xl border border-emerald-300/20 bg-emerald-300/[0.05] p-4">
+            <div><div className="text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-300">Paket aktif</div><strong className="mt-1 block text-lg text-white">{quote.planName || "Belum ada paket build"}</strong></div>
+            <p className="mt-3 text-xs leading-5 text-zinc-400">Periksa platform, lisensi, dan hak build sebelum melanjutkan proses ekspor.</p>
+          </div>
 
-              {correction && (
-                <div className={`mt-5 rounded-2xl border p-4 ${correctionEligible ? "border-emerald-300/25 bg-emerald-300/[0.06]" : existingBuildAvailable ? "border-sky-300/25 bg-sky-300/[0.06]" : "border-amber-300/15 bg-amber-300/[0.04]"}`}>
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <strong className={`text-sm ${correctionEligible ? "text-emerald-200" : existingBuildAvailable ? "text-sky-200" : "text-amber-100"}`}>{correctionEligible ? "Rebuild Koreksi tersedia" : existingBuildAvailable ? "Build yang sama sudah tersedia" : "Dihitung sebagai build baru"}</strong>
-                      <p className="mt-1 text-xs leading-5 text-zinc-400">{correctionEligible ? `${Number(correction.changed_properties || 0) + Number(correction.added_components || 0) + Number(correction.added_samples || 0)} perubahan ringan terdeteksi. Kesempatan tersisa setelah build: ${Number(correction.remaining_after_build || 0)}.` : existingBuildAvailable ? "Tidak ada perubahan project. Sistem menggunakan hasil build sebelumnya tanpa biaya build baru." : (correction.reasons || ["Project belum memenuhi ketentuan Rebuild Koreksi."]).join(" · ")}</p>
-                    </div>
-                    {correctionEligible && <div className="text-right"><div className="text-lg font-black text-emerald-300">{formatCredits(correction.charged_credits)}</div><div className="text-[10px] text-zinc-500 line-through">{formatCredits(correction.full_price_credits)}</div></div>}
-                  </div>
-                  {correctionEligible && (correction.changes || []).length > 0 && (
-                    <div className="mt-3 flex flex-wrap gap-2">{correction.changes.map((change) => <span key={change.section} className="rounded-full border border-emerald-300/15 bg-black/20 px-2.5 py-1 text-[10px] text-emerald-100/80">{change.label} · {change.count}</span>)}</div>
-                  )}
-                  {correctionEligible && Number(correction.added_item_credits || 0) > 0 && <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-white/[0.07] bg-black/20 px-3 py-2 text-xs"><span className="text-zinc-500">Biaya koreksi 15 kredit + item baru/selisih skin</span><strong className="text-emerald-200">+{formatCredits(correction.added_item_credits)}</strong></div>}
-                  {correctionEligible && <div className="mt-3 text-xs font-bold text-emerald-300">Hemat {formatCredits(correction.savings_credits)} · berlaku sampai {new Date(correction.expires_at).toLocaleDateString("id-ID")}</div>}
-                  <details className="mt-3 border-t border-white/[0.07] pt-3 text-xs text-zinc-500">
-                    <summary className="cursor-pointer font-bold text-zinc-300">Ketentuan Rebuild Koreksi</summary>
-                    <ul className="mt-2 list-disc space-y-1 pl-5 leading-5">
-                      <li>Biaya dasar 15 kredit, berlaku 7 hari, maksimal 2 kali.</li>
-                      <li>Maksimal 3 komponen dan 3 sample baru tetap termasuk rebuild; harga item baru tetap dibayar.</li>
-                      <li>Maksimal 3 komponen boleh berganti skin; hanya selisih harga yang lebih mahal yang ditambahkan dan skin lebih murah tidak mendapat refund.</li>
-                      <li>Posisi, ukuran, warna, teks, mapping, dan parameter DSP yang sudah ada dapat diperbaiki.</li>
-                      <li>Sample/komponen lama tidak boleh dihapus atau berganti jenis; IR, jenis DSP, identitas produk, dan kapasitas lisensi harus tetap sama.</li>
-                      <li>Serial number dan Product ID build sebelumnya digunakan kembali.</li>
-                      <li>Build gagal dapat diulang melalui tombol Ulangi build setelah kredit dikembalikan.</li>
-                    </ul>
-                  </details>
-                </div>
-              )}
+          <div className="mt-5 rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4">
+            <div className="flex items-center justify-between gap-4"><span className="text-xs text-zinc-500">Komputer per lisensi</span><strong className="text-sm text-white">{selected} komputer</strong></div>
+            <p className="mt-2 text-xs leading-5 text-zinc-500">Jumlah ini mengikuti pengaturan TripleSide dan diterapkan otomatis pada serial build.</p>
+          </div>
+          <p className="mt-3 text-xs leading-5 text-zinc-500">Serial produk dibuat saat build masuk antrean dan dapat diaktivasi setelah build berhasil.</p>
 
-              <div className={`mt-5 rounded-2xl border p-4 transition-colors ${distributionEnabled ? "border-emerald-300/25 bg-emerald-300/[0.05]" : "border-white/[0.08] bg-black/20"}`}>
-                <label className="flex cursor-pointer items-start gap-3">
-                  <input
-                    type="checkbox"
-                    checked={distributionEnabled}
-                    onChange={(event) => {
-                      if (event.target.checked && selected === 0) onChange(1);
-                      onDistributionChange((current) => ({ ...current, enabled: event.target.checked }));
-                    }}
-                    className="mt-1 h-4 w-4 accent-emerald-400"
-                  />
-                  <span>
-                    <strong className="flex items-center gap-2 text-sm text-white"><PackagePlus className="h-4 w-4 text-emerald-300" />Lisensi Distribusi</strong>
-                    <span className="mt-1 block text-xs leading-5 text-zinc-400">Pilih ini jika VST akan dijual massal. Anda memperoleh kuota serial number unik untuk setiap pembeli, diskon paket, pengiriman lisensi lewat Dashboard atau API, serta kontrol reset perangkat, kirim ulang, revoke, dan arsip lisensi.</span>
-                  </span>
-                </label>
-                {distributionEnabled && (
-                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                    <label className="text-xs text-zinc-500">Jumlah serial
-                      <select value={distributionQuantity} onChange={(event) => onDistributionChange((current) => ({ ...current, quantity: Number(event.target.value) }))} className="maker-input mt-1.5">
-                        {[10, 50, 100, 1000].map((quantity) => <option key={quantity} value={quantity}>{quantity} serial · diskon {Number(pricing.distribution_pack_discounts?.[quantity] || 0)}%</option>)}
-                      </select>
-                    </label>
-                    <label className="text-xs text-zinc-500">Kapasitas setiap serial
-                      <select value={distributionActivations} onChange={(event) => onDistributionChange((current) => ({ ...current, maxActivations: Number(event.target.value) }))} className="maker-input mt-1.5">
-                        {[1, 2, 3].map((count) => <option key={count} value={count}>{count} komputer/serial</option>)}
-                      </select>
-                    </label>
-                    <div className="sm:col-span-2 space-y-2 rounded-xl border border-emerald-300/10 bg-black/25 px-3 py-3 text-xs">
-                      <div className="flex items-center justify-between gap-3"><span className="text-zinc-500">Harga setiap serial</span><strong className="text-zinc-200">{formatCredits(distributionUnitCredits)}</strong></div>
-                      <div className="flex items-center justify-between gap-3"><span className="text-zinc-500">{distributionQuantity} serial × {formatCredits(distributionUnitCredits)}</span><strong className="text-zinc-200">{formatCredits(distributionSubtotal)}</strong></div>
-                      <div className="flex items-center justify-between gap-3"><span className="text-zinc-500">Diskon paket {distributionDiscount}%</span><strong className="text-amber-300">−{formatCredits(distributionDiscountCredits)}</strong></div>
-                      <div className="flex items-center justify-between gap-3 border-t border-white/[0.07] pt-2"><span className="font-bold text-zinc-300">Total paket distribusi</span><strong className="text-emerald-300">+{formatCredits(distributionCredits)}</strong></div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </>
-          ) : (
-            <p className="text-sm leading-6 text-zinc-400">Build tidak memerlukan serial number atau aktivasi perangkat.</p>
-          )}
+          <div className="mt-5 rounded-2xl border border-sky-300/20 bg-sky-300/[0.05] p-4">
+            <div className="flex items-center justify-between gap-4"><span className="text-xs text-sky-100">Kuota build</span><strong className="text-sm text-sky-200">{buildLimit == null ? "Tanpa batas paket" : `${Number(buildsRemaining || 0)} dari ${Number(buildLimit)} tersisa`}</strong></div>
+            <p className="mt-2 text-xs leading-5 text-zinc-500">Setiap artifact Windows atau macOS memakai satu kuota. Build gagal dan unduh ulang artifact yang sama tidak mengurangi kuota.</p>
+          </div>
+          {includedSerials > 0 && <div className="mt-5 rounded-2xl border border-sky-300/20 bg-sky-300/[0.05] p-4 text-xs leading-5 text-sky-100/80"><strong className="block text-sky-200">Distribusi langsung termasuk</strong>{includedSerials.toLocaleString("id-ID")} serial pembeli dibuat otomatis setelah build pertama berhasil dan dikelola dari Dashboard.</div>}
+          {planId === "partner" && <div className="mt-5 rounded-2xl border border-violet-300/20 bg-violet-300/[0.05] p-4 text-xs leading-5 text-violet-100/80"><strong className="block text-violet-200">Distribusi Partner</strong>Build ini mengikuti ketentuan marketplace eksklusif dan bagi hasil Partner.</div>}
         </div>
         <div className="mt-6 rounded-2xl border border-white/[0.07] bg-black/25 p-4">
-          <div className="flex items-center justify-between gap-4"><span className="text-xs text-zinc-500">Total build</span><strong className="text-lg text-white">{formatCredits(grandTotal)}</strong></div>
-          {enabled && <div className="mt-2 flex items-center justify-between gap-4 text-xs"><span className="text-zinc-600">{quote.licenseMaxActivations ? `Lisensi ${quote.licenseMaxActivations} komputer` : "Tanpa serial number"}</span><span className="font-bold text-amber-300">{quote.licenseMaxActivations ? (quote.licenseCredits ? `+${formatCredits(quote.licenseCredits)}` : "Termasuk") : "Tanpa aktivasi"}</span></div>}
-          {distributionEnabled && <div className="mt-2 flex items-center justify-between gap-4 text-xs"><span className="text-zinc-600">Lisensi distribusi · {distributionQuantity} serial</span><span className="font-bold text-emerald-300">+{formatCredits(distributionCredits)}</span></div>}
-          <div className="mt-2 flex items-center justify-between gap-4 text-xs"><span className="text-zinc-600">Saldo tersisa setelah build</span><span className={insufficient ? "font-bold text-red-300" : "font-bold text-emerald-300"}>{formatCredits(Number(balance) - grandTotal)}</span></div>
+          <div className="flex items-center justify-between gap-4"><span className="text-xs text-zinc-500">Hak build</span><strong className={canBuild ? "text-lg text-emerald-300" : "text-lg text-red-300"}>{canBuild ? "Termasuk paket" : "Tidak tersedia"}</strong></div>
+          <div className="mt-2 flex items-center justify-between gap-4 text-xs"><span className="text-zinc-600">Lisensi perangkat</span><span className="font-bold text-zinc-200">{selected} komputer</span></div>
+          {!canBuild && <p className="mt-3 text-xs leading-5 text-red-200/80">{(quote.reasons || ["Paket ini sudah terikat pada project atau platform lain."]).join(" · ")}</p>}
         </div>
         <div className="mt-6 flex flex-wrap justify-end gap-3">
           <button type="button" onClick={onClose} disabled={busy} className="rounded-xl border border-white/10 px-5 py-3 text-xs font-bold text-zinc-300 hover:bg-white/[0.04] disabled:opacity-40">Kembali</button>
-          <button type="button" onClick={onConfirm} disabled={busy || insufficient} className="inline-flex items-center gap-2 rounded-xl bg-[#e11d48] px-5 py-3 text-xs font-black text-white hover:bg-[#be123c] disabled:cursor-not-allowed disabled:opacity-40">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : existingBuildAvailable ? <Download className="h-4 w-4" /> : <Sparkles className="h-4 w-4" />}{insufficient ? "Kredit tidak cukup" : busy ? "Mengantrekan…" : existingBuildAvailable ? "Gunakan build tersedia" : correctionEligible ? `Rebuild ${formatCredits(correction.charged_credits)}` : "Lanjutkan build"}</button>
+          <button type="button" onClick={onConfirm} disabled={busy || !canBuild} className="inline-flex items-center gap-2 rounded-xl bg-[#e11d48] px-5 py-3 text-xs font-black text-white hover:bg-[#be123c] disabled:cursor-not-allowed disabled:opacity-40">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}{busy ? "Mengantrekan…" : "Lanjutkan build"}</button>
         </div>
       </section>
     </div>
@@ -10093,13 +10469,18 @@ function ComponentThumbnail({ variant }) {
   const asset = appearance === "filmstrip" ? (kind === "knob" ? galleryKnobAssets[id] || (id === "pultec" ? DEFAULT_VST_FILMSTRIP_SKIN.pultecKnob : DEFAULT_VST_FILMSTRIP_SKIN.knob) : DEFAULT_VST_FILMSTRIP_SKIN[assetKind]) : null;
   let preview;
   if (asset) {
-    const sprite = <span className={`maker-gallery-sprite maker-gallery-sprite--${assetKind}`} style={filmstripFrameStyle(asset, assetKind === "button" ? 0 : Math.round((asset.frames - 1) * (isPanKnobVariant(id) ? 0.5 : 0.65)))} />;
+    const previewValue = isPanKnobVariant(id) ? 50 : 65;
+    const previewFrame = assetKind === "button" ? 0 : (asset.frames - 1) * (previewValue / 100);
+    const angleCorrection = wingFilmstripAngleCorrection(id, asset, previewValue);
+    const sprite = <span className={`maker-gallery-sprite maker-gallery-sprite--${assetKind}`} style={{ ...filmstripFrameStyle(asset, previewFrame), ...(angleCorrection ? { transform: `rotate(${angleCorrection}deg)` } : {}) }} />;
     preview = isPanLedKnobVariant(id) ? <span className={`maker-gallery-pan-led-shell maker-knob--${id}`}><PanLedRing value={50} type={panLedStyleForVariant(id)} />{sprite}</span> : sprite;
   } else if (kind === "knob") {
     const visualVariant = PAN_LED_KNOB_BASES[id] || id;
-    preview = <span className={`maker-rotary-knob maker-knob--${id} ${visualVariant !== id ? `maker-knob--${visualVariant}` : ""}`} style={{ "--knob-angle": isPanKnobVariant(id) ? "0deg" : "40deg", "--knob-progress": "175.5deg" }}>{id === "chicken-head" && <span className="maker-chicken-head-knob__scale"><span>MIN</span><span>MAX</span></span>}{id === "ivory-lever" && <span className="maker-ivory-lever__scale"><span>MIN</span><span>MAX</span></span>}{id === "orbit-encoder" && <OrbitEncoderLights value={65} />}{isPanLedKnobVariant(id) && <PanLedRing value={50} type={panLedStyleForVariant(id)} />}<span className="maker-rotary-knob__indicator" /><span className="maker-rotary-knob__value">{isPanKnobVariant(id) ? "C" : "65"}</span></span>;
+    preview = <span className={`maker-rotary-knob maker-knob--${id} ${visualVariant !== id ? `maker-knob--${visualVariant}` : ""}`} style={{ "--knob-angle": isPanKnobVariant(id) ? "0deg" : "40deg", "--knob-progress": "175.5deg" }}>{isOpenRingKnobVariant(id) ? <OpenRingKnobVisual value={isPanKnobVariant(id) ? 50 : 65} pan={isPanKnobVariant(id)} thickness={variant.ringThickness} color="#67E8F9" /> : <>{id === "chicken-head" && <span className="maker-chicken-head-knob__scale"><span>MIN</span><span>MAX</span></span>}{id === "ivory-lever" && <span className="maker-ivory-lever__scale"><span>MIN</span><span>MAX</span></span>}{id === "orbit-encoder" && <OrbitEncoderLights value={65} />}{isPanLedKnobVariant(id) && <PanLedRing value={50} type={panLedStyleForVariant(id)} />}<span className="maker-rotary-knob__indicator" /></>}<span className="maker-rotary-knob__value">{isPanKnobVariant(id) ? "C" : "65"}</span></span>;
   } else if (kind === "indicator") {
     preview = <span className="maker-gallery-led-indicator"><RoundLedIndicator active color={variant.color} /></span>;
+  } else if (kind === "solo_mute") {
+    preview = <span className="maker-gallery-solo-mute"><span className="maker-solo-mute-pair maker-solo-mute-pair--square" aria-hidden="true" style={{ "--maker-solo-mute-gap": "8px", "--maker-solo-color": DEFAULT_SOLO_COLOR, "--maker-mute-color": DEFAULT_MUTE_COLOR }}><span className="maker-solo-mute-pair__button maker-solo-mute-pair__button--solo is-on">S</span><span className="maker-solo-mute-pair__button maker-solo-mute-pair__button--mute">M</span></span></span>;
   } else if (["button", "solo", "mute"].includes(kind)) {
     preview = (
       <span className={`maker-gallery-button-stage maker-gallery-button-stage--${id} maker-canvas-control--${kind}`}>
@@ -10114,7 +10495,7 @@ function ComponentThumbnail({ variant }) {
   } else if (kind === "fader" && ["pitch-bend", "pitch-bend-led", "modulation", "modulation-led"].includes(id)) {
     preview = <KeyboardPerformanceWheel value={id.startsWith("pitch-bend") ? 50 : 68} label={variant.label} spring={id.startsWith("pitch-bend")} led={id.endsWith("-led")} color="#55d9ee" onChange={() => {}} />;
   } else if (kind === "fader") {
-    preview = <span className={`maker-panel-fader maker-css-control maker-fader--${id}`} style={{ "--maker-fader-value": "65%" }}><span className="maker-css-fader__track" /><span className="maker-css-fader__fill" /><span className="maker-css-fader__thumb" /></span>;
+    preview = <span className={`maker-panel-fader maker-css-control maker-fader--${id}`} style={{ "--maker-fader-value": isStudioMetalFaderVariant(id) ? "75%" : "65%" }}><span className="maker-css-fader__track" /><span className="maker-css-fader__fill" /><span className="maker-css-fader__thumb" /></span>;
   } else if (kind === "gain_meter") {
     preview = <span className={`maker-gain-meter maker-meter--${id}`} style={{ "--maker-level": "65%" }}><div><i /></div><span>−6.0 dB</span></span>;
   } else if (kind === "vu_meter") {
@@ -10156,10 +10537,11 @@ function ComponentThumbnail({ variant }) {
   return <span className="maker-gallery-preview" aria-hidden="true">{preview}</span>;
 }
 
-function RotaryKnob({ value, valueText, neutralValue = 50, label, onChange, onInteract, disabled = false, variant = "classic", asset = DEFAULT_VST_FILMSTRIP_SKIN.knob }) {
+function RotaryKnob({ value, valueText, neutralValue = 50, label, onChange, onInteract, disabled = false, variant = "classic", ringThickness = 5, ringColor = "#67E8F9", asset = DEFAULT_VST_FILMSTRIP_SKIN.knob }) {
   const dragRef = useRef(null);
   const isPanKnob = isPanKnobVariant(variant);
   const visualVariant = PAN_LED_KNOB_BASES[variant] || variant;
+  const angleCorrection = wingFilmstripAngleCorrection(variant, asset, value);
   const setFromKey = (event) => {
     const increments = { ArrowUp: 1, ArrowRight: 1, ArrowDown: -1, ArrowLeft: -1, PageUp: 10, PageDown: -10 };
     if (!(event.key in increments)) return;
@@ -10178,7 +10560,7 @@ function RotaryKnob({ value, valueText, neutralValue = 50, label, onChange, onIn
       aria-valuenow={value}
       aria-valuetext={valueText || (isPanKnob ? (value === 50 ? "Center" : value < 50 ? `Left ${100 - value * 2}%` : `Right ${(value - 50) * 2}%`) : `${value}%`)}
       className={`maker-rotary-knob maker-knob--${variant} ${visualVariant !== variant ? `maker-knob--${visualVariant}` : ""} ${asset ? `maker-filmstrip-control ${asset.staticFace ? "maker-static-knob-asset" : ""}` : "maker-css-control"}`}
-      style={asset ? { ...filmstripFrameStyle(asset, (value / 100) * (asset.frames - 1)), "--knob-angle": `${-135 + (value * 2.7)}deg` } : { "--knob-angle": `${-135 + (value * 2.7)}deg`, "--knob-progress": `${value * 2.7}deg` }}
+      style={asset ? { ...filmstripFrameStyle(asset, (value / 100) * (asset.frames - 1)), "--knob-angle": `${-135 + (value * 2.7)}deg`, "--maker-filmstrip-angle-correction": `${angleCorrection}deg` } : { "--knob-angle": `${-135 + (value * 2.7)}deg`, "--knob-progress": `${value * 2.7}deg` }}
       onPointerDown={(event) => {
         event.preventDefault();
         onInteract?.();
@@ -10202,12 +10584,33 @@ function RotaryKnob({ value, valueText, neutralValue = 50, label, onChange, onIn
       onFocus={() => onInteract?.()}
       onKeyDown={(event) => { onInteract?.(); setFromKey(event); }}
     >
-      {asset ? <>{isPanLedKnobVariant(variant) && <PanLedRing value={value} type={panLedStyleForVariant(variant)} />}{asset.staticFace && <span className="maker-static-knob-asset__indicator" />}<span className="maker-control-value-readout">{valueText || (isPanKnob ? value === 50 ? "C" : value < 50 ? `L${100 - value * 2}` : `R${(value - 50) * 2}` : value)}</span></> : <>{variant === "chicken-head" && <span className="maker-chicken-head-knob__scale" aria-hidden="true"><span>MIN</span><span>MAX</span></span>}{variant === "ivory-lever" && <span className="maker-ivory-lever__scale" aria-hidden="true"><span>MIN</span><span>MAX</span></span>}{variant === "orbit-encoder" && <OrbitEncoderLights value={value} />}{isPanLedKnobVariant(variant) && <PanLedRing value={value} type={panLedStyleForVariant(variant)} />}<span className="maker-rotary-knob__indicator" /><span className="maker-rotary-knob__value">{valueText || (isPanKnob ? value === 50 ? "C" : value < 50 ? `L${100 - value * 2}` : `R${(value - 50) * 2}` : value)}</span></>}
+      {asset ? <>{isPanLedKnobVariant(variant) && <PanLedRing value={value} type={panLedStyleForVariant(variant)} />}{asset.staticFace && <span className="maker-static-knob-asset__indicator" />}<span className="maker-control-value-readout">{valueText || (isPanKnob ? value === 50 ? "C" : value < 50 ? `L${100 - value * 2}` : `R${(value - 50) * 2}` : value)}</span></> : <>{isOpenRingKnobVariant(variant) ? <OpenRingKnobVisual value={value} pan={isPanKnob} thickness={ringThickness} color={ringColor} /> : <>{variant === "chicken-head" && <span className="maker-chicken-head-knob__scale" aria-hidden="true"><span>MIN</span><span>MAX</span></span>}{variant === "ivory-lever" && <span className="maker-ivory-lever__scale" aria-hidden="true"><span>MIN</span><span>MAX</span></span>}{variant === "orbit-encoder" && <OrbitEncoderLights value={value} />}{isPanLedKnobVariant(variant) && <PanLedRing value={value} type={panLedStyleForVariant(variant)} />}<span className="maker-rotary-knob__indicator" /></>}<span className="maker-rotary-knob__value">{valueText || (isPanKnob ? value === 50 ? "C" : value < 50 ? `L${100 - value * 2}` : `R${(value - 50) * 2}` : value)}</span></>}
     </button>
   );
 }
 
-function FilmstripButton({ value, label, offLabel, onLabel, inverted = false, kind = "button", variant = "classic", onChange, asset = DEFAULT_VST_FILMSTRIP_SKIN.button }) {
+function SoloMutePair({ label, solo = false, mute = false, gap = DEFAULT_SOLO_MUTE_GAP, soloColor = DEFAULT_SOLO_COLOR, muteColor = DEFAULT_MUTE_COLOR, shape = "square", disabled = false, onSoloChange, onMuteChange }) {
+  const safeSoloColor = isHexColor(soloColor) ? soloColor : DEFAULT_SOLO_COLOR;
+  const safeMuteColor = isHexColor(muteColor) ? muteColor : DEFAULT_MUTE_COLOR;
+  const safeShape = normalizeSoloMuteShape(shape);
+  const toggle = (event, handler, active) => {
+    event.stopPropagation();
+    if (!disabled) handler?.(!active);
+  };
+  const reset = (event, handler) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!disabled) handler?.(false);
+  };
+  return (
+    <div className={`maker-solo-mute-pair maker-solo-mute-pair--${safeShape} ${disabled ? "is-disabled" : ""}`} role="group" aria-label={label || "Solo dan Mute"} style={{ "--maker-solo-mute-gap": `${normalizeSoloMuteGap(gap)}px`, "--maker-solo-color": safeSoloColor, "--maker-mute-color": safeMuteColor }}>
+      <button type="button" className={`maker-solo-mute-pair__button maker-solo-mute-pair__button--solo ${solo ? "is-on" : ""}`} aria-label={`${label || "Sampler"} Solo`} aria-pressed={solo} disabled={disabled} onClick={(event) => toggle(event, onSoloChange, solo)} onDoubleClick={(event) => reset(event, onSoloChange)}>S</button>
+      <button type="button" className={`maker-solo-mute-pair__button maker-solo-mute-pair__button--mute ${mute ? "is-on" : ""}`} aria-label={`${label || "Sampler"} Mute`} aria-pressed={mute} disabled={disabled} onClick={(event) => toggle(event, onMuteChange, mute)} onDoubleClick={(event) => reset(event, onMuteChange)}>M</button>
+    </div>
+  );
+}
+
+function FilmstripButton({ value, label, offLabel, onLabel, inverted = false, kind = "button", variant = "classic", neutralValue = 0, onChange, asset = DEFAULT_VST_FILMSTRIP_SKIN.button }) {
   const [hovered, setHovered] = useState(false);
   const [pressed, setPressed] = useState(false);
   const active = inverted ? Number(value) < 50 : Number(value) > 0;
@@ -10228,6 +10631,7 @@ function FilmstripButton({ value, label, offLabel, onLabel, inverted = false, ki
         event.stopPropagation();
         onChange(inverted ? (active ? 100 : 0) : (active ? 0 : 100));
       }}
+      onDoubleClick={(event) => { event.preventDefault(); event.stopPropagation(); onChange(neutralValue); }}
     >{kind === "solo" ? (asset ? null : "S") : kind === "mute" ? (asset ? null : "M") : <>{variant === "mechanical-toggle" && <img className="maker-mechanical-toggle-image" src={`/images/vst-buttons/mechanical-toggle-${active ? "on" : "off"}-v4.png`} alt="" aria-hidden="true" draggable="false" />}{variant === "stomp-footswitch" && <img className="maker-stomp-footswitch-image" src={`/images/vst-buttons/stomp-footswitch-${active ? "on" : "off"}-v1.png`} alt="" aria-hidden="true" draggable="false" />}<span className="maker-panel-button__state-label">{stateLabel}</span></>}</button>
   );
 }
@@ -10299,7 +10703,32 @@ function KeyboardPerformanceWheel({ value, label, spring = false, led = false, c
   );
 }
 
-function FilmstripFader({ value, neutralValue = 50, valueText = `${value}%`, showUnityMarker = false, label, onChange, variant = "classic", asset = DEFAULT_VST_FILMSTRIP_SKIN.fader }) {
+function FaderMeterLayout({ children, enabled = true, position = "right", color = DEFAULT_FADER_METER_COLOR, gap = DEFAULT_FADER_METER_GAP, width = DEFAULT_FADER_METER_WIDTH, height = DEFAULT_FADER_METER_HEIGHT, meterVariant = "led", analyserRef, captureLevel }) {
+  const resolvedPosition = normalizeFaderMeterPosition(position);
+  const resolvedColor = isHexColor(color) ? color : DEFAULT_FADER_METER_COLOR;
+  const meter = enabled ? <div className="maker-fader-inline-meter" aria-label="Metering fader" style={{ "--maker-fader-meter-color": resolvedColor, "--maker-fader-meter-width": `${normalizeFaderMeterWidth(width)}px`, "--maker-fader-meter-height": `${normalizeFaderMeterHeight(height)}%` }}>
+    <PreviewOutputMeter
+      kind="gain_meter"
+      meterMode="mono"
+      variant={meterVariant}
+      analyserRef={analyserRef}
+      accentColor={resolvedColor}
+      captureLevel={captureLevel}
+      asset={null}
+    />
+  </div> : null;
+  return <div
+    className={`maker-fader-meter-layout is-meter-${enabled ? "visible" : "hidden"} is-meter-${resolvedPosition}`}
+    data-meter-position={resolvedPosition}
+    style={{ "--maker-fader-meter-gap": `${normalizeFaderMeterGap(gap)}px` }}
+  >
+    {resolvedPosition === "left" && meter}
+    {children}
+    {resolvedPosition === "right" && meter}
+  </div>;
+}
+
+function FilmstripFader({ value, neutralValue = 50, valueText = `${value}%`, showUnityMarker = false, label, onChange, variant = "classic", capColor = DEFAULT_STUDIO_METAL_CAP_COLOR, indicatorColor = DEFAULT_STUDIO_METAL_INDICATOR_COLOR, asset = DEFAULT_VST_FILMSTRIP_SKIN.fader }) {
   const dragRef = useRef(null);
   const setFromKey = (event) => {
     const increments = { ArrowUp: 1, ArrowRight: 1, ArrowDown: -1, ArrowLeft: -1, PageUp: 10, PageDown: -10 };
@@ -10317,7 +10746,7 @@ function FilmstripFader({ value, neutralValue = 50, valueText = `${value}%`, sho
       aria-valuenow={value}
       aria-valuetext={valueText}
       className={`maker-panel-fader maker-fader--${variant} ${asset ? "maker-filmstrip-control" : "maker-css-control"}`}
-      style={asset ? { ...filmstripFrameStyle(asset, (value / 100) * (asset.frames - 1)), "--maker-neutral-position": `${neutralValue}%` } : { "--maker-fader-value": `${value}%`, "--maker-neutral-position": `${neutralValue}%` }}
+      style={asset ? { ...filmstripFrameStyle(asset, (value / 100) * (asset.frames - 1)), "--maker-neutral-position": `${neutralValue}%` } : { "--maker-fader-value": `${value}%`, "--maker-neutral-position": `${neutralValue}%`, "--maker-fader-cap-color": isHexColor(capColor) ? capColor : DEFAULT_STUDIO_METAL_CAP_COLOR, "--maker-fader-indicator-color": isHexColor(indicatorColor) ? indicatorColor : DEFAULT_STUDIO_METAL_INDICATOR_COLOR }}
       onPointerDown={(event) => {
         event.preventDefault();
         event.currentTarget.setPointerCapture?.(event.pointerId);
@@ -10391,8 +10820,11 @@ function whenDspProcessorReady(processor, callback) {
 
 function PreviewOutputMeter({ kind, meterSource = "output_level", moduleId = null, meterMode = "mono", variant = "led", analyserRef, analyserProvider, accentColor, captureLevel, asset = DEFAULT_VST_FILMSTRIP_SKIN.meter }) {
   const [level, setLevel] = useState({ peak: [0, 0], rms: [0, 0], reduction: 0 });
+  const analyserSourceRef = useRef({ analyserRef, analyserProvider });
+  analyserSourceRef.current = { analyserRef, analyserProvider };
   useEffect(() => {
     let frame = 0;
+    let lastUpdateAt = 0;
     let channelData = [null, null];
     const measure = (analyser, index) => {
       if (!channelData[index] || channelData[index].length !== analyser.fftSize) channelData[index] = new Float32Array(analyser.fftSize);
@@ -10406,8 +10838,11 @@ function PreviewOutputMeter({ kind, meterSource = "output_level", moduleId = nul
       }
       return { peak, rms: Math.sqrt(energy / Math.max(1, channelData[index].length)) };
     };
-    const update = () => {
-      const analyser = analyserProvider?.() || analyserRef?.current;
+    const update = (timestamp = 0) => {
+      const elapsedMs = lastUpdateAt && timestamp > lastUpdateAt ? timestamp - lastUpdateAt : (1000 / 60);
+      lastUpdateAt = timestamp;
+      const source = analyserSourceRef.current;
+      const analyser = source.analyserProvider?.() || source.analyserRef?.current;
       if (analyser) {
         const rawReduction = moduleId && Object.prototype.hasOwnProperty.call(analyser._vstGainReductionById || {}, moduleId)
           ? analyser._vstGainReductionById[moduleId]
@@ -10415,18 +10850,22 @@ function PreviewOutputMeter({ kind, meterSource = "output_level", moduleId = nul
         const sources = analyser._vstMeterChannels || [analyser, analyser];
         const measured = [measure(sources[0], 0), measure(sources[1] || sources[0], 1)];
         setLevel((current) => ({
-          peak: measured.map((item, index) => Math.max(item.peak, current.peak[index] * 0.82)),
-          rms: measured.map((item, index) => Math.max(item.rms, current.rms[index] * 0.9)),
-          reduction: Math.max(Number(rawReduction) || 0, current.reduction * 0.88),
+          peak: measured.map((item, index) => smoothMeterReading(current.peak[index], item.peak, elapsedMs, 12, 300)),
+          rms: measured.map((item, index) => smoothMeterReading(current.rms[index], item.rms, elapsedMs, 30, 400)),
+          reduction: smoothMeterReading(current.reduction, rawReduction, elapsedMs, 24, 340),
         }));
       } else {
-        setLevel((current) => ({ peak: current.peak.map((value) => value * 0.82), rms: current.rms.map((value) => value * 0.9), reduction: current.reduction * 0.88 }));
+        setLevel((current) => ({
+          peak: current.peak.map((value) => smoothMeterReading(value, 0, elapsedMs, 12, 300)),
+          rms: current.rms.map((value) => smoothMeterReading(value, 0, elapsedMs, 30, 400)),
+          reduction: smoothMeterReading(current.reduction, 0, elapsedMs, 24, 340),
+        }));
       }
       frame = window.requestAnimationFrame(update);
     };
     frame = window.requestAnimationFrame(update);
     return () => window.cancelAnimationFrame(frame);
-  }, [analyserRef, analyserProvider, moduleId]);
+  }, [moduleId]);
   const isGainReduction = meterSource === "gain_reduction";
   const scale = kind === "vu_meter" ? 2.8 : 1.5;
   const rawLevels = captureLevel === undefined ? (isGainReduction ? [level.reduction, level.reduction] : kind === "vu_meter" ? level.rms : level.peak) : [captureLevel, captureLevel];
@@ -10439,10 +10878,10 @@ function PreviewOutputMeter({ kind, meterSource = "output_level", moduleId = nul
     return <div className={`maker-vu-meter-group is-${meterMode}`}>{displayed.map((value, index) => <div key={index} className={`maker-vu-meter maker-meter--${variant}`} style={{ "--maker-accent": accentColor }}><span className="maker-vu-meter__scale">{isGainReduction ? <>0&nbsp;&nbsp;3&nbsp;&nbsp;6&nbsp;&nbsp;12&nbsp;&nbsp;24</> : <>−20&nbsp;&nbsp;−10&nbsp;&nbsp;−3&nbsp;&nbsp;0&nbsp;&nbsp;+3</>}</span><i style={{ transform: `translateX(-50%) rotate(${-48 + value * 96}deg)` }} /><b>{isGainReduction ? "GR" : meterMode === "stereo" ? (index ? "R" : "L") : "VU"}</b></div>)}</div>;
   }
   const maximum = Math.max(...displayed);
-  return <div className={`maker-gain-meter maker-meter--${variant} is-${meterMode}`} style={{ "--maker-accent": accentColor }}><div className="maker-gain-meter__channels">{displayed.map((value, index) => <i key={index} data-channel={meterMode === "stereo" ? (index ? "R" : "L") : undefined} style={{ "--maker-level": `${value * 100}%` }} />)}</div><span>{isGainReduction ? `${(maximum * 24).toFixed(1)} dB GR` : maximum > 0.001 ? `${Math.max(-60, 20 * Math.log10(maximum)).toFixed(1)} dB` : "−∞ dB"}</span></div>;
+  return <div className={`maker-gain-meter maker-meter--${variant} is-${meterMode}`} role="meter" aria-label={isGainReduction ? "Gain reduction" : "Output level"} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(maximum * 100)} style={{ "--maker-accent": accentColor }}><div className="maker-gain-meter__channels">{displayed.map((value, index) => <i key={index} data-channel={meterMode === "stereo" ? (index ? "R" : "L") : undefined} style={{ "--maker-level": `${value * 100}%` }} />)}</div><span>{isGainReduction ? `${(maximum * 24).toFixed(1)} dB GR` : maximum > 0.001 ? `${Math.max(-60, 20 * Math.log10(maximum)).toFixed(1)} dB` : "−∞ dB"}</span></div>;
 }
 
-function RealtimeWaveformDisplay({ analyserRef, accentColor }) {
+function RealtimeWaveformDisplay({ analyserRef, accentColor, lineWidth = 1.8 }) {
   const canvasRef = useRef(null);
   useEffect(() => {
     let frame = 0;
@@ -10492,18 +10931,18 @@ function RealtimeWaveformDisplay({ analyserRef, accentColor }) {
       context.strokeStyle = hexColorWithAlpha(color, 0.95);
       context.shadowColor = color;
       context.shadowBlur = 10;
-      context.lineWidth = 1.8;
+      context.lineWidth = Math.max(0.5, Math.min(8, Number(lineWidth) || 1.8));
       context.lineJoin = "round";
       context.stroke();
       context.restore();
     };
     frame = window.requestAnimationFrame(draw);
     return () => window.cancelAnimationFrame(frame);
-  }, [accentColor, analyserRef]);
+  }, [accentColor, analyserRef, lineWidth]);
   return <div className="maker-prism-spectrum maker-realtime-waveform" style={{ inset: 0, "--spectrum-color": isHexColor(accentColor) ? accentColor : "#A78BFA" }} aria-label="Realtime audio waveform"><canvas ref={canvasRef} className="maker-prism-spectrum__canvas" /></div>;
 }
 
-function BarSpectrumVisualizer({ analyserRef, accentColor }) {
+function BarSpectrumVisualizer({ analyserRef, accentColor, barWidthRatio = 0.54 }) {
   const canvasRef = useRef(null);
   useEffect(() => {
     let frame = 0;
@@ -10582,17 +11021,20 @@ function BarSpectrumVisualizer({ analyserRef, accentColor }) {
       fill.addColorStop(1, "rgba(255,255,255,0.96)");
       context.fillStyle = fill;
       const slot = width / barCount;
-      const barWidth = Math.max(2, slot * 0.54);
+      const requestedBarWidth = Math.max(0.5, slot * Math.max(0.1, Math.min(1, Number(barWidthRatio) || 0.54)));
+      const barWidthPixels = Math.max(1, Math.round(requestedBarWidth * ratio));
+      const snappedBarWidth = barWidthPixels / ratio;
       smoothed.forEach((level, index) => {
         const barHeight = level * height * 0.86;
         if (barHeight < 1) return;
-        const x = (index * slot) + ((slot - barWidth) / 2);
-        context.fillRect(x, (height - barHeight) / 2, barWidth, barHeight);
+        const centerPixel = ((index * slot) + (slot / 2)) * ratio;
+        const x = Math.round(centerPixel - (barWidthPixels / 2)) / ratio;
+        context.fillRect(x, (height - barHeight) / 2, snappedBarWidth, barHeight);
       });
     };
     frame = window.requestAnimationFrame(draw);
     return () => window.cancelAnimationFrame(frame);
-  }, [accentColor, analyserRef]);
+  }, [accentColor, analyserRef, barWidthRatio]);
   return <div className="maker-prism-spectrum maker-bar-spectrum-visualizer" style={{ inset: 0, "--spectrum-color": isHexColor(accentColor) ? accentColor : "#38BDF8" }} role="img" aria-label="Real-time symmetric bar spectrum visualizer"><canvas ref={canvasRef} className="maker-prism-spectrum__canvas" /></div>;
 }
 
@@ -11195,7 +11637,7 @@ function SampleWaveformEditor({ sample, mapping, accentColor, playback, onChange
   );
 }
 
-function SamplerMappingEditor({ accentColor, samples, pricing = DEFAULT_VST_PRICING, includedSampleIds = null, mappings, samplerGroups = [], rootNote, velocityLayers = 1, projectTempo = 120, velocity, sustainEnabled, onSustainToggle, pitchBendEnabled, onPitchBendToggle, modulationEnabled, onModulationToggle, onVelocityChange, audioStatus, externalPressedPitches = new Set(), waveformPlayback, onEnsureSampleFile, onNoteOn, onNoteOff, onDropSampleFiles, onDeleteSamples, onMappingsChange, onVelocityLayersChange, onProjectTempoChange, onSamplerGroupChange, onSamplerGroupRename, onAddSamplerGroup, onRemoveSamplerGroup, projectActions = null }) {
+function SamplerMappingEditor({ accentColor, samples, includedSampleIds = null, mappings, samplerGroups = [], rootNote, velocityLayers = 1, projectTempo = 120, velocity, sustainEnabled, onSustainToggle, pitchBendEnabled, onPitchBendToggle, modulationEnabled, onModulationToggle, onVelocityChange, audioStatus, externalPressedPitches = new Set(), waveformPlayback, onEnsureSampleFile, onNoteOn, onNoteOff, onDropSampleFiles, onDeleteSamples, onMappingsChange, onVelocityLayersChange, onProjectTempoChange, onSamplerGroupChange, onSamplerGroupRename, onAddSamplerGroup, onRemoveSamplerGroup, projectActions = null }) {
   const [selectedMappingId, setSelectedMappingId] = useState(null);
   const [selectedMappingIds, setSelectedMappingIds] = useState(() => new Set());
   const [selectedSamplerId, setSelectedSamplerId] = useState(null);
@@ -11848,7 +12290,7 @@ function SamplerMappingEditor({ accentColor, samples, pricing = DEFAULT_VST_PRIC
     <div className="maker-mapping-workspace mt-6" onKeyDown={handleMappingKeyDown}>
       <div className="maker-mapping-toolbar flex flex-wrap items-center justify-between gap-3">
         <div className="text-[10px] text-zinc-500"><span className="font-semibold text-zinc-300">{selectedSamplerName}</span> · {samplerMappings.length} zona sampler · {selectedMappingIds.size} dipilih · {mappings.length} zona total · MIDI 0–127</div>
-        <div className="mt-1 text-[10px] text-emerald-200/70">{includedSampleIds ? `Harga sampel: bawaan template termasuk · tambahan/pengganti +${pricing.extra_sample_credits} kredit/file` : `Harga sampel: ${pricing.included_instrument_samples} pertama termasuk · berikutnya +${pricing.extra_sample_credits} kredit/file`}</div>
+        <div className="mt-1 text-[10px] text-emerald-200/70">Semua sampel yang memenuhi batas file paket dapat digunakan di editor.</div>
         <div className="flex flex-wrap items-center gap-2">
           {!!articulations.length && <label className="flex items-center gap-2 text-[9px] text-zinc-500"><span>Preview</span><select className="maker-input h-9 py-1 text-[10px]" value={activePreviewArticulation} onChange={(event) => setPreviewArticulation(event.target.value)}>{articulations.map((item) => <option key={item}>{item}</option>)}</select></label>}
           {!!micPositions.length && <label className="flex items-center gap-2 text-[9px] text-zinc-500"><span>Mic</span><select className="maker-input h-9 py-1 text-[10px]" value={activePreviewMicPosition} onChange={(event) => setPreviewMicPosition(event.target.value)}>{micPositions.map((item) => <option key={item}>{item}</option>)}</select></label>}
@@ -11889,6 +12331,19 @@ function SamplerMappingEditor({ accentColor, samples, pricing = DEFAULT_VST_PRIC
                   <button type="button" onClick={() => onSamplerGroupChange(group.id, { solo: !group.solo })} className={`h-8 w-9 rounded-md border text-[10px] font-black ${group.solo ? "border-yellow-300/60 bg-yellow-300/15 text-yellow-200" : "border-white/10 text-zinc-600"}`}>S</button>
                   <button type="button" onClick={() => onSamplerGroupChange(group.id, { mute: !group.mute })} className={`h-8 w-9 rounded-md border text-[10px] font-black ${group.mute ? "border-rose-300/60 bg-rose-300/15 text-rose-200" : "border-white/10 text-zinc-600"}`}>M</button>
                 </div>
+                <label className="mt-2 block text-[8px] font-bold uppercase tracking-[0.1em] text-zinc-600">
+                  Output DAW
+                  <select
+                    className="maker-input mt-1 h-8 w-full py-1 text-[9px] normal-case tracking-normal"
+                    value={group.outputBus === "separate" ? "separate" : "master"}
+                    onClick={(event) => event.stopPropagation()}
+                    onChange={(event) => onSamplerGroupChange(group.id, { outputBus: event.target.value })}
+                    aria-label={`Output DAW ${group.name}`}
+                  >
+                    <option value="master">Master</option>
+                    <option value="separate">{samplerOutputLabel(samplerGroups, group.id)}</option>
+                  </select>
+                </label>
                 <label className="mt-2 block text-[8px] uppercase text-zinc-600">Volume {Math.round(group.volume)}<input type="range" min="0" max="100" value={group.volume} onChange={(event) => onSamplerGroupChange(group.id, { volume: Number(event.target.value) })} {...mappingRangeResetProps(() => onSamplerGroupChange(group.id, { volume: 100 }))} className="maker-range mt-1 w-full" /></label>
                 <label className="mt-2 block text-[8px] uppercase text-zinc-600">Pan {Number(group.pan).toFixed(2)}<input type="range" min="-1" max="1" step="0.01" value={group.pan} onChange={(event) => onSamplerGroupChange(group.id, { pan: Number(event.target.value) })} {...mappingRangeResetProps(() => onSamplerGroupChange(group.id, { pan: 0 }))} className="maker-range mt-1 w-full" /></label>
               </div>
@@ -11906,7 +12361,7 @@ function SamplerMappingEditor({ accentColor, samples, pricing = DEFAULT_VST_PRIC
           <label className="sm:col-span-2 lg:col-span-1">
             <FieldLabel>File sample</FieldLabel>
             <select className="maker-input mt-2" value={selectedMapping.sampleId} onChange={(event) => updateMapping(selectedMapping.id, { sampleId: event.target.value })}>
-              {samples.map((sample, index) => <option key={sample.id} value={sample.id}>{sample.name}{sample.file || sample.previewUrl ? " · ready" : " · belum tersimpan"} · {(includedSampleIds ? includedSampleIds.has(String(sample.id)) : index < Number(pricing.included_instrument_samples)) ? "termasuk" : `+${pricing.extra_sample_credits} kredit`}</option>)}
+              {samples.map((sample) => <option key={sample.id} value={sample.id}>{sample.name}{sample.file || sample.previewUrl ? " · ready" : " · belum tersimpan"}</option>)}
             </select>
           </label>
           <label>

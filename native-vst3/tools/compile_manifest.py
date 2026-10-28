@@ -463,6 +463,10 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
             str(output_font_size),
             cpp_bool(control.get("show_correlation_meter", True)),
             cpp_float(clamp(control.get("waveform_line_width"), 0.5, 8, 1.8)),
+            cpp_float(clamp(
+                control.get("ring_thickness", control.get("waveform_line_width") if control.get("component_variant") in {"open-led-ring", "pan-open-led-ring"} else None),
+                1, 16, 5,
+            )),
             cpp_float(clamp(control.get("bar_width_ratio"), 0.1, 1, 0.54)),
             cpp_bool(control.get("spectrum_band", False)),
             cpp_bool(
@@ -640,7 +644,7 @@ namespace tripleside::project {{
 struct SampleInfo {{ const char* resourceFile; }};
 struct GroupInfo {{ const char* id; const char* name; float volume; float pan; bool mute; bool solo; int outputBusIndex; }};
 struct ZoneInfo {{ int sampleIndex, groupIndex, articulationIndex, micIndex, roundRobinSet, rootPitch, lowPitch, highPitch, velocityLow, velocityHigh, roundRobin; float sampleStart, sampleEnd, loopStart, loopEnd, fadeInMs, fadeOutMs, loopCrossfadeMs; int tuneSemitones; float tuneCents, gainDb, pan; bool loopEnabled, tempoSync; float sourceBpm; std::array<int, 16> chokeTargetPitches; int chokeTargetCount; }};
-struct ControlInfo {{ const char* id; const char* kind; const char* label; const char* offLabel; const char* onLabel; const char* parameter; int moduleIndex; int indicatorSourceIndex; int midiSequenceIndex; int samplerGroupIndex; float x, y; int width, height; float value, opacity, rotation; unsigned int colorRgb; bool showBackground; int notePitch, keyCount; const char* labelPosition; int labelGap, stateLabelGap; const char* variant; const char* meterMode; const char* textFont; unsigned int textColorRgb; int outputFontSize; bool showCorrelationMeter; float waveformLineWidth, barWidthRatio; bool spectrumBand; bool useFilmstrip; bool faderMeterEnabled; const char* faderMeterPosition; unsigned int faderMeterColorRgb; int faderMeterGap, faderMeterWidth, faderMeterHeight; int soloMuteGap; unsigned int soloColorRgb, muteColorRgb; const char* buttonShape; }};
+struct ControlInfo {{ const char* id; const char* kind; const char* label; const char* offLabel; const char* onLabel; const char* parameter; int moduleIndex; int indicatorSourceIndex; int midiSequenceIndex; int samplerGroupIndex; float x, y; int width, height; float value, opacity, rotation; unsigned int colorRgb; bool showBackground; int notePitch, keyCount; const char* labelPosition; int labelGap, stateLabelGap; const char* variant; const char* meterMode; const char* textFont; unsigned int textColorRgb; int outputFontSize; bool showCorrelationMeter; float waveformLineWidth, ringThickness, barWidthRatio; bool spectrumBand; bool useFilmstrip; bool faderMeterEnabled; const char* faderMeterPosition; unsigned int faderMeterColorRgb; int faderMeterGap, faderMeterWidth, faderMeterHeight; int soloMuteGap; unsigned int soloColorRgb, muteColorRgb; const char* buttonShape; }};
 struct KeyColorInfo {{ int control, pitch; unsigned int colorRgb; }};
 struct PanelControlInfo {{ int parentPanelIndex; const char* panelType; float panelX, panelY, panelWidth, panelHeight; bool mixerShowDefaultControls; }};
 struct PresetInfo {{ const char* id; const char* name; bool factory; int valueOffset, valueCount, groupOffset, groupCount, moduleOffset, moduleCount, midiSequenceIndex; }};

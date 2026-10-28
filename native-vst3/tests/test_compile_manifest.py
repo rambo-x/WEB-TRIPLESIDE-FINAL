@@ -66,6 +66,7 @@ def test_compiles_linked_led_and_realtime_waveform_contract(tmp_path):
         {"id": "power", "kind": "button", "label": "Power", "parameter": "bypass", "value": 0},
         {"id": "power-led", "kind": "indicator", "label": "Power LED", "parameter": "visual", "value": 0, "indicator_source_id": "power", "control_color": "#39FF88", "component_variant": "round-indicator"},
         {"id": "waveform", "kind": "spectrum", "label": "Waveform", "parameter": "visual", "value": 0, "visual_color": "#A78BFA", "component_variant": "realtime-waveform", "waveform_line_width": 4.2, "width": 480, "height": 180},
+        {"id": "open-ring", "kind": "knob", "label": "Open Ring", "parameter": "tone", "value": 65, "control_color": "#39FF88", "component_variant": "open-led-ring", "ring_thickness": 15.5, "width": 128, "height": 128},
     ]
     source = tmp_path / "project.json"
     output = tmp_path / "NativeProject.h"
@@ -80,6 +81,10 @@ def test_compiles_linked_led_and_realtime_waveform_contract(tmp_path):
     assert '"realtime-waveform"' in result
     assert "0xA78BFA" in result
     assert "4.2f" in result
+    assert "float waveformLineWidth, ringThickness, barWidthRatio;" in result
+    open_ring = next(line for line in result.splitlines() if 'ControlInfo{"open-ring"' in line)
+    assert "0x39FF88" in open_ring
+    assert "15.5f" in open_ring
 
 
 def test_compiles_stomp_bar_spectrum_toggle_gap_and_tiny_led_contract(tmp_path):
@@ -448,8 +453,8 @@ def test_compiles_mono_and_stereo_meter_modes(tmp_path):
     MODULE.compile_manifest(source, output)
 
     result = output.read_text(encoding="utf-8")
-    assert '"classic", "stereo", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, true, false, "right", 0x22C55E, 4, 10, 100,' in result
-    assert '"classic", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, true, false, "right", 0x22C55E, 4, 10, 100,' in result
+    assert '"classic", "stereo", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 5.0f, 0.54f, false, true, false, "right", 0x22C55E, 4, 10, 100,' in result
+    assert '"classic", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 5.0f, 0.54f, false, true, false, "right", 0x22C55E, 4, 10, 100,' in result
     assert "const char* meterMode;" in result
 
 
@@ -839,7 +844,7 @@ def test_compiles_static_knob_assets_and_variant(tmp_path):
 
     result = output.read_text(encoding="utf-8")
     assert 'ControlInfo{"spectrum", "knob", "Spectrum"' in result
-    assert '"modern-spectrum", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, true, false, "right", 0x22C55E, 4, 10, 100,' in result
+    assert '"modern-spectrum", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 5.0f, 0.54f, false, true, false, "right", 0x22C55E, 4, 10, 100,' in result
     assert 'kModernSpectrumKnobFile = "modern-spectrum-knob-v2.png"' in result
     assert 'kStudioScallopKnobFile = "studio-scallop-knob-64x128-v2.png"' in result
     assert 'kBlackPrecisionKnobFile = "black-precision-knob-64x128-v1.png"' in result
@@ -922,23 +927,23 @@ def test_css_procedural_knobs_override_legacy_filmstrip_style(tmp_path):
     MODULE.compile_manifest(source, output)
 
     result = output.read_text(encoding="utf-8")
-    assert '"studio-scallop", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100,' in result
-    assert '"graphite-ridge", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100,' in result
-    assert '"chicken-head-clean", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100,' in result
-    assert '"orbit-encoder", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100,' in result
-    assert '"ivory-lever", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100,' in result
-    assert '"pan-chicken-head-clean", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100,' in result
-    assert '"pan-ivory-lever", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100,' in result
-    assert '"pan-ring-chicken-head-clean", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100,' in result
-    assert '"pan-ring-ivory-lever", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100,' in result
-    assert '"black-dome", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100,' in result
+    assert '"studio-scallop", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 5.0f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100,' in result
+    assert '"graphite-ridge", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 5.0f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100,' in result
+    assert '"chicken-head-clean", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 5.0f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100,' in result
+    assert '"orbit-encoder", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 5.0f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100,' in result
+    assert '"ivory-lever", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 5.0f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100,' in result
+    assert '"pan-chicken-head-clean", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 5.0f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100,' in result
+    assert '"pan-ivory-lever", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 5.0f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100,' in result
+    assert '"pan-ring-chicken-head-clean", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 5.0f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100,' in result
+    assert '"pan-ring-ivory-lever", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 5.0f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100,' in result
+    assert '"black-dome", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 5.0f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100,' in result
     for variant in (
         "regent-white", "regent-green", "regent-red", "regent-blue", "regent-brown", "regent-black", "regent-gray",
         "regent-white-green", "regent-white-red", "regent-white-blue", "regent-white-brown", "regent-white-black", "regent-white-gray",
     ):
-        assert f'"{variant}", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100,' in result
-    assert '"pan-black-dome", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100,' in result
-    assert '"pan-ring-black-dome", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100,' in result
+        assert f'"{variant}", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 5.0f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100,' in result
+    assert '"pan-black-dome", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 5.0f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100,' in result
+    assert '"pan-ring-black-dome", "mono", "space-grotesk", 0xF4F4F5, 11, true, 1.8f, 5.0f, 0.54f, false, false, false, "right", 0x22C55E, 4, 10, 100,' in result
 
 
 def test_uses_safe_master_headroom_without_a_volume_control(tmp_path):
