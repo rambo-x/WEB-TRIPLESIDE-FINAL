@@ -159,7 +159,7 @@ void NativeView::drawOpenRing(size_t index,const D2D1_RECT_F&r,float value){
     const float opacity=std::clamp(c.opacity,0.f,1.f);
     if(strength>0.f)for(size_t layer=0;layer<spreads.size();++layer){brush->SetOpacity(opacity*opacities[layer]*strength);target->DrawGeometry(geometry.Get(),brush.Get(),baseWidth+spreads[layer]*strength*scale,strokeStyle.Get());}
     brush->SetOpacity(opacity);target->DrawGeometry(geometry.Get(),brush.Get(),baseWidth,strokeStyle.Get());
-    if(pan){const auto marker=D2D1::Point2F(cx,cy-radius),markerRadius=std::max(1.4f,c.ringThickness*.52f)*scale;if(strength>0.f)for(size_t layer=0;layer<spreads.size();++layer){brush->SetOpacity(opacity*opacities[layer]*strength);const float glowRadius=markerRadius+spreads[layer]*strength*.5f*scale;target->FillEllipse(D2D1::Ellipse(marker,glowRadius,glowRadius),brush.Get());}brush->SetOpacity(opacity);target->FillEllipse(D2D1::Ellipse(marker,markerRadius,markerRadius),brush.Get());}
+    if(pan){const auto marker=D2D1::Point2F(cx,cy-radius);const float markerRadius=std::max(1.4f,c.ringThickness*.52f)*scale;if(strength>0.f)for(size_t layer=0;layer<spreads.size();++layer){brush->SetOpacity(opacity*opacities[layer]*strength);const float glowRadius=markerRadius+spreads[layer]*strength*.5f*scale;target->FillEllipse(D2D1::Ellipse(marker,glowRadius,glowRadius),brush.Get());}brush->SetOpacity(opacity);target->FillEllipse(D2D1::Ellipse(marker,markerRadius,markerRadius),brush.Get());}
 }
 void NativeView::drawVisualControl(size_t index){
     const auto&c=project::kControls[index];const auto&s=project::kVisualControls[index];
