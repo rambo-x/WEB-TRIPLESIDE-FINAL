@@ -221,6 +221,7 @@ using tripleside::native::groupParameterId;
 using tripleside::native::kGroupBaseId;
 using tripleside::native::panelTextAttributes;
 using tripleside::native::rgbColor;
+using tripleside::native::mixedRgbColor;
 using tripleside::native::RuntimeMidiEvent;
 using tripleside::native::RuntimeMidiSequence;
 using tripleside::native::RuntimeMidiTempo;
