@@ -28,6 +28,7 @@ using tripleside::dsp::TempoDelay;
 using tripleside::dsp::SoftClip;
 using tripleside::dsp::StereoGain;
 using tripleside::dsp::StereoWidth;
+using tripleside::dsp::SpatialReverb;
 using tripleside::dsp::ToneShaper;
 using tripleside::dsp::NoiseGate;
 using tripleside::dsp::AmpOverdrive;
@@ -353,6 +354,101 @@ int main() {
     assert(detailedRack.gainReduction(0) > 0.0f);
     assert(close(detailedRack.gainReduction(1), 0.0f));
 
+    EffectRack legendRack;
+    legendRack.configure(ProcessSpec{48000.0, 128}, {
+        RackModuleConfig{RackModuleType::LegendPreamp, false, 1.0f, 0.38f, false},
+        RackModuleConfig{RackModuleType::LegendCompressor, false, 1.0f, 0.42f, false},
+        RackModuleConfig{RackModuleType::LegendEq, false, 1.0f, 0.5f, false},
+        RackModuleConfig{RackModuleType::LegendTape, false, 1.0f, 0.34f, false},
+    });
+    legendRack.setModuleParameter(0, "model", 0.66f);
+    legendRack.setModuleParameter(0, "color", 0.61f);
+    legendRack.setModuleParameter(0, "high_pass", 0.8f);
+    legendRack.setModuleParameter(0, "output", 0.5f);
+    legendRack.setModuleParameter(1, "model", 0.33f);
+    legendRack.setModuleParameter(1, "attack", 0.38f);
+    legendRack.setModuleParameter(1, "release", 0.46f);
+    legendRack.setModuleParameter(1, "makeup", 0.0f);
+    legendRack.setModuleParameter(2, "model", 1.0f);
+    legendRack.setModuleParameter(2, "low", 0.54f);
+    legendRack.setModuleParameter(2, "high", 0.58f);
+    legendRack.setModuleParameter(2, "air", 0.62f);
+    legendRack.setModuleParameter(3, "model", 0.33f);
+    legendRack.setModuleParameter(3, "speed", 0.5f);
+    legendRack.setModuleParameter(3, "age", 0.16f);
+    legendRack.setModuleParameter(3, "wow_flutter", 1.0f);
+    legendRack.setModuleParameter(3, "noise", 1.0f);
+    legendRack.setModuleParameter(3, "output", 0.46f);
+    double legendEnergy = 0.0;
+    for (int sample = 0; sample < 24000; ++sample) {
+        rackLeft = rackRight = 0.7f * std::sin(2.0f * 3.14159265358979323846f * 220.0f * sample / 48000.0f);
+        legendRack.processFrame(rackLeft, rackRight);
+        assert(std::isfinite(rackLeft));
+        assert(std::isfinite(rackRight));
+        legendEnergy += static_cast<double>(rackLeft) * rackLeft;
+    }
+    assert(legendEnergy > 1.0);
+    assert(legendRack.gainReduction(1) > 0.0f);
+    assert(legendRack.gainReduction() > 0.0f);
+    assert(close(legendRack.gainReduction(0), 0.0f));
+
+    for (const double rate : {44100.0, 48000.0, 96000.0}) {
+        for (int mode = 0; mode < 4; ++mode) {
+            SpatialReverb smooth(false);
+            smooth.prepare(ProcessSpec{rate, 128});
+            smooth.reset(1.0f);
+            smooth.setMode(static_cast<float>(mode) / 3.0f);
+            smooth.setPreDelay(0.0f);
+            smooth.setSize(0.66f);
+            smooth.setDecay(0.72f);
+            smooth.setDamping(0.48f);
+            smooth.setModulation(0.25f);
+            double tailEnergy = 0.0;
+            double stereoDifference = 0.0;
+            const int frames = static_cast<int>(rate * 1.2);
+            for (int sample = 0; sample < frames; ++sample) {
+                const bool exciting = sample < static_cast<int>(rate * 0.08);
+                float wetL = exciting ? 0.18f * std::sin(2.0f * 3.14159265358979323846f * 311.0f * sample / rate) : 0.0f;
+                float wetR = exciting ? 0.13f * std::sin(2.0f * 3.14159265358979323846f * 487.0f * sample / rate) : 0.0f;
+                smooth.processFrame(wetL, wetR);
+                assert(std::isfinite(wetL));
+                assert(std::isfinite(wetR));
+                if (sample > static_cast<int>(rate * 0.15)) {
+                    tailEnergy += static_cast<double>(wetL) * wetL + static_cast<double>(wetR) * wetR;
+                    stereoDifference += std::abs(wetL - wetR);
+                }
+            }
+            assert(tailEnergy > 1.0e-8);
+            assert(stereoDifference > 1.0e-5);
+            smooth.reset(1.0f);
+            wetLeft = wetRight = 0.0f;
+            for (int sample = 0; sample < 512; ++sample) smooth.processFrame(wetLeft, wetRight);
+            assert(close(wetLeft, 0.0f));
+            assert(close(wetRight, 0.0f));
+        }
+    }
+
+    SpatialReverb chordBloom(true);
+    chordBloom.prepare(ProcessSpec{48000.0, 128});
+    chordBloom.reset(1.0f);
+    chordBloom.setPreDelay(0.0f);
+    chordBloom.setShimmer(0.72f);
+    chordBloom.setRise(0.42f);
+    chordBloom.setTone(0.38f);
+    double bloomTailEnergy = 0.0;
+    double bloomPeak = 0.0;
+    for (int sample = 0; sample < 144000; ++sample) {
+        float wetL = sample < 24000 ? 0.2f * std::sin(2.0f * 3.14159265358979323846f * 220.0f * sample / 48000.0f) : 0.0f;
+        float wetR = sample < 24000 ? 0.2f * std::sin(2.0f * 3.14159265358979323846f * 330.0f * sample / 48000.0f) : 0.0f;
+        chordBloom.processFrame(wetL, wetR);
+        assert(std::isfinite(wetL));
+        assert(std::isfinite(wetR));
+        bloomPeak = std::max(bloomPeak, static_cast<double>(std::max(std::abs(wetL), std::abs(wetR))));
+        if (sample > 72000) bloomTailEnergy += static_cast<double>(wetL) * wetL + static_cast<double>(wetR) * wetR;
+    }
+    assert(bloomTailEnergy > 1.0e-8);
+    assert(bloomPeak < 2.0);
+
     TempoDelay tempoDelay;
     tempoDelay.prepare(ProcessSpec{1000.0, 64});
     tempoDelay.reset(0.0f);
@@ -482,8 +578,9 @@ def test_native_runtime_routes_gain_stages_through_modules():
     assert "parameterForControl(size_t index)" in source
     assert "applyModuleControl(static_cast<size_t>(id-kModuleControlBaseId),v)" in source
     assert "applyModulePresetValue(static_cast<size_t>(control.moduleIndex),control.parameter,value)" in source
-    assert 'effectRack.setModuleParameter(moduleIndex,parameter,!std::strcmp(parameter,"gain_db")?rawValue:value)' in source
-    assert "effectRack.setModuleParameter(static_cast<size_t>(parameter.moduleIndex),parameter.key,clamp01(parameter.value))" in source
+    assert 'rack.setModuleParameter(rackIndex,parameter,!std::strcmp(parameter,"gain_db")?rawValue:value)' in source
+    assert "rackForModule(size_t moduleIndex)" in source
+    assert "rack.setModuleParameter(static_cast<size_t>(project::kDspModules[static_cast<size_t>(parameter.moduleIndex)].rackIndex),parameter.key,clamp01(parameter.value))" in source
     assert "instrumentDelay.setTempoBpm" in source
     assert "project::kSaturationEnabled" in source
     assert "project::kChorusEnabled" in source
@@ -495,5 +592,14 @@ def test_native_runtime_routes_gain_stages_through_modules():
     assert "noteTriggerCount" in source
     assert "dsp::StereoGain instrumentMasterGain" in header
     assert "dsp::EffectRack effectRack" in header
+    assert "groupEffectRacks" in header
     assert "kModuleControlBaseId=10000" in header
     assert "Source/DspModules.cpp" in cmake
+    assert '"legend_preamp"' in source
+    assert '"legend_compressor"' in source
+    assert '"legend_eq"' in source
+    assert '"legend_tape"' in source
+    dsp_source = (NATIVE_ROOT / "Source" / "DspModules.cpp").read_text(encoding="utf-8")
+    assert "std::array<std::array<float, 8>, 4> delayProfiles" in dsp_source
+    assert "pitchPhase_ = {0.0, 0.19, 0.37, 0.61}" in dsp_source
+    assert "harmonicInput) * sign" in dsp_source

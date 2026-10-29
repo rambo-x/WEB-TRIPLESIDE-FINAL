@@ -3,12 +3,14 @@ import struct
 import subprocess
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).parents[2]
 NATIVE_ROOT = ROOT / "native-vst3"
 
 
-def render_outputs(tmp_path, custom_ir=False, creative=False, advanced=False):
+def render_outputs(tmp_path, custom_ir=False, creative=False, advanced=False, legend=False, reverb_mode=None):
     input_path = tmp_path / "input.f32"
     native_path = tmp_path / "native.f32"
     browser_path = tmp_path / "browser.f32"
@@ -38,6 +40,13 @@ def render_outputs(tmp_path, custom_ir=False, creative=False, advanced=False):
     if advanced:
         native_command.append("--advanced")
         browser_command.append("--advanced")
+    if legend:
+        native_command.append("--legend")
+        browser_command.append("--legend")
+    if reverb_mode is not None:
+        fixture = f"--reverb-{reverb_mode}"
+        native_command.append(fixture)
+        browser_command.append(fixture)
     subprocess.run(native_command, check=True)
     subprocess.run(browser_command, check=True)
     native = struct.unpack(f"<{native_path.stat().st_size // 4}f", native_path.read_bytes())
@@ -74,3 +83,16 @@ def test_parametric_eq_and_multiband_track_between_browser_and_native(tmp_path):
     correlation, normalized_error = render_outputs(tmp_path, advanced=True)
     assert correlation > 0.9999
     assert normalized_error < 0.005
+
+
+def test_classic_legend_wrappers_track_browser_proxy_chain(tmp_path):
+    correlation, normalized_error = render_outputs(tmp_path, legend=True)
+    assert correlation > 0.999
+    assert normalized_error < 0.03
+
+
+@pytest.mark.parametrize("mode", ["room", "spring", "plate", "hall"])
+def test_each_smooth_reverb_mode_tracks_browser_directly(tmp_path, mode):
+    correlation, normalized_error = render_outputs(tmp_path, reverb_mode=mode)
+    assert correlation > 0.999
+    assert normalized_error < 0.03

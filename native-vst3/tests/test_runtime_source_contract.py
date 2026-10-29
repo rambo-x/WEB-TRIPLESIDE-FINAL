@@ -829,6 +829,29 @@ def test_shared_preview_live_overlays_support_pure_fft_and_stereo_vectorscope():
     assert "constexpr float gridFrequencies[]" in view
 
 
+def test_classic_legend_wrappers_and_smooth_chord_tail_are_routed_natively():
+    header = (SOURCE_DIR / "DspModules.h").read_text(encoding="utf-8")
+    dsp = (SOURCE_DIR / "DspModules.cpp").read_text(encoding="utf-8")
+    instrument = (SOURCE_DIR / "NativeInstrument.cpp").read_text(encoding="utf-8")
+    compiler = (SOURCE_DIR.parent / "tools" / "compile_manifest.py").read_text(encoding="utf-8")
+
+    for enum_name, module_type in (
+        ("LegendPreamp", "legend_preamp"),
+        ("LegendCompressor", "legend_compressor"),
+        ("LegendEq", "legend_eq"),
+        ("LegendTape", "legend_tape"),
+    ):
+        assert enum_name in header
+        assert f'"{module_type}"' in instrument
+        assert f'"{module_type}"' in compiler
+    assert "updateLegendProxy" in dsp
+    assert "0.035f + 0.24f * node.legendDrive" in dsp
+    assert "0.025f + 0.19f * node.legendDrive" in dsp
+    assert "std::array<std::array<float, 8>, 4> delayProfiles" in dsp
+    assert "pitchPhase_ = {0.0, 0.19, 0.37, 0.61}" in dsp
+    assert '"rise"' in compiler and '"tone"' in compiler
+
+
 def test_shared_preview_live_waveform_and_linked_led_match_on_both_platforms():
     header = (SOURCE_DIR / "NativeView.h").read_text(encoding="utf-8")
     windows = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")

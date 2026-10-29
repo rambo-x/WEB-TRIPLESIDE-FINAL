@@ -605,6 +605,28 @@ def test_original_amp_chain_has_native_compatibility():
     assert "unsupported_module_parameters" not in warning_codes
 
 
+def test_classic_legend_and_chord_bloom_have_native_compatibility():
+    modules = [
+        {"id": "pre", "type": "legend_preamp", "parameters": {"model": 0.66, "drive": 0.38, "color": 0.52, "high_pass": 0.18, "output": 0.5}},
+        {"id": "comp", "type": "legend_compressor", "parameters": {"model": 0.33, "amount": 0.42, "attack": 0.38, "release": 0.46, "makeup": 0}},
+        {"id": "eq", "type": "legend_eq", "parameters": {"model": 1, "low": 0.54, "mid": 0.5, "high": 0.58, "air": 0.62}},
+        {"id": "tape", "type": "legend_tape", "parameters": {"model": 0.33, "drive": 0.34, "speed": 0.5, "age": 0.16, "wow_flutter": 0.12, "noise": 0, "output": 0.46}},
+        {"id": "bloom", "type": "shimmer", "parameters": {"mix": 0.3, "size": 0.68, "decay": 0.68, "damping": 0.48, "pre_delay": 0.22, "shimmer": 0.5, "rise": 0.42, "tone": 0.38}},
+    ]
+    spec = vst_maker_build_spec(project_document(
+        plugin_kind="effect", instrument_type="Audio Effect", project_template="basicfx",
+        samples=[], sample_mappings=[], sampler_groups=[], engine_modules=modules,
+        effects={"reverb": False, "delay": False, "chorus": False, "saturation": False},
+    ))
+
+    warning_codes = {warning["code"] for warning in spec["compatibility"]["warnings"]}
+    assert "unsupported_dsp_modules" not in warning_codes
+    assert "unsupported_module_parameters" not in warning_codes
+    assert [module["type"] for module in spec["dsp_graph"]["modules"]] == [module["type"] for module in modules]
+    assert spec["dsp_graph"]["modules"][3]["parameters"]["wow_flutter"] == 0.12
+    assert spec["dsp_graph"]["modules"][4]["parameters"]["rise"] == 0.42
+
+
 def test_custom_cabinet_ir_is_validated_and_emitted_with_uploaded_asset():
     impulse = VstMakerImpulseResponseInput(
         id="ir-1", module_id="cab", filename="My Cabinet.wav", size_bytes=4096,

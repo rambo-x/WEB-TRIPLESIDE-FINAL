@@ -96,6 +96,10 @@ dsp::RackModuleType rackModuleType(const char* type){
     if(!std::strcmp(type,"digital_delay"))return dsp::RackModuleType::DigitalDelay;
     if(!std::strcmp(type,"reverb"))return dsp::RackModuleType::Reverb;
     if(!std::strcmp(type,"shimmer"))return dsp::RackModuleType::Shimmer;
+    if(!std::strcmp(type,"legend_preamp"))return dsp::RackModuleType::LegendPreamp;
+    if(!std::strcmp(type,"legend_compressor"))return dsp::RackModuleType::LegendCompressor;
+    if(!std::strcmp(type,"legend_eq"))return dsp::RackModuleType::LegendEq;
+    if(!std::strcmp(type,"legend_tape"))return dsp::RackModuleType::LegendTape;
     if(!std::strcmp(type,"dry_wet"))return dsp::RackModuleType::DryWet;
     if(!std::strcmp(type,"output_trim"))return dsp::RackModuleType::OutputTrim;
     return dsp::RackModuleType::Unknown;
@@ -119,6 +123,9 @@ bool isPrimaryRackParameter(dsp::RackModuleType type,const char* key){
     if(type==dsp::RackModuleType::SilkBloom)return!std::strcmp(key,"gain");
     if(type==dsp::RackModuleType::CabinetIr)return!std::strcmp(key,"cabinet");
     if(type==dsp::RackModuleType::CrossDelay)return!std::strcmp(key,"space");
+    if(type==dsp::RackModuleType::LegendPreamp||type==dsp::RackModuleType::LegendTape)return!std::strcmp(key,"drive");
+    if(type==dsp::RackModuleType::LegendCompressor)return!std::strcmp(key,"amount");
+    if(type==dsp::RackModuleType::LegendEq)return!std::strcmp(key,"mid");
     if(type==dsp::RackModuleType::Chorus||type==dsp::RackModuleType::Flanger||type==dsp::RackModuleType::Tremolo||type==dsp::RackModuleType::Vibrato||type==dsp::RackModuleType::DigitalDelay||type==dsp::RackModuleType::Reverb||type==dsp::RackModuleType::Shimmer)return!std::strcmp(key,"mix");
     if(type==dsp::RackModuleType::DryWet)return!std::strcmp(key,"mix");
     if(type==dsp::RackModuleType::OutputTrim)return!std::strcmp(key,"output")||!std::strcmp(key,"gain");
@@ -692,7 +699,7 @@ void NativeInstrument::configureRack(dsp::EffectRack&rack,int groupIndex,const d
     }else for(const auto&module:project::kDspModules){
         if(module.groupIndex!=groupIndex)continue;
         const auto type=rackModuleType(module.type);float fallback=0;
-        switch(type){case dsp::RackModuleType::InputTrim:fallback=input;break;case dsp::RackModuleType::SoftClip:fallback=drive;break;case dsp::RackModuleType::LinkedCompressor:fallback=compress;break;case dsp::RackModuleType::DeEsser:fallback=.55f;break;case dsp::RackModuleType::ParametricEq:fallback=.5f;break;case dsp::RackModuleType::MultibandCompressor:fallback=.65f;break;case dsp::RackModuleType::ToneShaper:fallback=tone;break;case dsp::RackModuleType::StereoWidth:fallback=width;break;case dsp::RackModuleType::CrossDelay:fallback=space;break;case dsp::RackModuleType::Chorus:case dsp::RackModuleType::Flanger:case dsp::RackModuleType::Tremolo:case dsp::RackModuleType::Vibrato:case dsp::RackModuleType::DigitalDelay:case dsp::RackModuleType::Reverb:case dsp::RackModuleType::Shimmer:fallback=.5f;break;case dsp::RackModuleType::DryWet:fallback=mix;break;case dsp::RackModuleType::OutputTrim:fallback=output;break;case dsp::RackModuleType::NoiseGate:case dsp::RackModuleType::AmpOverdrive:case dsp::RackModuleType::AmpModel:case dsp::RackModuleType::DualHighGain:case dsp::RackModuleType::SilkBloom:case dsp::RackModuleType::CabinetIr:case dsp::RackModuleType::Unknown:break;}
+        switch(type){case dsp::RackModuleType::InputTrim:fallback=input;break;case dsp::RackModuleType::SoftClip:fallback=drive;break;case dsp::RackModuleType::LinkedCompressor:fallback=compress;break;case dsp::RackModuleType::DeEsser:fallback=.55f;break;case dsp::RackModuleType::ParametricEq:fallback=.5f;break;case dsp::RackModuleType::MultibandCompressor:fallback=.65f;break;case dsp::RackModuleType::ToneShaper:fallback=tone;break;case dsp::RackModuleType::StereoWidth:fallback=width;break;case dsp::RackModuleType::CrossDelay:fallback=space;break;case dsp::RackModuleType::Chorus:case dsp::RackModuleType::Flanger:case dsp::RackModuleType::Tremolo:case dsp::RackModuleType::Vibrato:case dsp::RackModuleType::DigitalDelay:case dsp::RackModuleType::Reverb:case dsp::RackModuleType::Shimmer:case dsp::RackModuleType::LegendEq:fallback=.5f;break;case dsp::RackModuleType::LegendPreamp:fallback=.38f;break;case dsp::RackModuleType::LegendCompressor:fallback=.42f;break;case dsp::RackModuleType::LegendTape:fallback=.34f;break;case dsp::RackModuleType::DryWet:fallback=mix;break;case dsp::RackModuleType::OutputTrim:fallback=output;break;case dsp::RackModuleType::NoiseGate:case dsp::RackModuleType::AmpOverdrive:case dsp::RackModuleType::AmpModel:case dsp::RackModuleType::DualHighGain:case dsp::RackModuleType::SilkBloom:case dsp::RackModuleType::CabinetIr:case dsp::RackModuleType::PrismEq:case dsp::RackModuleType::Unknown:break;}
         bool follows=true;const float value=rackModuleValue(module,type,fallback,follows);modules.push_back({type,module.bypassed,module.mix,value,follows});
     }
     rack.configure(spec,modules);

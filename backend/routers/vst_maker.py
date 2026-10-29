@@ -120,6 +120,7 @@ NATIVE_DSP_MODULE_TYPES = {
     "input_trim", "soft_clip", "linked_compressor", "de_esser", "parametric_eq", "multiband_compressor", "tone_shaper",
     "stereo_width", "noise_gate", "amp_overdrive", "amp_model", "dual_high_gain", "silk_bloom", "cabinet_ir",
     "cross_delay", "chorus", "flanger", "tremolo", "vibrato", "digital_delay", "reverb", "shimmer",
+    "legend_preamp", "legend_compressor", "legend_eq", "legend_tape",
     "dry_wet", "output_trim", "prism_eq",
 }
 NATIVE_DSP_MODULE_PARAMETERS = {
@@ -157,7 +158,11 @@ NATIVE_DSP_MODULE_PARAMETERS = {
     "vibrato": {"normalized", "value", "amount", "mix", "rate", "depth", "stereo"},
     "digital_delay": {"normalized", "value", "amount", "mix", "time", "feedback", "tone", "character", "stereo"},
     "reverb": {"normalized", "value", "amount", "mix", "mode", "size", "decay", "damping", "pre_delay", "modulation"},
-    "shimmer": {"normalized", "value", "amount", "mix", "size", "decay", "damping", "pre_delay", "shimmer"},
+    "shimmer": {"normalized", "value", "amount", "mix", "size", "decay", "damping", "pre_delay", "shimmer", "rise", "tone"},
+    "legend_preamp": {"normalized", "value", "amount", "model", "drive", "color", "high_pass", "output"},
+    "legend_compressor": {"normalized", "value", "amount", "model", "attack", "release", "makeup"},
+    "legend_eq": {"normalized", "value", "amount", "model", "low", "mid", "high", "air"},
+    "legend_tape": {"normalized", "value", "amount", "model", "drive", "speed", "age", "wow_flutter", "noise", "output"},
     "dry_wet": {"normalized", "value", "amount", "mix"},
     "output_trim": {"normalized", "value", "amount", "output", "gain", "gain_db"},
 }
@@ -211,7 +216,7 @@ CORRECTION_REBUILD_MAX_SKIN_CHANGES = 3
 # A ready artifact is reusable only when both its immutable project spec and
 # this builder release match; otherwise Export must enqueue a real rebuild.
 VST_BUILD_PIPELINE_REVISION = (
-    os.environ.get("VST_BUILD_PIPELINE_REVISION", "open-ring-vector-glow-v1").strip()
+    os.environ.get("VST_BUILD_PIPELINE_REVISION", "classic-legend-smooth-reverb-chord-tail-v1").strip()
     or "native-control-parity-v1"
 )
 VST_MACOS_SAMPLER_ROUTING_ENABLED = os.environ.get(

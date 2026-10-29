@@ -49,8 +49,8 @@ import {
   velocityLayerRange,
 } from "../lib/vstMakerMapping";
 import { createTempoStretchPreviewVoice } from "../lib/signalsmithStretchPreview";
-import { DSP_RACK_MODULE_OPTIONS, INTERNAL_DSP_MACRO_BINDINGS, appendDspRackModule, controlsShareDspBinding, createAmpSimulatorRack, createAmpSimulatorTemplateState, createHighGainAmpTemplateState, dspBindingValue, dspRackOption, formatDspParameterValue, isLegacyHighGainAmpRack, moveDspRackModule, normalizeDspRack, removeDspRackModule, serializeDspRack, syncControlsFromDspBinding, syncDspRackFromControl } from "../lib/vstMakerDspRack";
-import { createDspPreviewPlan } from "../lib/vstMakerDspPreview";
+import { DSP_RACK_MODULE_OPTIONS, INTERNAL_DSP_MACRO_BINDINGS, appendDspRackModule, controlsShareDspBinding, createAmpSimulatorRack, createAmpSimulatorTemplateState, createHighGainAmpTemplateState, createLegendHardwareRack, dspBindingValue, dspRackOption, formatDspParameterValue, isLegacyHighGainAmpRack, isLegendHardwareModule, normalizeDspRack, removeDspRackModule, serializeDspRack, syncControlsFromDspBinding, syncDspRackFromControl } from "../lib/vstMakerDspRack";
+import { applyDspPreviewPlanUpdate, createDspAuditionPlan, createDspPreviewPlan, dspPreviewPlanTopology } from "../lib/vstMakerDspPreview";
 import { createNativeDspWorkletNode, installNativeDspWorklet } from "../lib/vstDspProcessor";
 import { samplerAttackMilliseconds, samplerReleaseMilliseconds } from "../lib/vstSamplerPreview";
 import { decodeAndPreprocessImpulse, normalizeImpulseSettings } from "../lib/vstCabinetImpulse";
@@ -183,6 +183,20 @@ const DSP_MODULE_LIBRARY_GROUPS = [
   { id: "eq", label: "EQ & Filter", detail: "Spectrum EQ dan Parametric EQ dengan frequency, gain, dan Q", types: ["prism_eq", "parametric_eq"] },
   { id: "creative", label: "Modulation & Space", detail: "Delay, modulation, dan ambience", types: ["cross_delay", "chorus", "flanger", "tremolo", "vibrato", "digital_delay", "reverb", "shimmer"] },
 ];
+const LEGEND_HARDWARE_LIBRARY_GROUPS = [
+  { id: "legend", label: "Legend Hardware", detail: "Empat tahap analog orisinal dengan pilihan karakter sirkuit klasik", types: ["legend_preamp", "legend_compressor", "legend_eq", "legend_tape"] },
+];
+const arrangeLegendBeforeStudioDsp = (modules = []) => {
+  const normalized = normalizeDspRack(modules);
+  const legendModules = normalized
+    .filter((module) => module.type !== "wave_generator" && isLegendHardwareModule(module))
+    .sort((left, right) => (dspRackOption(left.type)?.stage || 0) - (dspRackOption(right.type)?.stage || 0));
+  return normalizeDspRack([
+    ...normalized.filter((module) => module.type === "wave_generator"),
+    ...legendModules,
+    ...normalized.filter((module) => module.type !== "wave_generator" && !isLegendHardwareModule(module)),
+  ]);
+};
 const dspModuleSamplerTarget = (module) => module?.samplerGroupId ?? module?.sampler_group_id ?? null;
 const dspModuleBindingLabel = (module, modules = [], samplerGroups = []) => {
   const samplerGroupId = dspModuleSamplerTarget(module);
@@ -2087,6 +2101,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
   const [, setDesignerHistoryVersion] = useState(0);
   const [activeEditorTab, setActiveEditorTab] = useState("interface");
   const [dspModuleLibraryOpen, setDspModuleLibraryOpen] = useState(false);
+  const [dspRackSection, setDspRackSection] = useState("legend");
   const [expandedDspModuleId, setExpandedDspModuleId] = useState(null);
   const [newProjectDialogOpen, setNewProjectDialogOpen] = useState(false);
   const [newTemplateDialogOpen, setNewTemplateDialogOpen] = useState(false);
@@ -2164,6 +2179,10 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
   const isEffectProject = project.pluginKind === "effect";
   const waveGeneratorModule = project.engineModules.find((module) => module.type === "wave_generator") || null;
   const dspRackModules = project.engineModules.filter((module) => module.type !== "wave_generator");
+  const legendHardwareModules = dspRackModules.filter(isLegendHardwareModule);
+  const studioDspModules = dspRackModules.filter((module) => !isLegendHardwareModule(module));
+  const visibleDspRackModules = dspRackSection === "legend" ? legendHardwareModules : studioDspModules;
+  const visibleDspLibraryGroups = dspRackSection === "legend" ? LEGEND_HARDWARE_LIBRARY_GROUPS : DSP_MODULE_LIBRARY_GROUPS;
   const hasActiveWaveGenerator = !!waveGeneratorModule && !waveGeneratorModule.bypassed;
   const templateIncludedSampleIds = useMemo(() => new Set(
     (project.pricingTemplateBaseline?.samples || []).map((sample) => String(sample.id || sample.sample_id || "")),
@@ -6249,7 +6268,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     }
     updateDesignerProject((current) => ({
       ...current,
-      engineModules: normalizeDspRack(appendDspRackModule(current.engineModules, type, moduleId).map((module) => (
+      engineModules: arrangeLegendBeforeStudioDsp(appendDspRackModule(current.engineModules, type, moduleId).map((module) => (
         module.id === moduleId && type === "tuning" ? { ...module, samplerGroupId: tuningTarget } : module
       ))),
     }));
@@ -6262,8 +6281,8 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
   const installStandardDspRack = () => {
     updateDesignerProject((current) => ({
       ...current,
-      engineModules: normalizeDspRack([
-        ...current.engineModules.filter((module) => ["wave_generator", "tuning"].includes(module.type)),
+      engineModules: arrangeLegendBeforeStudioDsp([
+        ...current.engineModules.filter((module) => ["wave_generator", "tuning"].includes(module.type) || isLegendHardwareModule(module)),
         ...STANDARD_DSP_MODULE_TYPES.reduce(
         (modules, type) => appendDspRackModule(modules, type, makeId()),
         [],
@@ -6280,8 +6299,8 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
   const installAmpSimulatorRack = () => {
     updateDesignerProject((current) => ({
       ...current,
-      engineModules: normalizeDspRack([
-        ...current.engineModules.filter((module) => ["wave_generator", "tuning"].includes(module.type)),
+      engineModules: arrangeLegendBeforeStudioDsp([
+        ...current.engineModules.filter((module) => ["wave_generator", "tuning"].includes(module.type) || isLegendHardwareModule(module)),
         ...createAmpSimulatorRack(() => makeId()),
       ]),
       impulseResponses: [],
@@ -6290,6 +6309,19 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     impulseFilesRef.current.clear();
     impulseBuffersRef.current.clear();
     toast.success("Chain amp simulator orisinal dipasang");
+  };
+
+  const installLegendHardwareRack = () => {
+    updateDesignerProject((current) => ({
+      ...current,
+      engineModules: arrangeLegendBeforeStudioDsp([
+        ...current.engineModules.filter((module) => !isLegendHardwareModule(module)),
+        ...createLegendHardwareRack(() => makeId()),
+      ]),
+    }));
+    setDspRackSection("legend");
+    setDspModuleLibraryOpen(false);
+    toast.success("Legend Hardware channel dipasang: Preamp → Compressor → EQ → Tape");
   };
 
   const updateEngineModule = (moduleId, updates, mergeKey = null) => {
@@ -6319,11 +6351,22 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
     }, `dsp:${moduleId}:${parameter}`);
   };
 
-  const moveEngineModule = (moduleId, direction) => {
-    updateDesignerProject((current) => ({
-      ...current,
-      engineModules: moveDspRackModule(current.engineModules, moduleId, direction),
-    }));
+  const moveEngineModuleWithinSection = (moduleId, direction) => {
+    updateDesignerProject((current) => {
+      const engineModules = normalizeDspRack(current.engineModules);
+      const sourceIndex = engineModules.findIndex((module) => module.id === moduleId);
+      if (sourceIndex < 0) return current;
+      const familyMatches = isLegendHardwareModule(engineModules[sourceIndex]);
+      const siblingIndexes = engineModules
+        .map((module, index) => ({ module, index }))
+        .filter(({ module }) => module.type !== "wave_generator" && isLegendHardwareModule(module) === familyMatches)
+        .map(({ index }) => index);
+      const siblingPosition = siblingIndexes.indexOf(sourceIndex);
+      const targetIndex = siblingIndexes[siblingPosition + Number(direction)];
+      if (targetIndex === undefined) return current;
+      [engineModules[sourceIndex], engineModules[targetIndex]] = [engineModules[targetIndex], engineModules[sourceIndex]];
+      return { ...current, engineModules: normalizeDspRack(engineModules) };
+    });
   };
 
   const deleteEngineModule = async (moduleId) => {
@@ -7021,31 +7064,54 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
               )}
               {!isPrismEqProject && (
                 <div className="maker-dsp-rack mt-6 rounded-2xl border border-white/10 bg-white/[0.025] p-4 md:p-5">
+                  <div className="mb-4 grid gap-2 rounded-2xl border border-white/[0.08] bg-black/20 p-2 sm:grid-cols-2">
+                    <button type="button" onClick={() => { setDspRackSection("legend"); setDspModuleLibraryOpen(false); setExpandedDspModuleId(null); }} className={`rounded-xl border px-4 py-3 text-left transition ${dspRackSection === "legend" ? "border-amber-300/35 bg-amber-300/[0.1]" : "border-transparent hover:bg-white/[0.035]"}`}>
+                      <span className={`block text-[10px] font-black uppercase tracking-[0.16em] ${dspRackSection === "legend" ? "text-amber-200" : "text-zinc-500"}`}>Legend Hardware</span>
+                      <span className="mt-1 block text-[10px] text-zinc-500">Preamp · Compressor · EQ · Tape ({legendHardwareModules.length})</span>
+                    </button>
+                    <button type="button" onClick={() => { setDspRackSection("studio"); setDspModuleLibraryOpen(false); setExpandedDspModuleId(null); }} className={`rounded-xl border px-4 py-3 text-left transition ${dspRackSection === "studio" ? "border-sky-300/35 bg-sky-300/[0.08]" : "border-transparent hover:bg-white/[0.035]"}`}>
+                      <span className={`block text-[10px] font-black uppercase tracking-[0.16em] ${dspRackSection === "studio" ? "text-sky-200" : "text-zinc-500"}`}>Studio DSP</span>
+                      <span className="mt-1 block text-[10px] text-zinc-500">Processor digital, amp, modulation & space ({studioDspModules.length})</span>
+                    </button>
+                  </div>
+                  <div className="mb-4 flex flex-wrap items-center gap-2 text-[9px] font-bold uppercase tracking-[0.12em] text-zinc-600" aria-label="Arsitektur jalur audio">
+                    <span className="rounded-lg border border-white/10 bg-black/30 px-2 py-1">{isEffectProject ? "Stereo input" : "Source mix"}</span><span>›</span>
+                    <span className="rounded-lg border border-amber-300/20 bg-amber-300/[0.06] px-2 py-1 text-amber-200/80">Legend Hardware · {legendHardwareModules.length}</span><span>›</span>
+                    <span className="rounded-lg border border-sky-300/20 bg-sky-300/[0.05] px-2 py-1 text-sky-200/80">Studio DSP · {studioDspModules.length}</span><span>›</span>
+                    <span className="rounded-lg border border-white/10 bg-black/30 px-2 py-1">Master</span>
+                  </div>
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
-                        <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-sky-300">DSP Rack native</div>
-                        <span className="rounded-full border border-white/10 bg-black/25 px-2 py-0.5 text-[9px] font-bold text-zinc-400">{dspRackModules.length} modul</span>
-                        {dspRackModules.some((module) => module.bypassed) && <span className="rounded-full border border-amber-300/20 bg-amber-300/[0.08] px-2 py-0.5 text-[9px] font-bold text-amber-200">{dspRackModules.filter((module) => module.bypassed).length} bypass</span>}
+                        <div className={`text-[10px] font-bold uppercase tracking-[0.16em] ${dspRackSection === "legend" ? "text-amber-200" : "text-sky-300"}`}>{dspRackSection === "legend" ? "Legend Hardware Rack" : "Studio DSP Rack"}</div>
+                        <span className="rounded-full border border-white/10 bg-black/25 px-2 py-0.5 text-[9px] font-bold text-zinc-400">{visibleDspRackModules.length} modul</span>
+                        {visibleDspRackModules.some((module) => module.bypassed) && <span className="rounded-full border border-amber-300/20 bg-amber-300/[0.08] px-2 py-0.5 text-[9px] font-bold text-amber-200">{visibleDspRackModules.filter((module) => module.bypassed).length} bypass</span>}
+                        {dspRackSection === "legend" && <span className="rounded-full border border-amber-300/20 bg-amber-300/[0.06] px-2 py-0.5 text-[9px] font-bold text-amber-100">Browser + native sinkron</span>}
                       </div>
-                      <p className="mt-1 max-w-2xl text-xs leading-5 text-zinc-500">Susun alur suara dari kiri ke kanan. Setiap modul dapat diarahkan ke Master atau ke DSP sampler tertentu.</p>
+                      <p className="mt-1 max-w-2xl text-xs leading-5 text-zinc-500">{dspRackSection === "legend" ? "Rantai analog terpisah dengan nama karakter orisinal. Mulai dari channel siap pakai agar alurnya tetap sederhana." : "Processor DSP lama tetap berada di ruang tersendiri dan tidak bercampur dengan pilihan hardware."}</p>
                     </div>
                     <div className="flex shrink-0 flex-wrap gap-2">
+                      {dspRackSection === "legend" ? (
+                        <button type="button" onClick={installLegendHardwareRack} className="rounded-xl border border-amber-300/25 bg-amber-300/[0.08] px-3 py-2 text-[10px] font-bold uppercase tracking-[0.12em] text-amber-100 hover:bg-amber-300/15">
+                          Pasang Legend Channel
+                        </button>
+                      ) : <>
                       <button type="button" onClick={installAmpSimulatorRack} className="rounded-xl border border-rose-300/20 bg-rose-300/[0.06] px-3 py-2 text-[10px] font-bold uppercase tracking-[0.12em] text-rose-200 hover:bg-rose-300/10">
                         Pasang amp simulator
                       </button>
                       <button type="button" onClick={installStandardDspRack} className="rounded-xl border border-sky-300/20 bg-sky-300/[0.06] px-3 py-2 text-[10px] font-bold uppercase tracking-[0.12em] text-sky-200 hover:bg-sky-300/10">
                         Pasang rack standar
                       </button>
-                      <button type="button" aria-expanded={dspModuleLibraryOpen} onClick={() => setDspModuleLibraryOpen((open) => !open)} className="inline-flex items-center gap-1.5 rounded-xl border border-sky-300/30 bg-sky-300/[0.1] px-3 py-2 text-[10px] font-bold uppercase tracking-[0.12em] text-sky-100 hover:bg-sky-300/15">
-                        <Plus className="h-3.5 w-3.5" /> Tambah modul <ChevronDown className={`h-3.5 w-3.5 transition-transform ${dspModuleLibraryOpen ? "rotate-180" : ""}`} />
+                      </>}
+                      <button type="button" aria-expanded={dspModuleLibraryOpen} onClick={() => setDspModuleLibraryOpen((open) => !open)} className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-[10px] font-bold uppercase tracking-[0.12em] ${dspRackSection === "legend" ? "border-amber-300/30 bg-amber-300/[0.08] text-amber-100 hover:bg-amber-300/15" : "border-sky-300/30 bg-sky-300/[0.1] text-sky-100 hover:bg-sky-300/15"}`}>
+                        <Plus className="h-3.5 w-3.5" /> {dspRackSection === "legend" ? "Tambah hardware" : "Tambah modul"} <ChevronDown className={`h-3.5 w-3.5 transition-transform ${dspModuleLibraryOpen ? "rotate-180" : ""}`} />
                       </button>
                     </div>
                   </div>
-                  {dspRackModules.length > 0 && (
+                  {visibleDspRackModules.length > 0 && (
                     <div className="maker-dsp-signal-flow mt-4" aria-label="Urutan jalur audio">
                       <span className="maker-dsp-signal-flow__endpoint">{isEffectProject ? "Stereo input" : "Source mix"}</span>
-                      {dspRackModules.map((module, index) => (
+                      {visibleDspRackModules.map((module, index) => (
                         <React.Fragment key={module.id}>
                           <span className="maker-dsp-signal-flow__arrow" aria-hidden="true">›</span>
                           <button type="button" onClick={() => setExpandedDspModuleId((current) => current === module.id ? null : module.id)} className={`maker-dsp-signal-flow__module ${module.bypassed ? "is-bypassed" : ""} ${expandedDspModuleId === module.id ? "is-selected" : ""}`} title={`Buka ${module.name}`}>
@@ -7060,20 +7126,20 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
                   {dspModuleLibraryOpen && (
                     <div className="maker-dsp-library mt-4">
                       <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-white/[0.07] bg-[#111216]/95 px-3 py-2 backdrop-blur">
-                        <div><div className="text-[10px] font-black uppercase tracking-[0.14em] text-zinc-300">Pilih processor</div><div className="text-[9px] text-zinc-600">Modul baru ditambahkan ke akhir jalur</div></div>
+                        <div><div className="text-[10px] font-black uppercase tracking-[0.14em] text-zinc-300">Pilih processor</div><div className="text-[9px] text-zinc-600">{dspRackSection === "legend" ? "Hardware otomatis ditempatkan pada urutan analog yang benar" : "Modul baru ditambahkan ke akhir jalur"}</div></div>
                         <button type="button" onClick={() => setDspModuleLibraryOpen(false)} className="rounded-lg border border-white/10 p-1.5 text-zinc-500 hover:text-white" aria-label="Tutup daftar modul"><X className="h-3.5 w-3.5" /></button>
                       </div>
                       <div className="space-y-4 p-3">
-                        {DSP_MODULE_LIBRARY_GROUPS.map((group) => (
+                        {visibleDspLibraryGroups.map((group) => (
                           <section key={group.id}>
                             <div className="mb-2 flex flex-wrap items-end justify-between gap-2 px-1">
-                              <div><div className={`text-[10px] font-black uppercase tracking-[0.14em] ${group.id === "amp" ? "text-rose-200" : "text-zinc-400"}`}>{group.label}</div><div className="mt-0.5 text-[9px] text-zinc-600">{group.detail}</div></div>
+                              <div><div className={`text-[10px] font-black uppercase tracking-[0.14em] ${group.id === "amp" ? "text-rose-200" : group.id === "legend" ? "text-amber-200" : "text-zinc-400"}`}>{group.label}</div><div className="mt-0.5 text-[9px] text-zinc-600">{group.detail}</div></div>
                               <span className="text-[9px] font-bold text-zinc-700">{group.types.length} pilihan</span>
                             </div>
                             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                               {group.types.map((type) => dspRackOption(type)).filter((option) => option && (!option.instrumentOnly || !isEffectProject)).map((option) => (
-                                <button key={option.type} type="button" onClick={() => addEngineModule(option.type)} className={`group flex min-h-12 items-center gap-2 rounded-xl border px-3 py-2 text-left ${group.id === "amp" ? "border-rose-300/10 bg-rose-300/[0.025] hover:border-rose-300/30 hover:bg-rose-300/[0.06]" : "border-white/[0.08] bg-black/20 hover:border-sky-300/25 hover:bg-sky-300/[0.05]"}`}>
-                                  <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border bg-white/[0.035] ${group.id === "amp" ? "border-rose-300/10 text-rose-300/70 group-hover:text-rose-200" : "border-white/[0.08] text-zinc-500 group-hover:text-sky-200"}`}><Plus className="h-3.5 w-3.5" /></span>
+                                <button key={option.type} type="button" onClick={() => addEngineModule(option.type)} className={`group flex min-h-12 items-center gap-2 rounded-xl border px-3 py-2 text-left ${group.id === "amp" ? "border-rose-300/10 bg-rose-300/[0.025] hover:border-rose-300/30 hover:bg-rose-300/[0.06]" : group.id === "legend" ? "border-amber-300/15 bg-amber-300/[0.035] hover:border-amber-300/35 hover:bg-amber-300/[0.08]" : "border-white/[0.08] bg-black/20 hover:border-sky-300/25 hover:bg-sky-300/[0.05]"}`}>
+                                  <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border bg-white/[0.035] ${group.id === "amp" ? "border-rose-300/10 text-rose-300/70 group-hover:text-rose-200" : group.id === "legend" ? "border-amber-300/15 text-amber-300/70 group-hover:text-amber-100" : "border-white/[0.08] text-zinc-500 group-hover:text-sky-200"}`}><Plus className="h-3.5 w-3.5" /></span>
                                   <span className="min-w-0 flex-1"><span className="block truncate text-[10px] font-bold text-zinc-300 group-hover:text-white">{option.name}</span><span className="block text-[9px] text-zinc-600">{option.parameters?.length || 1} parameter</span></span>
                                 </button>
                               ))}
@@ -7083,14 +7149,14 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
                       </div>
                     </div>
                   )}
-                  {dspRackModules.length === 0 ? (
+                  {visibleDspRackModules.length === 0 ? (
                     <div className="mt-4 rounded-xl border border-dashed border-white/10 px-4 py-5 text-center text-xs text-zinc-600">
                       <Sliders className="mx-auto mb-2 h-5 w-5 text-zinc-700" />
-                      Belum ada modul DSP. Gunakan <span className="font-bold text-zinc-400">Tambah modul</span> atau pasang rack siap pakai.
+                      {dspRackSection === "legend" ? <>Belum ada hardware. Gunakan <span className="font-bold text-amber-200/80">Pasang Legend Channel</span> untuk mulai dengan empat tahap yang sudah urut.</> : <>Belum ada modul DSP. Gunakan <span className="font-bold text-zinc-400">Tambah modul</span> atau pasang rack siap pakai.</>}
                     </div>
                   ) : (
                     <div className="maker-dsp-module-list mt-4 space-y-2">
-                      {dspRackModules.map((module, index) => {
+                      {visibleDspRackModules.map((module, index) => {
                         const option = dspRackOption(module.type);
                         const parameterDefinitions = option?.parameters || [{ key: option?.parameter || "normalized", label: "Parameter", defaultValue: option?.defaultValue ?? 0.5 }];
                         const primaryDefinition = parameterDefinitions[0];
@@ -7100,15 +7166,15 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
                           ? (project.impulseResponses || []).find((impulse) => impulse.moduleId === module.id)
                           : null;
                         return (
-                          <div key={module.id} className={`maker-dsp-module rounded-xl border ${isExpanded ? "is-expanded border-sky-300/20 bg-sky-300/[0.025]" : module.bypassed ? "border-amber-300/15 bg-amber-300/[0.025]" : "border-white/[0.08] bg-black/20"}`}>
+                          <div key={module.id} className={`maker-dsp-module rounded-xl border ${isExpanded ? (isLegendHardwareModule(module) ? "is-expanded border-amber-300/25 bg-amber-300/[0.035]" : "is-expanded border-sky-300/20 bg-sky-300/[0.025]") : module.bypassed ? "border-amber-300/15 bg-amber-300/[0.025]" : "border-white/[0.08] bg-black/20"}`}>
                             <div className="flex min-h-14 flex-wrap items-center gap-2 p-2.5 md:flex-nowrap">
                               <button type="button" aria-expanded={isExpanded} onClick={() => setExpandedDspModuleId((current) => current === module.id ? null : module.id)} className="flex min-w-[190px] flex-1 items-center gap-3 rounded-lg px-1.5 py-1 text-left hover:bg-white/[0.025]">
-                                <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[10px] font-black ${module.bypassed ? "bg-amber-300/10 text-amber-200" : "bg-sky-300/[0.08] text-sky-200"}`}>{index + 1}</span>
+                                <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[10px] font-black ${module.bypassed || isLegendHardwareModule(module) ? "bg-amber-300/10 text-amber-200" : "bg-sky-300/[0.08] text-sky-200"}`}>{index + 1}</span>
                                 <span className="min-w-0 flex-1"><span className="block truncate text-xs font-bold text-zinc-200">{module.name}</span><span className="block truncate text-[9px] text-zinc-600">{primaryDefinition.label} {formatDspParameterValue(primaryDefinition, primaryValue)} · Mix {Math.round(module.mix * 100)}%</span></span>
                                 <ChevronDown className={`h-4 w-4 shrink-0 text-zinc-600 transition-transform ${isExpanded ? "rotate-180 text-sky-300" : ""}`} />
                               </button>
-                              <button type="button" disabled={index === 0} onClick={() => moveEngineModule(module.id, -1)} className="rounded-lg border border-white/10 px-2 py-1.5 text-xs text-zinc-400 disabled:opacity-25" aria-label={`Naikkan ${module.name}`}>↑</button>
-                              <button type="button" disabled={index === dspRackModules.length - 1} onClick={() => moveEngineModule(module.id, 1)} className="rounded-lg border border-white/10 px-2 py-1.5 text-xs text-zinc-400 disabled:opacity-25" aria-label={`Turunkan ${module.name}`}>↓</button>
+                              <button type="button" disabled={index === 0} onClick={() => moveEngineModuleWithinSection(module.id, -1)} className="rounded-lg border border-white/10 px-2 py-1.5 text-xs text-zinc-400 disabled:opacity-25" aria-label={`Naikkan ${module.name}`}>↑</button>
+                              <button type="button" disabled={index === visibleDspRackModules.length - 1} onClick={() => moveEngineModuleWithinSection(module.id, 1)} className="rounded-lg border border-white/10 px-2 py-1.5 text-xs text-zinc-400 disabled:opacity-25" aria-label={`Turunkan ${module.name}`}>↓</button>
                               {!isEffectProject && (
                                 <select
                                   className="h-8 max-w-40 rounded-lg border border-white/10 bg-zinc-950 px-2 text-[9px] font-bold text-zinc-300"
@@ -7132,19 +7198,23 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
                                 return (
                                   <label key={definition.key} className="text-[10px] font-semibold text-zinc-500">
                                     <span className="flex justify-between"><span>{definition.label}</span><span>{formatDspParameterValue(definition, parameterValue)}</span></span>
-                                    {definition.format === "reverb_mode" ? (
+                                    {Array.isArray(definition.options) ? (
+                                      <select className="mt-1 w-full rounded-md border border-amber-300/15 bg-zinc-950 px-2 py-1.5 text-[10px] text-zinc-200" value={definition.options.reduce((closest, option) => Math.abs(option.value - parameterValue) < Math.abs(closest.value - parameterValue) ? option : closest, definition.options[0]).value} onChange={(event) => updateEngineModuleParameter(module.id, definition.key, Number(event.target.value))}>
+                                        {definition.options.map((option) => <option key={option.label} value={option.value}>{option.label}</option>)}
+                                      </select>
+                                    ) : definition.format === "reverb_mode" ? (
                                       <select className="mt-1 w-full rounded-md border border-white/10 bg-zinc-950 px-2 py-1.5 text-[10px] text-zinc-200" value={Math.min(3, Math.round(parameterValue * 3))} onChange={(event) => updateEngineModuleParameter(module.id, definition.key, Number(event.target.value) / 3)}>
                                         <option value="0">Room</option><option value="1">Spring</option><option value="2">Plate</option><option value="3">Hall</option>
                                       </select>
                                     ) : (
-                                      <input className="mt-1 w-full accent-sky-300" type="range" min="0" max="1" step={definition.step || "0.01"} value={parameterValue} onChange={(event) => updateEngineModuleParameter(module.id, definition.key, event.target.value)} />
+                                      <input className={`mt-1 w-full ${isLegendHardwareModule(module) ? "accent-amber-300" : "accent-sky-300"}`} type="range" min="0" max="1" step={definition.step || "0.01"} value={parameterValue} onChange={(event) => updateEngineModuleParameter(module.id, definition.key, event.target.value)} />
                                     )}
                                   </label>
                                 );
                               })}
                               <label className="text-[10px] font-semibold text-zinc-500">
                                 <span className="flex justify-between"><span>Module mix</span><span>{Math.round(module.mix * 100)}%</span></span>
-                                <input className="mt-1 w-full accent-sky-300" type="range" min="0" max="1" step="0.01" value={module.mix} onChange={(event) => updateEngineModule(module.id, { mix: Number(event.target.value) }, `dsp:${module.id}:mix`)} />
+                                <input className={`mt-1 w-full ${isLegendHardwareModule(module) ? "accent-amber-300" : "accent-sky-300"}`} type="range" min="0" max="1" step="0.01" value={module.mix} onChange={(event) => updateEngineModule(module.id, { mix: Number(event.target.value) }, `dsp:${module.id}:mix`)} />
                               </label>
                             </div>
                             {module.type === "cabinet_ir" && (
@@ -7592,15 +7662,8 @@ const createCustomDspPreviewGraph = (context, source, destination, meterTarget, 
     destination,
     meterTarget,
     applyBypass: (bypassed) => processor.port.postMessage({ type: "bypass", bypassed }),
-    topology: plan.map(({ id, type }) => `${id}:${type}`).join("|"),
+    topology: dspPreviewPlanTopology(plan),
   };
-};
-
-const applyCustomDspPreviewPlan = (graph, plan) => {
-  const topology = plan.map(({ id, type }) => `${id}:${type}`).join("|");
-  graph.processor.port.postMessage({ type: "plan", plan });
-  graph.topology = topology;
-  return true;
 };
 
 const GENERATED_SEQUENCE_PREFIXES = WAVE_GENERATOR_MODES.map(({ label }) => `${label} ·`);
@@ -7769,7 +7832,7 @@ function EffectPreviewLab({ controls, engineModules, customImpulses = {}, accent
     if (Number.isFinite(Number(control.q))) result[`${control.parameter}_q`] = Number(control.q);
     return result;
   }, {}), [controls]);
-  const dspPlan = useMemo(() => createDspPreviewPlan(engineModules, controls, customImpulses), [controls, customImpulses, engineModules]);
+  const dspPlan = useMemo(() => createDspAuditionPlan(engineModules, controls, customImpulses), [controls, customImpulses, engineModules]);
   const isPrismEq = projectTemplate === "prismeq" && !engineModules.some((module) => module.type === "prism_eq");
 
   const releaseGraph = () => {
@@ -7790,7 +7853,7 @@ function EffectPreviewLab({ controls, engineModules, customImpulses = {}, accent
     const pan = Math.max(-1, Math.min(1, (nextValues.pan ?? 0.5) * 2 - 1));
     graph.masterPanner?.pan.setTargetAtTime(pan, graph.context.currentTime, 0.01);
     if (graph.profile === "custom-rack") {
-      const applied = applyCustomDspPreviewPlan(graph, nextPlan);
+      const applied = applyDspPreviewPlanUpdate(graph, nextPlan);
       if (applied) graph.applyBypass((nextValues.bypass ?? 0) >= 0.5);
       return applied;
     }
@@ -7849,7 +7912,11 @@ function EffectPreviewLab({ controls, engineModules, customImpulses = {}, accent
   // recreated each render and must not become an effect dependency.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (applyValues(graphRef.current, values, dspPlan) === false) releaseGraph();
+    try {
+      if (applyValues(graphRef.current, values, dspPlan) === false) releaseGraph();
+    } catch {
+      releaseGraph();
+    }
   // applyValues and releaseGraph intentionally close over the current render;
   // values and dspPlan are the state boundaries that should update this graph.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -7987,7 +8054,7 @@ function EffectPreviewLab({ controls, engineModules, customImpulses = {}, accent
       <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
         <div>
           <div className="text-xs font-bold text-amber-100">Uji WAV satu per satu</div>
-          <p className="mt-1 text-[10px] leading-5 text-zinc-500">Unggah beberapa WAV lokal, tekan Putar pada satu file, lalu putar knob langsung pada panel Designer di bawah. Audio melewati {isPrismEq ? "Low Cut, Low Body, Mid Focus, Presence, Air, Mix, dan Output Prism EQ" : engineModules.length ? `${engineModules.length} modul DSP Rack sesuai urutan FX & Processor` : "chain DSP kompatibilitas bawaan"}. File uji tidak disimpan ke server.</p>
+          <p className="mt-1 text-[10px] leading-5 text-zinc-500">Unggah beberapa WAV lokal, tekan Putar pada satu file, lalu putar knob langsung pada panel Designer di bawah. Audio melewati {isPrismEq ? "Low Cut, Low Body, Mid Focus, Presence, Air, Mix, dan Output Prism EQ" : engineModules.length ? `${engineModules.length} modul DSP Rack sesuai urutan FX & Processor` : "jalur dry unity-gain tanpa processor"}. File uji tidak disimpan ke server.</p>
           <label className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded-xl border border-amber-200/20 bg-amber-100/[0.05] px-4 py-2 text-xs font-bold text-amber-100 hover:bg-amber-100/10">
             <Upload className="h-3.5 w-3.5" /> Tambah WAV
             <input type="file" multiple accept=".wav,audio/wav" className="sr-only" onChange={(event) => { addFiles(event.target.files); event.target.value = ""; }} />

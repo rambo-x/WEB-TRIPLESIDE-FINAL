@@ -622,27 +622,40 @@ public:
     void setPreDelay(float normalized) noexcept;
     void setModulation(float normalized) noexcept;
     void setShimmer(float normalized) noexcept;
+    void setRise(float normalized) noexcept;
+    void setTone(float normalized) noexcept;
     void processFrame(float& left, float& right) noexcept;
 
 private:
     [[nodiscard]] static float readInterpolated(const std::vector<float>& buffer, std::size_t cursor, float delay) noexcept;
+    [[nodiscard]] static float processAllpass(float input, std::vector<float>& buffer, std::size_t cursor, std::size_t delay, float coefficient) noexcept;
     [[nodiscard]] float pitchShift(const std::vector<float>& buffer, float phase, float ratio, float phaseOffset) const noexcept;
     bool shimmerMode_ = false;
     double sampleRate_ = 44100.0;
-    std::array<std::vector<float>, 4> tank_{};
-    std::array<std::size_t, 4> tankCursor_{};
     std::vector<float> preDelayLeft_{};
     std::vector<float> preDelayRight_{};
     std::size_t preDelayCursor_ = 0;
     std::vector<float> pitchLeft_{};
     std::vector<float> pitchRight_{};
     std::size_t pitchCursor_ = 0;
-    float pitchPhaseA_ = 0.0f;
-    float pitchPhaseB_ = 0.0f;
+    std::array<double, 4> pitchPhase_{};
     float modulationPhase_ = 0.0f;
-    std::array<float, 4> dampingState_{};
+    float hallModulationPhase_ = 1.37f;
+    std::array<std::vector<float>, 8> hallTank_{};
+    std::array<std::size_t, 8> hallTankCursor_{};
+    std::array<double, 8> hallDampingState_{};
+    std::array<double, 8> hallLowState_{};
+    std::array<double, 8> hallLines_{};
+    std::array<double, 8> hallMatrix_{};
+    std::array<std::vector<float>, 4> hallDiffuserLeft_{};
+    std::array<std::vector<float>, 4> hallDiffuserRight_{};
+    std::array<std::size_t, 4> hallDiffuserCursor_{};
+    std::array<std::size_t, 4> hallDiffuserDelays_{};
     std::array<float, 8> dispersionState_{};
-    std::array<float, 4> choirState_{};
+    double bloomEnvelope_ = 0.0;
+    std::array<double, 4> bloomHighPassState_{};
+    std::array<double, 2> bloomLowPassState_{};
+    std::array<double, 6> bloomChoirState_{};
     SmoothedValue mix_{};
     SmoothedValue mode_{};
     SmoothedValue size_{};
@@ -651,6 +664,8 @@ private:
     SmoothedValue preDelay_{};
     SmoothedValue modulation_{};
     SmoothedValue shimmer_{};
+    SmoothedValue rise_{};
+    SmoothedValue tone_{};
 };
 
 class TempoDelay {
@@ -740,6 +755,10 @@ enum class RackModuleType {
     DigitalDelay,
     Reverb,
     Shimmer,
+    LegendPreamp,
+    LegendCompressor,
+    LegendEq,
+    LegendTape,
     DryWet,
     OutputTrim,
 };
@@ -805,6 +824,20 @@ private:
         DigitalDelay digitalDelay{};
         SpatialReverb reverb{false};
         SpatialReverb shimmer{true};
+        float legendModel = 0.0f;
+        float legendDrive = 0.38f;
+        float legendColor = 0.52f;
+        float legendOutput = 0.5f;
+        float legendAmount = 0.42f;
+        float legendAttack = 0.38f;
+        float legendRelease = 0.46f;
+        float legendMakeup = 0.0f;
+        float legendLow = 0.5f;
+        float legendMid = 0.5f;
+        float legendHigh = 0.5f;
+        float legendAir = 0.5f;
+        float legendSpeed = 0.5f;
+        float legendAge = 0.16f;
         DryWet dryWet{};
         StereoGain outputTrim{GainLaw::OutputTrim};
         float effectiveGainReduction = 1.0f;
@@ -813,6 +846,7 @@ private:
     void setLegacyValue(RackModuleType type, float normalized) noexcept;
     static void prepareNode(Node& node, const ProcessSpec& spec);
     static void resetNode(Node& node) noexcept;
+    static void updateLegendProxy(Node& node) noexcept;
 
     std::vector<Node> nodes_{};
 };

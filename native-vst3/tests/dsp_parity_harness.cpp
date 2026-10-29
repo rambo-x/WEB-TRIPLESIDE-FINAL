@@ -12,6 +12,13 @@ int main(int argc, char** argv) {
     const bool customImpulse = argc == 4 && std::string_view(argv[3]) == "--custom-ir";
     const bool creative = argc == 4 && std::string_view(argv[3]) == "--creative";
     const bool advanced = argc == 4 && std::string_view(argv[3]) == "--advanced";
+    const bool legend = argc == 4 && std::string_view(argv[3]) == "--legend";
+    const auto fixture = argc == 4 ? std::string_view(argv[3]) : std::string_view{};
+    const bool reverb = fixture.starts_with("--reverb-");
+    const float reverbMode = fixture == "--reverb-spring" ? 1.0f
+        : fixture == "--reverb-plate" ? 2.0f
+        : fixture == "--reverb-hall" ? 3.0f
+        : 0.0f;
     std::ifstream input(argv[1], std::ios::binary | std::ios::ate);
     if (!input) return 3;
     const auto bytes = input.tellg();
@@ -20,7 +27,28 @@ int main(int argc, char** argv) {
     input.read(reinterpret_cast<char*>(samples.data()), bytes);
 
     EffectRack rack;
-    if (advanced) {
+    if (reverb) {
+        rack.configure(ProcessSpec{48000.0, 128}, {
+            {RackModuleType::Reverb, false, 1.0f, 0.64f, false},
+        });
+        rack.setModuleParameter(0, "mode", reverbMode);
+        rack.setModuleParameter(0, "size", 0.58f);
+        rack.setModuleParameter(0, "decay", 0.52f);
+        rack.setModuleParameter(0, "damping", 0.55f);
+        rack.setModuleParameter(0, "pre_delay", 0.04f);
+        rack.setModuleParameter(0, "modulation", 0.22f);
+    } else if (legend) {
+        rack.configure(ProcessSpec{48000.0, 128}, {
+            {RackModuleType::LegendPreamp, false, 1.0f, 0.38f, false},
+            {RackModuleType::LegendCompressor, false, 1.0f, 0.42f, false},
+            {RackModuleType::LegendEq, false, 1.0f, 0.5f, false},
+            {RackModuleType::LegendTape, false, 1.0f, 0.34f, false},
+        });
+        rack.setModuleParameter(0, "model", 0.66f); rack.setModuleParameter(0, "color", 0.61f); rack.setModuleParameter(0, "high_pass", 0.18f); rack.setModuleParameter(0, "output", 0.5f);
+        rack.setModuleParameter(1, "model", 0.33f); rack.setModuleParameter(1, "attack", 0.38f); rack.setModuleParameter(1, "release", 0.46f); rack.setModuleParameter(1, "makeup", 0.0f);
+        rack.setModuleParameter(2, "model", 1.0f); rack.setModuleParameter(2, "low", 0.54f); rack.setModuleParameter(2, "high", 0.58f); rack.setModuleParameter(2, "air", 0.62f);
+        rack.setModuleParameter(3, "model", 0.33f); rack.setModuleParameter(3, "speed", 0.5f); rack.setModuleParameter(3, "age", 0.16f); rack.setModuleParameter(3, "wow_flutter", 0.12f); rack.setModuleParameter(3, "noise", 0.0f); rack.setModuleParameter(3, "output", 0.46f);
+    } else if (advanced) {
         rack.configure(ProcessSpec{48000.0, 128}, {
             {RackModuleType::ParametricEq, false, 1.0f, 0.72f, false},
             {RackModuleType::MultibandCompressor, false, 1.0f, 0.85f, false},
@@ -65,7 +93,7 @@ int main(int argc, char** argv) {
         {RackModuleType::CabinetIr, false, 1.0f, 0.88f, false},
         {RackModuleType::OutputTrim, false, 1.0f, 0.66f, false},
     });
-    if (!creative && !advanced) {
+    if (!creative && !advanced && !legend && !reverb) {
     rack.setModuleParameter(1, "release", 0.2f);
     rack.setModuleParameter(2, "mode", 0.0f);
     rack.setModuleParameter(2, "tight", 0.72f);

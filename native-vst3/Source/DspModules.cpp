@@ -1297,28 +1297,211 @@ void DigitalDelay::processFrame(float& left,float& right) noexcept {
 }
 
 void SpatialReverb::prepare(const ProcessSpec& spec) {
-    sampleRate_=std::max(1.0,spec.sampleRate); for(auto& line:tank_)line.assign(std::max<std::size_t>(8,static_cast<std::size_t>(sampleRate_*0.12)),0.0f);
-    preDelayLeft_.assign(std::max<std::size_t>(4,static_cast<std::size_t>(sampleRate_*0.125)),0);preDelayRight_=preDelayLeft_;
-    pitchLeft_.assign(std::max<std::size_t>(8,static_cast<std::size_t>(sampleRate_*0.09)),0);pitchRight_=pitchLeft_;
-    mix_.prepare(sampleRate_,20);mode_.prepare(sampleRate_,40);size_.prepare(sampleRate_,30);decay_.prepare(sampleRate_,30);damping_.prepare(sampleRate_,30);preDelay_.prepare(sampleRate_,25);modulation_.prepare(sampleRate_,30);shimmer_.prepare(sampleRate_,30);
+    sampleRate_ = std::max(1.0, spec.sampleRate);
+    const auto hallLength = std::max<std::size_t>(8, static_cast<std::size_t>(sampleRate_ * 0.18));
+    for (auto& line : hallTank_) line.assign(hallLength, 0.0f);
+    const auto diffuserLength = std::max<std::size_t>(8, static_cast<std::size_t>(sampleRate_ * 0.014));
+    for (auto& line : hallDiffuserLeft_) line.assign(diffuserLength, 0.0f);
+    for (auto& line : hallDiffuserRight_) line.assign(diffuserLength, 0.0f);
+    constexpr std::array<double, 4> diffuserMilliseconds{3.1, 4.7, 6.9, 9.7};
+    for (std::size_t index = 0; index < hallDiffuserDelays_.size(); ++index)
+        hallDiffuserDelays_[index] = std::max<std::size_t>(1, static_cast<std::size_t>(sampleRate_ * diffuserMilliseconds[index] / 1000.0));
+    preDelayLeft_.assign(std::max<std::size_t>(4, static_cast<std::size_t>(sampleRate_ * 0.125)), 0.0f);
+    preDelayRight_ = preDelayLeft_;
+    pitchLeft_.assign(std::max<std::size_t>(8, static_cast<std::size_t>(sampleRate_ * 0.135)), 0.0f);
+    pitchRight_ = pitchLeft_;
+    mix_.prepare(sampleRate_, 20.0); mode_.prepare(sampleRate_, 40.0); size_.prepare(sampleRate_, 30.0);
+    decay_.prepare(sampleRate_, 30.0); damping_.prepare(sampleRate_, 30.0); preDelay_.prepare(sampleRate_, 25.0);
+    modulation_.prepare(sampleRate_, 30.0); shimmer_.prepare(sampleRate_, 30.0); rise_.prepare(sampleRate_, 30.0); tone_.prepare(sampleRate_, 30.0);
 }
-void SpatialReverb::reset(float v) noexcept {for(auto&line:tank_)std::fill(line.begin(),line.end(),0.0f);std::fill(preDelayLeft_.begin(),preDelayLeft_.end(),0.0f);std::fill(preDelayRight_.begin(),preDelayRight_.end(),0.0f);std::fill(pitchLeft_.begin(),pitchLeft_.end(),0.0f);std::fill(pitchRight_.begin(),pitchRight_.end(),0.0f);tankCursor_={};preDelayCursor_=pitchCursor_=0;pitchPhaseA_=pitchPhaseB_=modulationPhase_=0;dampingState_={};dispersionState_={};choirState_={};mix_.reset(std::clamp(v,0.0f,1.0f));mode_.reset(1.0f);size_.reset(shimmerMode_?0.68f:0.58f);decay_.reset(shimmerMode_?0.68f:0.52f);damping_.reset(shimmerMode_?0.48f:0.55f);preDelay_.reset(shimmerMode_?0.22f:0.18f);modulation_.reset(0.22f);shimmer_.reset(shimmerMode_?0.5f:0.0f);}
-void SpatialReverb::setNormalized(float v) noexcept {mix_.setTarget(std::clamp(v,0.0f,1.0f));} void SpatialReverb::setSize(float v) noexcept {size_.setTarget(std::clamp(v,0.0f,1.0f));}
-void SpatialReverb::setMode(float v) noexcept {mode_.setTarget(std::clamp(v,0.0f,1.0f));}
-void SpatialReverb::setDecay(float v) noexcept {decay_.setTarget(std::clamp(v,0.0f,1.0f));} void SpatialReverb::setDamping(float v) noexcept {damping_.setTarget(std::clamp(v,0.0f,1.0f));}
-void SpatialReverb::setPreDelay(float v) noexcept {preDelay_.setTarget(std::clamp(v,0.0f,1.0f));} void SpatialReverb::setModulation(float v) noexcept {modulation_.setTarget(std::clamp(v,0.0f,1.0f));}
-void SpatialReverb::setShimmer(float v) noexcept {shimmer_.setTarget(std::clamp(v,0.0f,1.0f));}
-float SpatialReverb::readInterpolated(const std::vector<float>&buffer,std::size_t cursor,float delay) noexcept {float position=static_cast<float>(cursor)-delay;while(position<0)position+=static_cast<float>(buffer.size());const auto first=static_cast<std::size_t>(position)%buffer.size(),second=(first+1)%buffer.size();const float fraction=position-std::floor(position);return buffer[first]+(buffer[second]-buffer[first])*fraction;}
-float SpatialReverb::pitchShift(const std::vector<float>&buffer,float voicePhase,float ratio,float offset) const noexcept {const float grain=static_cast<float>(sampleRate_*0.075);const float phase=std::fmod(voicePhase+offset,1.0f),phaseB=std::fmod(phase+0.5f,1.0f);const float a=readInterpolated(buffer,pitchCursor_,1.0f+(1.0f-phase)*grain),b=readInterpolated(buffer,pitchCursor_,1.0f+(1.0f-phaseB)*grain);const float wa=std::sin(3.14159265358979323846f*phase),wb=std::sin(3.14159265358979323846f*phaseB);const float sum=wa*wa+wb*wb;return(a*wa*wa+b*wb*wb)/std::max(0.001f,sum)*std::min(1.0f,1.25f/ratio);}
-void SpatialReverb::processFrame(float&left,float&right) noexcept {
-    if (tank_[0].empty()) return;
-    constexpr float pi=3.14159265358979323846f;const float dryLeft=left,dryRight=right,mix=mix_.next(),sizeValue=size_.next(),decay=decay_.next(),damping=damping_.next(),pre=preDelay_.next(),mod=modulation_.next(),shimmer=shimmer_.next();const int mode=std::clamp(static_cast<int>(std::lround(mode_.next()*3.0f)),0,3);
-    const auto preSamples=std::clamp<std::size_t>(static_cast<std::size_t>(pre*0.12f*sampleRate_),1,preDelayLeft_.size()-1);const auto preRead=(preDelayCursor_+preDelayLeft_.size()-preSamples)%preDelayLeft_.size();const float inputLeft=preDelayLeft_[preRead],inputRight=preDelayRight_[preRead];preDelayLeft_[preDelayCursor_]=left;preDelayRight_[preDelayCursor_]=right;preDelayCursor_=(preDelayCursor_+1)%preDelayLeft_.size();
-    constexpr std::array<std::array<float,4>,4> delays{{{{13.7f,19.3f,23.1f,29.7f}},{{17.3f,25.1f,31.7f,38.9f}},{{21.1f,26.3f,34.7f,43.1f}},{{31.1f,43.7f,53.9f,67.3f}}}};constexpr std::array<float,4> sizeBase{0.46f,0.58f,0.62f,0.72f};constexpr std::array<float,4> sizeRange{0.72f,0.82f,0.88f,0.88f};constexpr std::array<float,4> brightness{0.72f,0.86f,1.08f,0.94f};constexpr std::array<float,4> modulationDepth{2.2f,1.3f,4.8f,6.2f};const float size=sizeBase[mode]+sizeValue*sizeRange[mode];std::array<float,4>x{};for(std::size_t i=0;i<4;++i){const float wobble=std::sin(modulationPhase_+static_cast<float>(i)*1.73f)*mod*modulationDepth[mode];const float delaySamples=std::clamp(static_cast<float>(sampleRate_)*0.001f*delays[mode][i]*size+wobble,2.0f,static_cast<float>(tank_[i].size()-2));x[i]=readInterpolated(tank_[i],tankCursor_[i],delaySamples);const float alpha=std::clamp((0.028f+(1.0f-damping)*0.48f)*brightness[mode],0.01f,0.62f);dampingState_[i]+=alpha*(x[i]-dampingState_[i]);x[i]=dampingState_[i];if(mode==1){for(int stage=0;stage<2;++stage){const std::size_t stateIndex=i*2+static_cast<std::size_t>(stage);const float coefficient=stage?0.71f:0.57f;const float output=-coefficient*x[i]+dispersionState_[stateIndex];dispersionState_[stateIndex]=x[i]+coefficient*output;x[i]=output;}}}
-    const float m0=(x[0]+x[1]+x[2]+x[3])*0.5f,m1=(x[0]-x[1]+x[2]-x[3])*0.5f,m2=(x[0]+x[1]-x[2]-x[3])*0.5f,m3=(x[0]-x[1]-x[2]+x[3])*0.5f;constexpr std::array<float,4> feedbackBase{0.49f,0.53f,0.56f,0.58f};constexpr std::array<float,4> feedbackRange{0.43f,0.41f,0.41f,0.39f};const float feedback=std::min(0.965f,feedbackBase[mode]+decay*feedbackRange[mode]);
-    float shiftedLeft=0,shiftedRight=0;if(shimmerMode_&&shimmer>0.0001f){pitchLeft_[pitchCursor_]=(x[0]+x[2])*0.5f;pitchRight_[pitchCursor_]=(x[1]+x[3])*0.5f;const float octave=2.0f,fifth=std::pow(2.0f,7.0f/12.0f);const float octaveLeft=pitchShift(pitchLeft_,pitchPhaseA_,octave,0),octaveRight=pitchShift(pitchRight_,pitchPhaseA_,octave,0.19f);const float fifthLeft=pitchShift(pitchLeft_,pitchPhaseB_,fifth,0.37f),fifthRight=pitchShift(pitchRight_,pitchPhaseB_,fifth,0.61f);const float choirAlpha=1.0f-std::exp(-2.0f*pi*4200.0f/static_cast<float>(sampleRate_));choirState_[0]+=choirAlpha*(octaveLeft-choirState_[0]);choirState_[1]+=choirAlpha*(octaveRight-choirState_[1]);choirState_[2]+=choirAlpha*(fifthLeft-choirState_[2]);choirState_[3]+=choirAlpha*(fifthRight-choirState_[3]);const float ensemble=0.5f+0.5f*std::sin(modulationPhase_*0.71f);shiftedLeft=choirState_[0]*0.62f+choirState_[2]*(0.28f+ensemble*0.12f);shiftedRight=choirState_[1]*0.62f+choirState_[3]*(0.40f-ensemble*0.12f);pitchCursor_=(pitchCursor_+1)%pitchLeft_.size();pitchPhaseA_=std::fmod(pitchPhaseA_+(octave-1.0f)/static_cast<float>(sampleRate_*0.075),1.0f);pitchPhaseB_=std::fmod(pitchPhaseB_+(fifth-1.0f)/static_cast<float>(sampleRate_*0.075),1.0f);}
-    const float directCross=mode==0?0.22f:0.15f;const float pitchGain=shimmerMode_?shimmer*(0.16f+0.22f*shimmer):0.0f;const float injectionLeft=inputLeft*(0.48f-directCross)+inputRight*directCross+shiftedLeft*pitchGain,injectionRight=inputRight*(0.48f-directCross)+inputLeft*directCross+shiftedRight*pitchGain;const std::array<float,4>matrix{m0,m1,m2,m3};for(std::size_t i=0;i<4;++i){tank_[i][tankCursor_[i]]=std::tanh((i%2?injectionRight:injectionLeft)+matrix[i]*feedback);tankCursor_[i]=(tankCursor_[i]+1)%tank_[i].size();}
-    modulationPhase_+=2*pi*(mode==3?0.13f:mode==2?0.19f:0.16f)/static_cast<float>(sampleRate_);if(modulationPhase_>=2*pi)modulationPhase_-=2*pi;const float earlyGain=mode==0?0.24f:mode==1?0.10f:0.06f;const float wetGain=mode==1?0.48f:mode==3?0.58f:0.55f;const float wetLeft=((x[0]+x[2]-x[1]*0.25f)*wetGain)+inputLeft*earlyGain,wetRight=((x[1]+x[3]-x[0]*0.25f)*wetGain)+inputRight*earlyGain;left=dryLeft*(1-mix)+wetLeft*mix;right=dryRight*(1-mix)+wetRight*mix;
+
+void SpatialReverb::reset(float value) noexcept {
+    for (auto& line : hallTank_) std::fill(line.begin(), line.end(), 0.0f);
+    for (auto& line : hallDiffuserLeft_) std::fill(line.begin(), line.end(), 0.0f);
+    for (auto& line : hallDiffuserRight_) std::fill(line.begin(), line.end(), 0.0f);
+    std::fill(preDelayLeft_.begin(), preDelayLeft_.end(), 0.0f); std::fill(preDelayRight_.begin(), preDelayRight_.end(), 0.0f);
+    std::fill(pitchLeft_.begin(), pitchLeft_.end(), 0.0f); std::fill(pitchRight_.begin(), pitchRight_.end(), 0.0f);
+    hallTankCursor_ = {}; hallDiffuserCursor_ = {}; preDelayCursor_ = pitchCursor_ = 0;
+    hallDampingState_ = {}; hallLowState_ = {}; hallLines_ = {}; hallMatrix_ = {}; dispersionState_ = {};
+    bloomEnvelope_ = 0.0; bloomHighPassState_ = {}; bloomLowPassState_ = {}; bloomChoirState_ = {};
+    pitchPhase_ = {0.0, 0.19, 0.37, 0.61};
+    modulationPhase_ = 0.0f; hallModulationPhase_ = 1.37f;
+    mix_.reset(std::clamp(value, 0.0f, 1.0f)); mode_.reset(1.0f); size_.reset(shimmerMode_ ? 0.68f : 0.58f);
+    decay_.reset(shimmerMode_ ? 0.68f : 0.52f); damping_.reset(shimmerMode_ ? 0.48f : 0.55f);
+    preDelay_.reset(shimmerMode_ ? 0.22f : 0.18f); modulation_.reset(0.22f); shimmer_.reset(shimmerMode_ ? 0.5f : 0.0f);
+    rise_.reset(0.5f); tone_.reset(0.42f);
+}
+
+void SpatialReverb::setNormalized(float value) noexcept { mix_.setTarget(std::clamp(value, 0.0f, 1.0f)); }
+void SpatialReverb::setMode(float value) noexcept { mode_.setTarget(std::clamp(value, 0.0f, 1.0f)); }
+void SpatialReverb::setSize(float value) noexcept { size_.setTarget(std::clamp(value, 0.0f, 1.0f)); }
+void SpatialReverb::setDecay(float value) noexcept { decay_.setTarget(std::clamp(value, 0.0f, 1.0f)); }
+void SpatialReverb::setDamping(float value) noexcept { damping_.setTarget(std::clamp(value, 0.0f, 1.0f)); }
+void SpatialReverb::setPreDelay(float value) noexcept { preDelay_.setTarget(std::clamp(value, 0.0f, 1.0f)); }
+void SpatialReverb::setModulation(float value) noexcept { modulation_.setTarget(std::clamp(value, 0.0f, 1.0f)); }
+void SpatialReverb::setShimmer(float value) noexcept { shimmer_.setTarget(std::clamp(value, 0.0f, 1.0f)); }
+void SpatialReverb::setRise(float value) noexcept { rise_.setTarget(std::clamp(value, 0.0f, 1.0f)); }
+void SpatialReverb::setTone(float value) noexcept { tone_.setTarget(std::clamp(value, 0.0f, 1.0f)); }
+
+float SpatialReverb::readInterpolated(const std::vector<float>& buffer, std::size_t cursor, float delay) noexcept {
+    float position = static_cast<float>(cursor) - delay;
+    while (position < 0.0f) position += static_cast<float>(buffer.size());
+    const auto first = static_cast<std::size_t>(position) % buffer.size(); const auto second = (first + 1) % buffer.size();
+    const float fraction = position - std::floor(position);
+    return buffer[first] + (buffer[second] - buffer[first]) * fraction;
+}
+
+float SpatialReverb::processAllpass(float input, std::vector<float>& buffer, std::size_t cursor, std::size_t delay, float coefficient) noexcept {
+    const auto read = (cursor + buffer.size() - delay) % buffer.size(); const float delayed = buffer[read];
+    const float output = delayed - coefficient * input; buffer[cursor] = input + coefficient * output; return output;
+}
+
+float SpatialReverb::pitchShift(const std::vector<float>& buffer, float voicePhase, float ratio, float offset) const noexcept {
+    const float grain = static_cast<float>(sampleRate_ * 0.11); const float phase = std::fmod(voicePhase + offset, 1.0f);
+    const float phaseB = std::fmod(phase + 0.5f, 1.0f);
+    const float a = readInterpolated(buffer, pitchCursor_, 1.0f + (1.0f - phase) * grain);
+    const float b = readInterpolated(buffer, pitchCursor_, 1.0f + (1.0f - phaseB) * grain);
+    const float wa = std::sin(3.14159265358979323846f * phase); const float wb = std::sin(3.14159265358979323846f * phaseB);
+    const float wa2 = wa * wa; const float wb2 = wb * wb;
+    return ((a * wa2 + b * wb2) / std::max(0.001f, wa2 + wb2)) * std::min(1.0f, 1.25f / ratio);
+}
+
+void SpatialReverb::processFrame(float& left, float& right) noexcept {
+    if (hallTank_[0].empty()) return;
+    constexpr float pi = 3.14159265358979323846f;
+    constexpr std::array<std::array<float, 8>, 4> delayProfiles{{
+        {{11.3f, 13.7f, 17.3f, 19.9f, 23.9f, 29.3f, 31.7f, 37.1f}},
+        {{15.1f, 18.7f, 23.3f, 27.7f, 32.9f, 38.3f, 44.9f, 52.1f}},
+        {{19.1f, 23.9f, 29.7f, 35.3f, 41.9f, 47.9f, 56.3f, 67.1f}},
+        {{29.7f, 37.1f, 41.9f, 47.9f, 53.9f, 61.3f, 71.9f, 83.3f}},
+    }};
+    const float dryLeft = left, dryRight = right, mix = mix_.next(), sizeValue = size_.next();
+    const float decay = decay_.next(), damping = damping_.next(), pre = preDelay_.next(), modulation = modulation_.next(), shimmer = shimmer_.next();
+    const float rise = rise_.next(), tone = tone_.next();
+    const int mode = std::clamp(static_cast<int>(std::lround(mode_.next() * 3.0f)), 0, 3);
+    const auto preSamples = std::clamp<std::size_t>(static_cast<std::size_t>(pre * 0.12f * sampleRate_), 1, preDelayLeft_.size() - 1);
+    const auto preRead = (preDelayCursor_ + preDelayLeft_.size() - preSamples) % preDelayLeft_.size();
+    const float inputLeft = preDelayLeft_[preRead], inputRight = preDelayRight_[preRead];
+    preDelayLeft_[preDelayCursor_] = left; preDelayRight_[preDelayCursor_] = right; preDelayCursor_ = (preDelayCursor_ + 1) % preDelayLeft_.size();
+
+    float diffuseLeft = inputLeft, diffuseRight = inputRight;
+    const float diffusion = shimmerMode_ ? 0.58f + sizeValue * 0.12f
+        : std::array<float, 4>{0.46f, 0.56f, 0.62f, 0.58f}[mode] + sizeValue * std::array<float, 4>{0.08f, 0.1f, 0.1f, 0.12f}[mode];
+    for (std::size_t stage = 0; stage < 4; ++stage) {
+        const auto cursor = hallDiffuserCursor_[stage]; const auto delay = hallDiffuserDelays_[stage];
+        diffuseLeft = processAllpass(diffuseLeft, hallDiffuserLeft_[stage], cursor, delay, diffusion);
+        diffuseRight = processAllpass(diffuseRight, hallDiffuserRight_[stage], cursor, delay, diffusion);
+        hallDiffuserCursor_[stage] = (cursor + 1) % hallDiffuserLeft_[stage].size();
+    }
+
+    const int profile = shimmerMode_ ? 3 : mode;
+    const float hallSize = shimmerMode_ ? 0.82f + sizeValue * 0.68f
+        : std::array<float, 4>{0.72f, 0.76f, 0.8f, 0.82f}[mode] + sizeValue * std::array<float, 4>{0.54f, 0.6f, 0.64f, 0.68f}[mode];
+    const float highCut = std::min(static_cast<float>(sampleRate_) * 0.44f,
+        std::array<float, 4>{3600.0f, 3100.0f, 4200.0f, 2600.0f}[profile]
+            * std::pow(std::array<float, 4>{7.0f, 7.0f, 6.0f, 8.0f}[profile], 1.0f - damping));
+    const double dampingAlpha = 1.0 - std::exp(-2.0 * pi * highCut / sampleRate_);
+    const double lowAlpha = 1.0 - std::exp(-2.0 * pi
+        * (std::array<float, 4>{125.0f, 105.0f, 110.0f, 95.0f}[profile] + damping * std::array<float, 4>{55.0f, 65.0f, 60.0f, 70.0f}[profile]) / sampleRate_);
+    for (std::size_t line = 0; line < 8; ++line) {
+        const float wobble = modulation * (std::sin(modulationPhase_ + static_cast<float>(line) * 1.71f)
+            * std::array<float, 4>{0.55f, 0.9f, 1.25f, 1.7f}[profile]
+            + std::sin(hallModulationPhase_ + static_cast<float>(line) * 2.13f)
+            * std::array<float, 4>{0.22f, 0.42f, 0.62f, 0.8f}[profile]);
+        const float delaySamples = std::clamp(static_cast<float>(sampleRate_) * 0.001f * delayProfiles[profile][line] * hallSize + wobble,
+            2.0f, static_cast<float>(hallTank_[line].size() - 2));
+        double sample = readInterpolated(hallTank_[line], hallTankCursor_[line], delaySamples);
+        hallDampingState_[line] += dampingAlpha * (sample - hallDampingState_[line]); sample = hallDampingState_[line];
+        hallLowState_[line] += lowAlpha * (sample - hallLowState_[line]);
+        sample -= hallLowState_[line] * std::array<float, 4>{0.24f, 0.28f, 0.2f, 0.34f}[profile];
+        if (!shimmerMode_ && mode == 1) {
+            const float coefficient = line % 2 ? 0.63f : 0.51f; const float output = -coefficient * static_cast<float>(sample) + dispersionState_[line];
+            dispersionState_[line] = static_cast<float>(sample) + coefficient * output; sample = output;
+        }
+        hallLines_[line] = sample; hallMatrix_[line] = sample;
+    }
+    for (std::size_t stride = 1; stride < 8; stride *= 2)
+        for (std::size_t start = 0; start < 8; start += stride * 2)
+            for (std::size_t offset = 0; offset < stride; ++offset) {
+                const auto first = start + offset, second = first + stride; const double a = hallMatrix_[first], b = hallMatrix_[second];
+                hallMatrix_[first] = a + b; hallMatrix_[second] = a - b;
+            }
+
+    double harmonicLeft = 0.0, harmonicRight = 0.0;
+    if (shimmerMode_) {
+        const double envelopeTarget = std::min(1.0, static_cast<double>(std::max(std::abs(dryLeft), std::abs(dryRight))) * 8.0);
+        const double attackSeconds = 0.18 + rise * 0.27, releaseSeconds = 0.75 + rise * 0.85;
+        const double envelopeCoefficient = 1.0 - std::exp(-1.0 / (sampleRate_ * (envelopeTarget > bloomEnvelope_ ? attackSeconds : releaseSeconds)));
+        bloomEnvelope_ += envelopeCoefficient * (envelopeTarget - bloomEnvelope_);
+        const double highPassCutoff = 220.0 - tone * 80.0, lowPassCutoff = std::min(sampleRate_ * 0.42, 3200.0 + tone * 2300.0);
+        const double highPassAlpha = 1.0 - std::exp(-2.0 * pi * highPassCutoff / sampleRate_);
+        const double lowPassAlpha = 1.0 - std::exp(-2.0 * pi * lowPassCutoff / sampleRate_);
+        bloomHighPassState_[0] += highPassAlpha * (inputLeft - bloomHighPassState_[0]);
+        bloomHighPassState_[1] += highPassAlpha * (inputRight - bloomHighPassState_[1]);
+        const double highLeft1 = inputLeft - bloomHighPassState_[0], highRight1 = inputRight - bloomHighPassState_[1];
+        bloomHighPassState_[2] += highPassAlpha * (highLeft1 - bloomHighPassState_[2]);
+        bloomHighPassState_[3] += highPassAlpha * (highRight1 - bloomHighPassState_[3]);
+        const double highLeft = highLeft1 - bloomHighPassState_[2], highRight = highRight1 - bloomHighPassState_[3];
+        bloomLowPassState_[0] += lowPassAlpha * (highLeft - bloomLowPassState_[0]);
+        bloomLowPassState_[1] += lowPassAlpha * (highRight - bloomLowPassState_[1]);
+        pitchLeft_[pitchCursor_] = static_cast<float>(bloomLowPassState_[0] * bloomEnvelope_);
+        pitchRight_[pitchCursor_] = static_cast<float>(bloomLowPassState_[1] * bloomEnvelope_);
+        const float octaveLeftRatio = 2.001f, octaveRightRatio = 1.999f;
+        const float fifthLeftRatio = std::pow(2.0f, 7.0f / 12.0f) * 1.0008f, fifthRightRatio = std::pow(2.0f, 7.0f / 12.0f) * 0.9992f;
+        const float octaveLeft = pitchShift(pitchLeft_, static_cast<float>(pitchPhase_[0]), octaveLeftRatio, 0.0f);
+        const float octaveRight = pitchShift(pitchRight_, static_cast<float>(pitchPhase_[1]), octaveRightRatio, 0.17f);
+        const float fifthLeft = pitchShift(pitchLeft_, static_cast<float>(pitchPhase_[2]), fifthLeftRatio, 0.33f);
+        const float fifthRight = pitchShift(pitchRight_, static_cast<float>(pitchPhase_[3]), fifthRightRatio, 0.67f);
+        pitchCursor_ = (pitchCursor_ + 1) % pitchLeft_.size();
+        const std::array<float, 4> ratios{octaveLeftRatio, octaveRightRatio, fifthLeftRatio, fifthRightRatio};
+        for (std::size_t voice = 0; voice < 4; ++voice)
+            pitchPhase_[voice] = std::fmod(pitchPhase_[voice] + (ratios[voice] - 1.0) / (sampleRate_ * 0.11), 1.0);
+        const double vocalLeft = octaveLeft * 0.64 + fifthLeft * 0.36, vocalRight = octaveRight * 0.64 + fifthRight * 0.36;
+        const double lowFormantAlpha = 1.0 - std::exp(-2.0 * pi * (520.0 + tone * 180.0) / sampleRate_);
+        const double midFormantAlpha = 1.0 - std::exp(-2.0 * pi * (1550.0 + tone * 450.0) / sampleRate_);
+        const double upperFormantAlpha = 1.0 - std::exp(-2.0 * pi * (3000.0 + tone * 900.0) / sampleRate_);
+        const std::array<double, 3> alphas{lowFormantAlpha, midFormantAlpha, upperFormantAlpha};
+        for (std::size_t band = 0; band < 3; ++band) {
+            bloomChoirState_[band] += alphas[band] * (vocalLeft - bloomChoirState_[band]);
+            bloomChoirState_[band + 3] += alphas[band] * (vocalRight - bloomChoirState_[band + 3]);
+        }
+        const double shapedLeft = vocalLeft * 0.34 + bloomChoirState_[0] * 0.38
+            + (bloomChoirState_[1] - bloomChoirState_[0]) * 1.2 + (bloomChoirState_[2] - bloomChoirState_[1]) * 0.34;
+        const double shapedRight = vocalRight * 0.34 + bloomChoirState_[3] * 0.38
+            + (bloomChoirState_[4] - bloomChoirState_[3]) * 1.2 + (bloomChoirState_[5] - bloomChoirState_[4]) * 0.34;
+        const double choirGain = shimmer * (0.24 + 0.38 * shimmer);
+        harmonicLeft = std::tanh(shapedLeft * choirGain * 1.08) / 1.08;
+        harmonicRight = std::tanh(shapedRight * choirGain * 1.08) / 1.08;
+    }
+
+    const float hallFeedback = shimmerMode_ ? std::min(0.972f, 0.72f + decay * 0.255f)
+        : std::min(std::array<float, 4>{0.89f, 0.93f, 0.95f, 0.972f}[mode],
+            std::array<float, 4>{0.53f, 0.59f, 0.65f, 0.72f}[mode] + decay * std::array<float, 4>{0.36f, 0.34f, 0.3f, 0.255f}[mode]);
+    constexpr double matrixScale = 0.3535533905932738;
+    for (std::size_t line = 0; line < 8; ++line) {
+        const float primaryInput = line % 2 ? diffuseRight : diffuseLeft, crossInput = line % 2 ? diffuseLeft : diffuseRight;
+        const double harmonicInput = line % 2 ? harmonicRight : harmonicLeft; const float sign = (line & 2) == 0 ? 1.0f : -1.0f;
+        const float primaryGain = shimmerMode_ ? 0.22f : std::array<float, 4>{0.34f, 0.29f, 0.25f, 0.22f}[mode];
+        const float crossGain = shimmerMode_ ? 0.035f : std::array<float, 4>{0.065f, 0.05f, 0.042f, 0.035f}[mode];
+        const double tankInput = (primaryInput * primaryGain + crossInput * crossGain + harmonicInput) * sign
+            + hallMatrix_[line] * matrixScale * hallFeedback;
+        hallTank_[line][hallTankCursor_[line]] = static_cast<float>(std::tanh(tankInput * 1.08) / 1.08);
+        hallTankCursor_[line] = (hallTankCursor_[line] + 1) % hallTank_[line].size();
+    }
+    const float modulationRate = std::array<float, 4>{0.23f, 0.27f, 0.17f, 0.11f}[profile];
+    const float hallModulationRate = std::array<float, 4>{0.31f, 0.37f, 0.23f, 0.173f}[profile];
+    modulationPhase_ += 2.0f * pi * modulationRate / static_cast<float>(sampleRate_);
+    hallModulationPhase_ += 2.0f * pi * hallModulationRate / static_cast<float>(sampleRate_);
+    if (modulationPhase_ >= 2.0f * pi) modulationPhase_ -= 2.0f * pi;
+    if (hallModulationPhase_ >= 2.0f * pi) hallModulationPhase_ -= 2.0f * pi;
+    const float lateScale = std::array<float, 4>{0.32f, 0.3f, 0.3f, 0.28f}[profile];
+    const double lateLeft = (hallLines_[0] + hallLines_[2] + hallLines_[5] - hallLines_[7]) * lateScale;
+    const double lateRight = (hallLines_[1] + hallLines_[3] + hallLines_[4] - hallLines_[6]) * lateScale;
+    const float wetGain = shimmerMode_ ? 1.0f : std::array<float, 4>{0.82f, 0.88f, 0.94f, 1.0f}[mode];
+    const float earlyGain = shimmerMode_ ? 0.075f : std::array<float, 4>{0.16f, 0.12f, 0.085f, 0.075f}[mode];
+    const double wetLeft = lateLeft * wetGain + diffuseLeft * earlyGain, wetRight = lateRight * wetGain + diffuseRight * earlyGain;
+    left = static_cast<float>(dryLeft * (1.0f - mix) + wetLeft * mix);
+    right = static_cast<float>(dryRight * (1.0f - mix) + wetRight * mix);
 }
 
 void TempoDelay::prepare(const ProcessSpec& spec) {
@@ -1472,7 +1655,56 @@ void DryWet::processFrame(
     wetRight = dryRight + (wetRight - dryRight) * mix;
 }
 
-EffectRack::Node::Node(const RackModuleConfig& source) noexcept : config(source) {}
+EffectRack::Node::Node(const RackModuleConfig& source) noexcept : config(source) {
+    if (config.type == RackModuleType::LegendPreamp) legendDrive = std::clamp(config.normalized, 0.0f, 1.0f);
+    else if (config.type == RackModuleType::LegendCompressor) legendAmount = std::clamp(config.normalized, 0.0f, 1.0f);
+    else if (config.type == RackModuleType::LegendEq) legendMid = std::clamp(config.normalized, 0.0f, 1.0f);
+    else if (config.type == RackModuleType::LegendTape) {
+        legendModel = 1.0f / 3.0f; legendDrive = std::clamp(config.normalized, 0.0f, 1.0f); legendOutput = 0.46f;
+    }
+}
+
+void EffectRack::updateLegendProxy(Node& node) noexcept {
+    const auto clamp = [](float value) { return std::clamp(value, 0.0f, 1.0f); };
+    const auto matchedOutput = [&](float drive, float output) {
+        const float saturationDrive = 1.0f + drive * 14.0f;
+        const float smallSignalGain = saturationDrive / std::max(0.000001f, std::tanh(saturationDrive));
+        const float compensationDb = 20.0f * std::log10(smallSignalGain);
+        return clamp(output - compensationDb / 24.0f);
+    };
+    switch (node.config.type) {
+        case RackModuleType::LegendPreamp: {
+            const float drive = clamp(0.035f + 0.24f * node.legendDrive * (0.9f + 0.2f * node.legendModel));
+            node.softClip.setNormalized(drive);
+            node.softClip.setCharacter(clamp(0.72f * node.legendColor + 0.28f * node.legendModel));
+            node.softClip.setOutput(matchedOutput(drive, node.legendOutput));
+            break;
+        }
+        case RackModuleType::LegendCompressor:
+            node.compressor.setNormalized(clamp(node.legendAmount));
+            node.compressor.setThreshold(clamp(0.76f - 0.46f * node.legendAmount - 0.08f * node.legendModel));
+            node.compressor.setRatio(clamp(0.18f + 0.50f * node.legendAmount + 0.12f * node.legendModel));
+            node.compressor.setAttack(clamp(node.legendAttack + 0.12f * (node.legendModel - 0.5f)));
+            node.compressor.setRelease(clamp(node.legendRelease + 0.08f * node.legendModel));
+            node.compressor.setMakeup(clamp(node.legendMakeup));
+            break;
+        case RackModuleType::LegendEq:
+            node.tone.setNormalized(clamp(0.45f + 0.10f * node.legendModel));
+            node.tone.setLow(clamp(node.legendLow));
+            node.tone.setMid(clamp(node.legendMid));
+            node.tone.setHigh(clamp(0.72f * node.legendHigh + 0.28f * node.legendAir));
+            break;
+        case RackModuleType::LegendTape: {
+            const float drive = clamp(0.025f + 0.19f * node.legendDrive + 0.04f * node.legendAge + 0.02f * (1.0f - node.legendSpeed));
+            node.softClip.setNormalized(drive);
+            node.softClip.setCharacter(clamp(0.42f + 0.32f * node.legendModel + 0.16f * node.legendAge));
+            node.softClip.setOutput(matchedOutput(drive, node.legendOutput));
+            break;
+        }
+        default:
+            break;
+    }
+}
 
 void EffectRack::configure(
     const ProcessSpec& spec,
@@ -1553,6 +1785,16 @@ void EffectRack::processFrame(float& left, float& right) noexcept {
             case RackModuleType::DigitalDelay: node.digitalDelay.processFrame(left, right); break;
             case RackModuleType::Reverb: node.reverb.processFrame(left, right); break;
             case RackModuleType::Shimmer: node.shimmer.processFrame(left, right); break;
+            case RackModuleType::LegendPreamp:
+            case RackModuleType::LegendTape:
+                node.softClip.processFrame(left, right);
+                break;
+            case RackModuleType::LegendCompressor:
+                node.compressor.processFrame(left, right);
+                break;
+            case RackModuleType::LegendEq:
+                node.tone.processFrame(left, right);
+                break;
             case RackModuleType::DryWet:
                 node.dryWet.processFrame(rackDryLeft, rackDryRight, left, right);
                 break;
@@ -1563,7 +1805,7 @@ void EffectRack::processFrame(float& left, float& right) noexcept {
                 break;
         }
         const float moduleMix = node.mix.next() * (1.0f - node.bypass.next());
-        if (node.config.type == RackModuleType::LinkedCompressor) {
+        if (node.config.type == RackModuleType::LinkedCompressor || node.config.type == RackModuleType::LegendCompressor) {
             node.effectiveGainReduction = 1.0f - moduleMix * (1.0f - node.compressor.gainReduction());
         }
         left = beforeLeft + (left - beforeLeft) * moduleMix;
@@ -1581,11 +1823,13 @@ float EffectRack::gainReduction(std::size_t moduleIndex) const noexcept {
     };
     if (moduleIndex < nodes_.size()) {
         const auto& node = nodes_[moduleIndex];
-        return node.config.type == RackModuleType::LinkedCompressor ? normalized(node.effectiveGainReduction) : 0.0f;
+        return (node.config.type == RackModuleType::LinkedCompressor || node.config.type == RackModuleType::LegendCompressor)
+            ? normalized(node.effectiveGainReduction) : 0.0f;
     }
     float maximum = 0.0f;
     for (const auto& node : nodes_) {
-        if (node.config.type == RackModuleType::LinkedCompressor) maximum = std::max(maximum, normalized(node.effectiveGainReduction));
+        if (node.config.type == RackModuleType::LinkedCompressor || node.config.type == RackModuleType::LegendCompressor)
+            maximum = std::max(maximum, normalized(node.effectiveGainReduction));
     }
     return maximum;
 }
@@ -1651,6 +1895,19 @@ void EffectRack::setModuleNormalized(std::size_t index, float normalized) noexce
         case RackModuleType::DigitalDelay: node.digitalDelay.setNormalized(value); break;
         case RackModuleType::Reverb: node.reverb.setNormalized(value); break;
         case RackModuleType::Shimmer: node.shimmer.setNormalized(value); break;
+        case RackModuleType::LegendPreamp:
+        case RackModuleType::LegendTape:
+            node.legendDrive = value;
+            updateLegendProxy(node);
+            break;
+        case RackModuleType::LegendCompressor:
+            node.legendAmount = value;
+            updateLegendProxy(node);
+            break;
+        case RackModuleType::LegendEq:
+            node.legendMid = value;
+            updateLegendProxy(node);
+            break;
         case RackModuleType::DryWet: node.dryWet.setNormalized(value); break;
         case RackModuleType::OutputTrim: node.outputTrim.setNormalized(value); break;
         case RackModuleType::Unknown: break;
@@ -1779,7 +2036,38 @@ void EffectRack::setModuleParameter(std::size_t index, const char* key, float no
         case RackModuleType::Reverb:
             if (!std::strcmp(key,"mix")) setModuleNormalized(index,value); else if (!std::strcmp(key,"mode")) node.reverb.setMode(value); else if (!std::strcmp(key,"size")) node.reverb.setSize(value); else if (!std::strcmp(key,"decay")) node.reverb.setDecay(value); else if (!std::strcmp(key,"damping")) node.reverb.setDamping(value); else if (!std::strcmp(key,"pre_delay")) node.reverb.setPreDelay(value); else if (!std::strcmp(key,"modulation")) node.reverb.setModulation(value); break;
         case RackModuleType::Shimmer:
-            if (!std::strcmp(key,"mix")) setModuleNormalized(index,value); else if (!std::strcmp(key,"size")) node.shimmer.setSize(value); else if (!std::strcmp(key,"decay")) node.shimmer.setDecay(value); else if (!std::strcmp(key,"damping")) node.shimmer.setDamping(value); else if (!std::strcmp(key,"pre_delay")) node.shimmer.setPreDelay(value); else if (!std::strcmp(key,"shimmer")) node.shimmer.setShimmer(value); break;
+            if (!std::strcmp(key,"mix")) setModuleNormalized(index,value); else if (!std::strcmp(key,"size")) node.shimmer.setSize(value); else if (!std::strcmp(key,"decay")) node.shimmer.setDecay(value); else if (!std::strcmp(key,"damping")) node.shimmer.setDamping(value); else if (!std::strcmp(key,"pre_delay")) node.shimmer.setPreDelay(value); else if (!std::strcmp(key,"shimmer")) node.shimmer.setShimmer(value); else if (!std::strcmp(key,"rise")) node.shimmer.setRise(value); else if (!std::strcmp(key,"tone")) node.shimmer.setTone(value); break;
+        case RackModuleType::LegendPreamp:
+            if (!std::strcmp(key, "model")) node.legendModel = value;
+            else if (!std::strcmp(key, "drive")) node.legendDrive = value;
+            else if (!std::strcmp(key, "color")) node.legendColor = value;
+            else if (!std::strcmp(key, "output")) node.legendOutput = value;
+            updateLegendProxy(node);
+            break;
+        case RackModuleType::LegendCompressor:
+            if (!std::strcmp(key, "model")) node.legendModel = value;
+            else if (!std::strcmp(key, "amount")) node.legendAmount = value;
+            else if (!std::strcmp(key, "attack")) node.legendAttack = value;
+            else if (!std::strcmp(key, "release")) node.legendRelease = value;
+            else if (!std::strcmp(key, "makeup")) node.legendMakeup = value;
+            updateLegendProxy(node);
+            break;
+        case RackModuleType::LegendEq:
+            if (!std::strcmp(key, "model")) node.legendModel = value;
+            else if (!std::strcmp(key, "low")) node.legendLow = value;
+            else if (!std::strcmp(key, "mid")) node.legendMid = value;
+            else if (!std::strcmp(key, "high")) node.legendHigh = value;
+            else if (!std::strcmp(key, "air")) node.legendAir = value;
+            updateLegendProxy(node);
+            break;
+        case RackModuleType::LegendTape:
+            if (!std::strcmp(key, "model")) node.legendModel = value;
+            else if (!std::strcmp(key, "drive")) node.legendDrive = value;
+            else if (!std::strcmp(key, "speed")) node.legendSpeed = value;
+            else if (!std::strcmp(key, "age")) node.legendAge = value;
+            else if (!std::strcmp(key, "output")) node.legendOutput = value;
+            updateLegendProxy(node);
+            break;
         case RackModuleType::DryWet:
             if (!std::strcmp(key, "mix")) setModuleNormalized(index, value);
             break;
@@ -1841,6 +2129,19 @@ void EffectRack::setLegacyValue(RackModuleType type, float normalized) noexcept 
             case RackModuleType::DigitalDelay: node.digitalDelay.setNormalized(value); break;
             case RackModuleType::Reverb: node.reverb.setNormalized(value); break;
             case RackModuleType::Shimmer: node.shimmer.setNormalized(value); break;
+            case RackModuleType::LegendPreamp:
+            case RackModuleType::LegendTape:
+                node.legendDrive = value;
+                updateLegendProxy(node);
+                break;
+            case RackModuleType::LegendCompressor:
+                node.legendAmount = value;
+                updateLegendProxy(node);
+                break;
+            case RackModuleType::LegendEq:
+                node.legendMid = value;
+                updateLegendProxy(node);
+                break;
             case RackModuleType::DryWet: node.dryWet.setNormalized(value); break;
             case RackModuleType::OutputTrim: node.outputTrim.setNormalized(value); break;
             case RackModuleType::Unknown: break;
@@ -1876,6 +2177,16 @@ void EffectRack::prepareNode(Node& node, const ProcessSpec& spec) {
         case RackModuleType::DigitalDelay: node.digitalDelay.prepare(spec); break;
         case RackModuleType::Reverb: node.reverb.prepare(spec); break;
         case RackModuleType::Shimmer: node.shimmer.prepare(spec); break;
+        case RackModuleType::LegendPreamp:
+        case RackModuleType::LegendTape:
+            node.softClip.prepare(spec);
+            break;
+        case RackModuleType::LegendCompressor:
+            node.compressor.prepare(spec);
+            break;
+        case RackModuleType::LegendEq:
+            node.tone.prepare(spec);
+            break;
         case RackModuleType::DryWet: node.dryWet.prepare(spec); break;
         case RackModuleType::OutputTrim: node.outputTrim.prepare(spec); break;
         case RackModuleType::Unknown: break;
@@ -1911,6 +2222,22 @@ void EffectRack::resetNode(Node& node) noexcept {
         case RackModuleType::DigitalDelay: node.digitalDelay.reset(value); break;
         case RackModuleType::Reverb: node.reverb.reset(value); break;
         case RackModuleType::Shimmer: node.shimmer.reset(value); break;
+        case RackModuleType::LegendPreamp:
+            node.softClip.reset(std::clamp(0.035f + 0.24f * node.legendDrive * (0.9f + 0.2f * node.legendModel), 0.0f, 1.0f));
+            updateLegendProxy(node);
+            break;
+        case RackModuleType::LegendTape:
+            node.softClip.reset(std::clamp(0.025f + 0.19f * node.legendDrive + 0.04f * node.legendAge + 0.02f * (1.0f - node.legendSpeed), 0.0f, 1.0f));
+            updateLegendProxy(node);
+            break;
+        case RackModuleType::LegendCompressor:
+            node.compressor.reset(node.legendAmount);
+            updateLegendProxy(node);
+            break;
+        case RackModuleType::LegendEq:
+            node.tone.reset(std::clamp(0.45f + 0.10f * node.legendModel, 0.0f, 1.0f));
+            updateLegendProxy(node);
+            break;
         case RackModuleType::DryWet: node.dryWet.reset(value); break;
         case RackModuleType::OutputTrim: node.outputTrim.reset(value); break;
         case RackModuleType::Unknown: break;

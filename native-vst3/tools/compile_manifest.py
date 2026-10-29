@@ -36,7 +36,11 @@ NORMALIZED_DSP_PARAMETERS = {
     "vibrato": {"normalized", "value", "amount", "mix", "rate", "depth", "stereo"},
     "digital_delay": {"normalized", "value", "amount", "mix", "time", "feedback", "tone", "character", "stereo"},
     "reverb": {"normalized", "value", "amount", "mix", "mode", "size", "decay", "damping", "pre_delay", "modulation"},
-    "shimmer": {"normalized", "value", "amount", "mix", "size", "decay", "damping", "pre_delay", "shimmer"},
+    "shimmer": {"normalized", "value", "amount", "mix", "size", "decay", "damping", "pre_delay", "shimmer", "rise", "tone"},
+    "legend_preamp": {"normalized", "value", "amount", "model", "drive", "color", "high_pass", "output"},
+    "legend_compressor": {"normalized", "value", "amount", "model", "attack", "release", "makeup"},
+    "legend_eq": {"normalized", "value", "amount", "model", "low", "mid", "high", "air"},
+    "legend_tape": {"normalized", "value", "amount", "model", "drive", "speed", "age", "wow_flutter", "noise", "output"},
     "dry_wet": {"normalized", "value", "amount", "mix"},
     "output_trim": {"normalized", "value", "amount", "output", "gain"},
 }

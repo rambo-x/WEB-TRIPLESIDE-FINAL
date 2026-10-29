@@ -1204,7 +1204,7 @@ def test_compiles_all_creative_effect_parameters(tmp_path):
         "vibrato": {"mix": 1, "rate": 0.4, "depth": 0.5, "stereo": 0.4},
         "digital_delay": {"mix": 0.3, "time": 0.6, "feedback": 0.4, "tone": 0.6, "character": 0.7, "stereo": 0.35},
         "reverb": {"mix": 0.25, "mode": 1, "size": 0.6, "decay": 0.55, "damping": 0.5, "pre_delay": 0.2, "modulation": 0.2},
-        "shimmer": {"mix": 0.3, "size": 0.7, "decay": 0.7, "damping": 0.45, "pre_delay": 0.2, "shimmer": 0.55},
+        "shimmer": {"mix": 0.3, "size": 0.7, "decay": 0.7, "damping": 0.45, "pre_delay": 0.2, "shimmer": 0.55, "rise": 0.42, "tone": 0.38},
     }
     spec["dsp_graph"] = {"version": 2, "mode": "ordered_rack", "source": "project", "modules": [
         {"id": module_type, "type": module_type, "name": module_type, "parameters": module_parameters}
@@ -1221,6 +1221,37 @@ def test_compiles_all_creative_effect_parameters(tmp_path):
     assert 'DspParameterInfo{4, "character", 0.7f}' in result
     assert 'DspParameterInfo{5, "mode", 1.0f}' in result
     assert 'DspParameterInfo{6, "shimmer", 0.55f}' in result
+    assert 'DspParameterInfo{6, "rise", 0.42f}' in result
+    assert 'DspParameterInfo{6, "tone", 0.38f}' in result
+
+
+def test_compiles_classic_legend_source_parameters_without_proxying_types(tmp_path):
+    spec = project_spec()
+    spec.update({"plugin_kind": "effect", "samples": [], "sampler_map": [], "sampler_groups": []})
+    parameters = {
+        "legend_preamp": {"model": 0.66, "drive": 0.38, "color": 0.52, "high_pass": 0.18, "output": 0.5},
+        "legend_compressor": {"model": 0.33, "amount": 0.42, "attack": 0.38, "release": 0.46, "makeup": 0},
+        "legend_eq": {"model": 1, "low": 0.54, "mid": 0.5, "high": 0.58, "air": 0.62},
+        "legend_tape": {"model": 0.33, "drive": 0.34, "speed": 0.5, "age": 0.16, "wow_flutter": 0.12, "noise": 0, "output": 0.46},
+    }
+    spec["dsp_graph"] = {"version": 2, "mode": "ordered_rack", "source": "project", "modules": [
+        {"id": module_type, "type": module_type, "name": module_type, "parameters": module_parameters}
+        for module_type, module_parameters in parameters.items()
+    ]}
+    source = tmp_path / "classic-legend.json"
+    output = tmp_path / "NativeProject.h"
+    source.write_text(json.dumps(spec), encoding="utf-8")
+
+    MODULE.compile_manifest(source, output)
+
+    result = output.read_text(encoding="utf-8")
+    assert "std::array<DspModuleInfo, 4> kDspModules" in result
+    for index, module_type in enumerate(parameters):
+        assert f'DspModuleInfo{{"{module_type}", "{module_type}"' in result
+        assert f'DspParameterInfo{{{index}, "model"' in result
+    assert 'DspParameterInfo{0, "high_pass", 0.18f}' in result
+    assert 'DspParameterInfo{3, "wow_flutter", 0.12f}' in result
+    assert 'DspParameterInfo{3, "noise", 0.0f}' in result
 
 
 def test_compiles_complete_amp_simulator_fixture_with_module_automation(tmp_path):
