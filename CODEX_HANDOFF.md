@@ -1,8 +1,27 @@
 # Codex Handoff — TripleSide Studio VST Maker
 
-Updated: 2026-10-29 01:56 UTC
+Updated: 2026-10-30 02:34 UTC
 
 Dokumen ini adalah ringkasan operasional. Bagian paling atas selalu menjadi sumber kebenaran terbaru; jangan menganggap catatan deployment lama sebagai pekerjaan yang masih tertunda.
+
+## CHECKPOINT AKTIF — indikator angka Open LED Ring dan stabilitas Wing tersinkron penuh
+
+- `Open LED Ring` dan `Pan Open LED Ring` sekarang memiliki angka dinamis tepat di tengah ring. Inspector menyediakan ukuran `8–32 px`, warna terpisah, serta ketebalan `400/500/600/700/800/900`; nilai tersimpan sebagai `ring_value_font_size`, `ring_value_color`, dan `ring_value_font_weight`. Pan memakai angka bipolar `-100..0..+100`.
+- Goyangan seluruh angka knob bernama Wing diperbaiki pada sumbernya: koreksi kuantisasi filmstrip kini hanya merotasi layer gambar hardware, bukan container knob. Readout memakai box stabil dan angka tabular. LED dots/ring `Black Crimson Wing` juga berada di luar layer yang dikoreksi sehingga tidak lagi ikut bergoyang saat nilai berubah.
+- Hotfix setelah pemeriksaan pengguna menghapus background radial bawaan yang sempat terlihat di balik padding transparan seluruh PNG Wing. Production smoke membuktikan container Wing sekarang `background-image: none`, layer face tetap memuat PNG yang benar, dan console/page error `0`.
+- Frontend/backend schema, save/reload, build spec, visual capture, compiler, serta runtime native Windows/macOS kini membawa ketiga field baru. Atlas menyembunyikan angka browser khusus saat capture agar angka dinamis native tidak bertumpuk. Runtime memakai angka monospace stabil, termasuk Pan bipolar `-100..0..+100` dan indikator tetap terlihat pada nilai nol.
+- Guard sementara HTTP `503` untuk Open/Pan Open LED Ring sudah dilepas setelah parity kedua platform hijau. Pipeline production dinaikkan ke `open-ring-value-wing-stability-v1` sehingga artifact lama tidak dipakai ulang.
+- Verifikasi hijau: dua suite frontend fokus `69 passed`; seluruh suite native ditambah backend build-spec/queue `244 passed`; source-contract macOS setelah scope hotfix `58 passed`; Python compile dan `git diff --check` sukses.
+- Smoke browser production pada nilai `0/25/49/50/51/75/100` membuktikan bounding box readout Crimson Wing, Regent White Wing, Black Crimson Wing · Dots, serta LED dots semuanya tetap identik. Open Ring menampilkan warna `#12ABEF`, ukuran `21 px`, bobot `800`; Pan berubah menjadi `+50`; root terisi dan console/page error `0`.
+- Production memakai JS `main.e2e74de4.js` (`sha256:fb5857cb1a6ce1dddac4dac6f8b78b4348ccf3b4e7492f38ff34a17eb79b1c3d`) dan CSS `main.66074121.css` (`sha256:77d70d975fa2a086a0b876674525712755fcf639718f1c68875f928a50d01190`); hash publik/lokal cocok. Rollback sebelum hotfix: `/home/triplesidestudio/tripleside/frontend/build-backup-20261030T0212Z-before-wing-background-hotfix`.
+- Source terkait di-commit selektif dan dipush ke `main`: `e5b71504b4cd579d51dafcb5095dfd21d97923b2` lalu scope hotfix macOS `2e30f1a`. Dirty worktree lain milik pengguna tetap tidak distage, direset, atau dibersihkan.
+- CI terbaru pada `2e30f1a` sukses di kedua platform:
+  - macOS Universal run `40991913737`, artifact `12949353729` `tripleside-macos-vst3-universal`, digest `sha256:25434d115bd99e19537ffc80acb3f72f791dd2fdf07c29c51f94b7ffdee73b02`.
+  - Windows installer run `40991916875`, artifact `12949204506` `tripleside-windows-vst3-installer`, digest `sha256:88ee68bc8ebacbc7e2c0f356cf66e2112b5a8ce23ec1d43d51d4992b35ecd818`.
+- Worker Windows dioverlay hanya pada `NativeView.cpp`, `compile_manifest.py`, dan `render_visual_assets.py`. Backup rollback: `C:\TripleSideWorker\backups\open-ring-value-wing-stability-before-20261030T023247Z`. SHA-256 remote/lokal cocok: `edb945e7...2d197`, `0b33c8b6...294c6`, `9db41a73...77f9`; task `Running`, tepat satu worker PID `1076`, jobs `0`.
+- Backend PM2 PID `8365`, `online`, unstable restarts `0`; API lokal/publik sehat, poll worker kembali `204 No Content`, dispatcher macOS enabled/active, dan Nginx valid. Audit akhir active customer/all builds `0`. Tidak ada job/build/artifact pelanggan yang dibuat, di-retry, dibatalkan, diklaim, dihapus, atau dimutasi; artifact baru hanya dua artifact CI internal di atas.
+
+Seluruh sinkronisasi yang diminta selesai. Langkah berikutnya tunggal: pengguna dapat membuat export Windows/macOS baru melalui alur normal dan memeriksa hasilnya di DAW; jangan membuat build pelanggan atas inisiatif agen.
 
 ## CHECKPOINT AKTIF — sinkronisasi Classic Legend + Smooth Reverb + Smooth Chord Tail selesai
 
