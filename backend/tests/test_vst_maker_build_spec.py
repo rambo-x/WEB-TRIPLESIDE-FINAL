@@ -902,6 +902,7 @@ def test_build_spec_preserves_open_ring_thickness_without_widening_waveform_cont
             "module_id": None, "x": 30, "y": 30, "value": 65, "width": 128, "height": 128,
             "component_variant": "open-led-ring", "ring_thickness": 15.5,
             "ring_glow_intensity": 0, "waveform_line_width": 3.5, "control_color": "#39FF88",
+            "ring_value_font_size": 24, "ring_value_color": "#12ABEF", "ring_value_font_weight": 800,
         },
         {
             "id": "legacy-pan-ring", "kind": "knob", "label": "Legacy Pan Ring", "parameter": "pan",
@@ -920,8 +921,14 @@ def test_build_spec_preserves_open_ring_thickness_without_widening_waveform_cont
     assert spec["interface"]["controls"][0]["ring_glow_intensity"] == 0
     assert spec["interface"]["controls"][0]["waveform_line_width"] == 3.5
     assert spec["interface"]["controls"][0]["control_color"] == "#39FF88"
+    assert spec["interface"]["controls"][0]["ring_value_font_size"] == 24
+    assert spec["interface"]["controls"][0]["ring_value_color"] == "#12ABEF"
+    assert spec["interface"]["controls"][0]["ring_value_font_weight"] == 800
     assert spec["interface"]["controls"][1]["ring_thickness"] == 7.5
     assert spec["interface"]["controls"][1]["ring_glow_intensity"] == 65
+    assert spec["interface"]["controls"][1]["ring_value_font_size"] == 16
+    assert spec["interface"]["controls"][1]["ring_value_color"] == "#F4F4F5"
+    assert spec["interface"]["controls"][1]["ring_value_font_weight"] == 700
 
 
 def test_build_spec_allows_manual_expression_features_without_components():

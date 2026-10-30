@@ -179,10 +179,18 @@ describe("VST Maker admin template editing", () => {
     expect(source).toContain("ring_thickness: normalizeOpenRingThickness");
     expect(source).toContain("Intensitas nyala ring");
     expect(source).toContain("ring_glow_intensity: normalizeOpenRingGlowIntensity");
+    expect(source).toContain("ring_value_font_size: normalizeOpenRingValueFontSize");
+    expect(source).toContain("ring_value_font_weight: normalizeOpenRingValueFontWeight");
+    expect(source).toContain('label="Warna angka tengah"');
+    expect(source).toContain("Ukuran angka tengah");
+    expect(source).toContain("Ketebalan font angka");
     expect(source).toContain('min="0" max="100" step="1"');
     expect(source).toContain("pan && segmentLength > 0");
     expect(visualRenderSource).toContain("ringThickness: c.ring_thickness");
     expect(visualRenderSource).toContain("ringGlowIntensity: c.ring_glow_intensity");
+    expect(visualRenderSource).toContain("ringValueFontSize: c.ring_value_font_size");
+    expect(visualRenderSource).toContain("ringValueColor: c.ring_value_color");
+    expect(visualRenderSource).toContain("ringValueFontWeight: c.ring_value_font_weight");
     expect(source).toContain("isOpenRingKnobVariant(control.component_variant)");
     expect(styles).toContain(".maker-knob--open-led-ring");
     expect(styles).toContain(".maker-knob--pan-open-led-ring");
@@ -195,6 +203,9 @@ describe("VST Maker admin template editing", () => {
     expect(source).not.toContain("<filter id={glowFilterId}");
     expect(styles).not.toMatch(/maker-open-ring-knob__glow[^}]*drop-shadow/s);
     expect(styles).toContain(".maker-open-ring-knob__active,\n.maker-open-ring-knob__center");
+    expect(styles).toContain(".maker-open-ring-knob__value");
+    expect(styles).toContain("font-variant-numeric: tabular-nums");
+    expect(styles).toContain(".maker-knob-filmstrip-face.is-wing");
   });
 
   test("offers a plate-free mechanical toggle in the button gallery", () => {

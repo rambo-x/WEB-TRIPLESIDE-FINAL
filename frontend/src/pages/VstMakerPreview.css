@@ -3890,6 +3890,27 @@
   filter: none;
 }
 
+.maker-open-ring-knob__value {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  left: 50%;
+  max-width: 62%;
+  transform: translate(-50%, -50%);
+  overflow: hidden;
+  color: var(--maker-open-ring-value-color, #f4f4f5);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: min(var(--maker-open-ring-value-size, 16px), 22cqw);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--maker-open-ring-value-weight, 700);
+  line-height: 1;
+  letter-spacing: -0.04em;
+  text-align: center;
+  text-overflow: clip;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 .maker-knob--open-led-ring .maker-rotary-knob__value,
 .maker-knob--pan-open-led-ring .maker-rotary-knob__value {
   display: none;
@@ -5596,17 +5617,24 @@
   aspect-ratio: 1;
   padding: 0;
   overflow: visible;
+  background-image: none !important;
+}
+
+.maker-knob-filmstrip-face {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  display: block;
+  border-radius: inherit;
+  pointer-events: none;
+  transform-origin: center;
 }
 
 /* Wing filmstrips contain more transparent padding than the Classic knob.
-   Enlarge only their visible face while retaining the Classic component box. */
-.maker-canvas-control--knob .maker-rotary-knob.maker-filmstrip-control:is(
-  .maker-knob--crimson-wing,
-  .maker-knob--black-crimson-wing,
-  .maker-knob--regent-white-wing
-) {
+   Enlarge and correct only their hardware face. The value and detached LED
+   overlays remain in a stable coordinate space while frames change. */
+.maker-canvas-control--knob .maker-knob-filmstrip-face.is-wing {
   transform: scale(1.30) rotate(var(--maker-filmstrip-angle-correction, 0deg));
-  transform-origin: center;
 }
 
 .maker-static-knob-asset__indicator {
@@ -5636,6 +5664,7 @@
 
 .maker-control-value-readout {
   position: absolute;
+  z-index: 2;
   right: 8%;
   bottom: 7%;
   min-width: 1.5rem;
@@ -5650,6 +5679,23 @@
 
 .maker-rotary-knob:hover .maker-control-value-readout,
 .maker-rotary-knob:focus-visible .maker-control-value-readout { opacity: 1; }
+
+.maker-rotary-knob:is(
+  .maker-knob--crimson-wing,
+  .maker-knob--black-crimson-wing,
+  .maker-knob--regent-white-wing,
+  .maker-knob--pan-ring-black-crimson-wing,
+  .maker-knob--pan-black-crimson-wing
+) .maker-control-value-readout {
+  box-sizing: border-box;
+  width: 52%;
+  min-width: 0;
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  text-overflow: clip;
+  white-space: nowrap;
+}
 
 .maker-canvas-control--button .maker-panel-button.maker-filmstrip-control,
 .maker-canvas-control--solo .maker-panel-button.maker-filmstrip-control,

@@ -394,14 +394,21 @@ def test_open_led_ring_is_dynamic_vector_runtime_on_windows_and_macos():
         assert '"pan-open-led-ring"' in source
         assert "ringThickness" in source
         assert "colorRgb" in source
+        assert "ringValueFontSize" in source
+        assert "ringValueColorRgb" in source
+        assert "ringValueFontWeight" in source
         assert "12" in source and ".075" in source and ".12" in source and ".2" in source
 
     assert "drawOpenRing(index,ring,value)" in windows
-    assert "length<=.00001f" in windows
+    assert "length>.00001f" in windows
     assert "D2D1_CAP_STYLE_ROUND" in windows
+    assert 'CreateTextFormat(L"Consolas"' in windows
+    assert 'pan&&numeric>0?L"+":L""' in windows
     assert "drawOpenRing:index" in mac
-    assert "length <= .00001" in mac
+    assert "length > .00001" in mac
     assert "NSLineCapStyleRound" in mac
+    assert "monospacedSystemFontOfSize" in mac
+    assert 'stringWithFormat:@"+%ld"' in mac
 
 
 def test_native_value_readouts_follow_hover_for_atlas_and_fallback_controls():

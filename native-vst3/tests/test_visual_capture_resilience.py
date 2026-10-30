@@ -144,6 +144,7 @@ def test_open_ring_capture_keeps_only_idle_track_and_records_vector_geometry():
     assert "control.get('component_variant') == 'pan-open-led-ring'" in source
     assert "value = 50" in source
     assert "ring_bounds=ring_bounds" in source
+    assert ".maker-open-ring-knob__value { visibility: hidden !important; }" in source
 
 
 def test_output_selector_capture_has_exactly_master_and_target_frames():

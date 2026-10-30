@@ -204,7 +204,10 @@ def render(spec_path, url, browser=None):
             # A target with backdrop-filter must see the real backdrop while it
             # is rasterized. This late rule reveals only that target in the
             # otherwise-static scene; normal controls keep the transparent path.
-            page.add_style_tag(content='.vst-visual-render.vst-static .maker-canvas-control.vst-target { visibility: visible; }')
+            page.add_style_tag(content='''
+                .vst-visual-render.vst-static .maker-canvas-control.vst-target { visibility: visible; }
+                .vst-visual-render .maker-open-ring-knob__value { visibility: hidden !important; }
+            ''')
             backdrop_image = Image.open(assets/'visual_backdrop.png').convert('RGBA')
             def capture(rect, with_backdrop=False):
                 if with_backdrop:

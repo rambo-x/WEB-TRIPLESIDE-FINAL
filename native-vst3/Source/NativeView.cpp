@@ -145,21 +145,26 @@ void NativeView::drawOpenRing(size_t index,const D2D1_RECT_F&r,float value){
     if(index>=project::kControls.size()||r.right<=r.left||r.bottom<=r.top)return;
     const auto&c=project::kControls[index];const bool pan=equals(c.variant,"pan-open-led-ring");
     value=std::clamp(value,0.f,1.f);const float start=pan?std::min(.5f,value):0.f,length=pan?std::abs(value-.5f):value;
-    if(length<=.00001f)return;
     const float scale=std::max(.01f,std::min(r.right-r.left,r.bottom-r.top)/100.f),cx=(r.left+r.right)*.5f,cy=(r.top+r.bottom)*.5f,radius=38.f*scale;
-    ComPtr<ID2D1PathGeometry>geometry;factory->CreatePathGeometry(geometry.GetAddressOf());ComPtr<ID2D1GeometrySink>sink;
-    if(!geometry||FAILED(geometry->Open(sink.GetAddressOf())))return;
-    const int segments=std::max(2,static_cast<int>(std::ceil(length*96.f)));
-    for(int point=0;point<=segments;++point){const float percent=start+length*point/segments,angle=(135.f+270.f*percent)*3.14159265358979323846f/180.f;const auto p=D2D1::Point2F(cx+std::cos(angle)*radius,cy+std::sin(angle)*radius);if(!point)sink->BeginFigure(p,D2D1_FIGURE_BEGIN_HOLLOW);else sink->AddLine(p);}
-    sink->EndFigure(D2D1_FIGURE_END_OPEN);sink->Close();
-    D2D1_STROKE_STYLE_PROPERTIES strokeProperties=D2D1::StrokeStyleProperties();strokeProperties.startCap=D2D1_CAP_STYLE_ROUND;strokeProperties.endCap=D2D1_CAP_STYLE_ROUND;strokeProperties.lineJoin=D2D1_LINE_JOIN_ROUND;ComPtr<ID2D1StrokeStyle>strokeStyle;factory->CreateStrokeStyle(strokeProperties,nullptr,0,strokeStyle.GetAddressOf());
-    ComPtr<ID2D1SolidColorBrush>brush;target->CreateSolidColorBrush(rgb(c.colorRgb),brush.GetAddressOf());if(!brush)return;
     const float strength=std::clamp(c.ringGlowIntensity,0.f,100.f)/100.f,baseWidth=std::clamp(c.ringThickness,1.f,16.f)*scale;
     constexpr std::array<float,4> spreads{12.f,8.f,5.f,2.5f};constexpr std::array<float,4> opacities{.05f,.075f,.12f,.2f};
     const float opacity=std::clamp(c.opacity,0.f,1.f);
-    if(strength>0.f)for(size_t layer=0;layer<spreads.size();++layer){brush->SetOpacity(opacity*opacities[layer]*strength);target->DrawGeometry(geometry.Get(),brush.Get(),baseWidth+spreads[layer]*strength*scale,strokeStyle.Get());}
-    brush->SetOpacity(opacity);target->DrawGeometry(geometry.Get(),brush.Get(),baseWidth,strokeStyle.Get());
-    if(pan){const auto marker=D2D1::Point2F(cx,cy-radius);const float markerRadius=std::max(1.4f,c.ringThickness*.52f)*scale;if(strength>0.f)for(size_t layer=0;layer<spreads.size();++layer){brush->SetOpacity(opacity*opacities[layer]*strength);const float glowRadius=markerRadius+spreads[layer]*strength*.5f*scale;target->FillEllipse(D2D1::Ellipse(marker,glowRadius,glowRadius),brush.Get());}brush->SetOpacity(opacity);target->FillEllipse(D2D1::Ellipse(marker,markerRadius,markerRadius),brush.Get());}
+    if(length>.00001f){
+        ComPtr<ID2D1PathGeometry>geometry;factory->CreatePathGeometry(geometry.GetAddressOf());ComPtr<ID2D1GeometrySink>sink;
+        if(geometry&&SUCCEEDED(geometry->Open(sink.GetAddressOf()))){
+            const int segments=std::max(2,static_cast<int>(std::ceil(length*96.f)));
+            for(int point=0;point<=segments;++point){const float percent=start+length*point/segments,angle=(135.f+270.f*percent)*3.14159265358979323846f/180.f;const auto p=D2D1::Point2F(cx+std::cos(angle)*radius,cy+std::sin(angle)*radius);if(!point)sink->BeginFigure(p,D2D1_FIGURE_BEGIN_HOLLOW);else sink->AddLine(p);}
+            sink->EndFigure(D2D1_FIGURE_END_OPEN);sink->Close();
+            D2D1_STROKE_STYLE_PROPERTIES strokeProperties=D2D1::StrokeStyleProperties();strokeProperties.startCap=D2D1_CAP_STYLE_ROUND;strokeProperties.endCap=D2D1_CAP_STYLE_ROUND;strokeProperties.lineJoin=D2D1_LINE_JOIN_ROUND;ComPtr<ID2D1StrokeStyle>strokeStyle;factory->CreateStrokeStyle(strokeProperties,nullptr,0,strokeStyle.GetAddressOf());
+            ComPtr<ID2D1SolidColorBrush>ringBrush;target->CreateSolidColorBrush(rgb(c.colorRgb),ringBrush.GetAddressOf());
+            if(ringBrush){if(strength>0.f)for(size_t layer=0;layer<spreads.size();++layer){ringBrush->SetOpacity(opacity*opacities[layer]*strength);target->DrawGeometry(geometry.Get(),ringBrush.Get(),baseWidth+spreads[layer]*strength*scale,strokeStyle.Get());}ringBrush->SetOpacity(opacity);target->DrawGeometry(geometry.Get(),ringBrush.Get(),baseWidth,strokeStyle.Get());if(pan){const auto marker=D2D1::Point2F(cx,cy-radius);const float markerRadius=std::max(1.4f,c.ringThickness*.52f)*scale;if(strength>0.f)for(size_t layer=0;layer<spreads.size();++layer){ringBrush->SetOpacity(opacity*opacities[layer]*strength);const float glowRadius=markerRadius+spreads[layer]*strength*.5f*scale;target->FillEllipse(D2D1::Ellipse(marker,glowRadius,glowRadius),ringBrush.Get());}ringBrush->SetOpacity(opacity);target->FillEllipse(D2D1::Ellipse(marker,markerRadius,markerRadius),ringBrush.Get());}}
+        }
+    }
+    const int numeric=pan?static_cast<int>(std::lround((value-.5f)*200.f)):static_cast<int>(std::lround(value*100.f));
+    std::wstring label=(pan&&numeric>0?L"+":L"")+std::to_wstring(numeric);
+    ComPtr<IDWriteTextFormat>valueFormat;writeFactory->CreateTextFormat(L"Consolas",nullptr,static_cast<DWRITE_FONT_WEIGHT>(std::clamp(c.ringValueFontWeight,400,900)),DWRITE_FONT_STYLE_NORMAL,DWRITE_FONT_STRETCH_NORMAL,std::clamp(static_cast<float>(c.ringValueFontSize),8.f,32.f)*scale,L"",valueFormat.GetAddressOf());
+    ComPtr<ID2D1SolidColorBrush>valueBrush;target->CreateSolidColorBrush(rgb(c.ringValueColorRgb,opacity),valueBrush.GetAddressOf());
+    if(valueFormat&&valueBrush){valueFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);valueFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);valueFormat->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);target->DrawTextW(label.c_str(),static_cast<UINT32>(label.size()),valueFormat.Get(),r,valueBrush.Get(),D2D1_DRAW_TEXT_OPTIONS_CLIP);}
 }
 void NativeView::drawVisualControl(size_t index){
     const auto&c=project::kControls[index];const auto&s=project::kVisualControls[index];

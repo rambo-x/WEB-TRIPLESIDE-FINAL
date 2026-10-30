@@ -216,7 +216,7 @@ CORRECTION_REBUILD_MAX_SKIN_CHANGES = 3
 # A ready artifact is reusable only when both its immutable project spec and
 # this builder release match; otherwise Export must enqueue a real rebuild.
 VST_BUILD_PIPELINE_REVISION = (
-    os.environ.get("VST_BUILD_PIPELINE_REVISION", "classic-legend-smooth-reverb-chord-tail-v1").strip()
+    os.environ.get("VST_BUILD_PIPELINE_REVISION", "open-ring-value-wing-stability-v1").strip()
     or "native-control-parity-v1"
 )
 VST_MACOS_SAMPLER_ROUTING_ENABLED = os.environ.get(
@@ -681,6 +681,9 @@ class VstMakerInterfaceControlInput(BaseModel):
     waveform_line_width: float = Field(default=1.8, ge=0.5, le=8)
     ring_thickness: float | None = Field(default=None, ge=1, le=16)
     ring_glow_intensity: float | None = Field(default=None, ge=0, le=100)
+    ring_value_font_size: int | None = Field(default=None, ge=8, le=32)
+    ring_value_color: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
+    ring_value_font_weight: Literal[400, 500, 600, 700, 800, 900] | None = None
     bar_width_ratio: float = Field(default=0.54, ge=0.1, le=1)
     text_font: Literal["outfit", "manrope", "space-grotesk", "cinzel", "cormorant-garamond"] = "space-grotesk"
     text_color: str = Field(default="#F4F4F5", pattern=r"^#[0-9A-Fa-f]{6}$")
@@ -802,6 +805,13 @@ class VstMakerInterfaceControlInput(BaseModel):
             self.output_font_size = 11
         if self.kind != "output_selector" and self.output_font_size is not None:
             raise ValueError("Ukuran teks pilihan hanya berlaku untuk Output Selector")
+        is_open_ring = self.kind == "knob" and self.component_variant in {"open-led-ring", "pan-open-led-ring"}
+        if is_open_ring:
+            self.ring_value_font_size = self.ring_value_font_size or 16
+            self.ring_value_color = self.ring_value_color or "#F4F4F5"
+            self.ring_value_font_weight = self.ring_value_font_weight or 700
+        elif any(value is not None for value in (self.ring_value_font_size, self.ring_value_color, self.ring_value_font_weight)):
+            raise ValueError("Pengaturan angka tengah hanya berlaku untuk Open LED Ring")
         if self.kind not in {"button", "pad"} and self.midi_sequence_id is not None:
             raise ValueError("Pola MIDI hanya dapat dihubungkan ke Button atau Pad")
         if self.kind == "panel_button" and self.parent_panel_id:
@@ -3248,9 +3258,24 @@ def vst_maker_build_spec(project: dict, sample_assets: list[dict] | None = None)
             except (TypeError, ValueError):
                 ring_glow_intensity = 65
             normalized_control["ring_glow_intensity"] = max(0, min(100, ring_glow_intensity))
+            try:
+                ring_value_font_size = round(float(control.get("ring_value_font_size", 16)))
+            except (TypeError, ValueError):
+                ring_value_font_size = 16
+            normalized_control["ring_value_font_size"] = max(8, min(32, ring_value_font_size))
+            ring_value_color = str(control.get("ring_value_color") or "#F4F4F5")
+            normalized_control["ring_value_color"] = ring_value_color if re.fullmatch(r"#[0-9A-Fa-f]{6}", ring_value_color) else "#F4F4F5"
+            try:
+                ring_value_font_weight = int(control.get("ring_value_font_weight", 700))
+            except (TypeError, ValueError):
+                ring_value_font_weight = 700
+            normalized_control["ring_value_font_weight"] = ring_value_font_weight if ring_value_font_weight in {400, 500, 600, 700, 800, 900} else 700
         else:
             normalized_control.pop("ring_thickness", None)
             normalized_control.pop("ring_glow_intensity", None)
+            normalized_control.pop("ring_value_font_size", None)
+            normalized_control.pop("ring_value_color", None)
+            normalized_control.pop("ring_value_font_weight", None)
         if control.get("kind") == "button" and control.get("component_variant") == "mechanical-toggle":
             try:
                 raw_state_gap = control.get("state_label_gap")

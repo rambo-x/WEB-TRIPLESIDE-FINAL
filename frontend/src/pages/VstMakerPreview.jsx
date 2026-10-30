@@ -551,7 +551,7 @@ const COMPONENT_VARIANTS = [
   { id: "graphite-ridge", category: "knob", kind: "knob", label: "Graphite Ridge", detail: "CSS presisi · bilah diagonal", style: "css" },
   { id: "ivory-lever", category: "knob", kind: "knob", label: "Ivory Lever", detail: "Ivory · tuas aluminium · MIN/MAX", style: "css" },
   { id: "luminous", category: "knob", kind: "knob", label: "Luminous Ring", detail: "Ring menyala mengikuti nilai", style: "css" },
-  { id: "open-led-ring", category: "knob", kind: "knob", label: "Open LED Ring", detail: "Busur terbuka tanpa badan · ketebalan dan nyala dapat diatur", style: "css", value: 65, ringThickness: 5, ringGlowIntensity: 65 },
+  { id: "open-led-ring", category: "knob", kind: "knob", label: "Open LED Ring", detail: "Busur terbuka tanpa badan · angka tengah dapat diatur", style: "css", value: 65, ringThickness: 5, ringGlowIntensity: 65, ringValueFontSize: 16, ringValueColor: "#F4F4F5", ringValueFontWeight: 700 },
   { id: "regent-cap", category: "knob", kind: "knob", label: "Regent Console", detail: "Machined black cap · amber pointer", style: "css" },
   { id: "regent-white", category: "knob", kind: "knob", label: "Regent White", detail: "Classic white cap · amber pointer", style: "css" },
   { id: "regent-green", category: "knob", kind: "knob", label: "Regent Green", detail: "Emerald EQ cap · white pointer", style: "css" },
@@ -568,7 +568,7 @@ const COMPONENT_VARIANTS = [
   { id: "regent-white-gray", category: "knob", kind: "knob", label: "Regent Gray · White Binding", detail: "Gray cap · bright white collar", style: "css" },
   { id: "pan", category: "pan", kind: "knob", label: "Pan L–R", detail: "Bipolar dengan center detent", style: "css", parameter: "pan", value: 50 },
   { id: "pan-unified", category: "pan", kind: "knob", label: "Pan Uniform Ring", detail: "Ring satu warna · center detent", style: "css", parameter: "pan", value: 50 },
-  { id: "pan-open-led-ring", category: "pan", kind: "knob", label: "Pan Open LED Ring", detail: "Busur bipolar terbuka · ketebalan dan nyala dapat diatur", style: "css", parameter: "pan", value: 50, ringThickness: 5, ringGlowIntensity: 65 },
+  { id: "pan-open-led-ring", category: "pan", kind: "knob", label: "Pan Open LED Ring", detail: "Busur bipolar terbuka · angka tengah dapat diatur", style: "css", parameter: "pan", value: 50, ringThickness: 5, ringGlowIntensity: 65, ringValueFontSize: 16, ringValueColor: "#F4F4F5", ringValueFontWeight: 700 },
   { id: "pan-ring-chicken-head-clean", category: "pan", kind: "knob", label: "Black Chicken Head · Ring", detail: "LED kontinu terpisah · center detent", style: "css", parameter: "pan", value: 50 },
   { id: "pan-chicken-head-clean", category: "pan", kind: "knob", label: "Black Chicken Head · Dots", detail: "LED titik terpisah · center detent", style: "css", parameter: "pan", value: 50 },
   { id: "pan-ring-ivory-lever", category: "pan", kind: "knob", label: "Ivory Lever · Ring", detail: "LED kontinu terpisah · center detent", style: "css", parameter: "pan", value: 50 },
@@ -648,6 +648,10 @@ const OPEN_RING_KNOB_VARIANTS = new Set(["open-led-ring", "pan-open-led-ring"]);
 const isOpenRingKnobVariant = (variant) => OPEN_RING_KNOB_VARIANTS.has(String(variant || ""));
 const normalizeOpenRingThickness = (value) => Math.max(1, Math.min(16, Number(value) || 5));
 const normalizeOpenRingGlowIntensity = (value) => Math.max(0, Math.min(100, Number.isFinite(Number(value)) ? Number(value) : 65));
+const normalizeOpenRingValueFontSize = (value) => Math.max(8, Math.min(32, Number(value) || 16));
+const OPEN_RING_VALUE_FONT_WEIGHTS = [400, 500, 600, 700, 800, 900];
+const normalizeOpenRingValueFontWeight = (value) => OPEN_RING_VALUE_FONT_WEIGHTS.includes(Number(value)) ? Number(value) : 700;
+const DEFAULT_OPEN_RING_VALUE_COLOR = "#F4F4F5";
 const PAN_LED_KNOB_BASES = {
   "pan-ring-chicken-head-clean": "chicken-head-clean",
   "pan-chicken-head-clean": "chicken-head-clean",
@@ -1168,6 +1172,9 @@ const normalizeInterfaceControl = (control) => {
       controlColor: isHexColor(control.controlColor ?? control.control_color) ? (control.controlColor ?? control.control_color) : "#67E8F9",
       ringThickness: normalizeOpenRingThickness(control.ringThickness ?? control.ring_thickness ?? control.waveformLineWidth ?? control.waveform_line_width),
       ringGlowIntensity: normalizeOpenRingGlowIntensity(control.ringGlowIntensity ?? control.ring_glow_intensity),
+      ringValueFontSize: normalizeOpenRingValueFontSize(control.ringValueFontSize ?? control.ring_value_font_size),
+      ringValueColor: isHexColor(control.ringValueColor ?? control.ring_value_color) ? (control.ringValueColor ?? control.ring_value_color) : DEFAULT_OPEN_RING_VALUE_COLOR,
+      ringValueFontWeight: normalizeOpenRingValueFontWeight(control.ringValueFontWeight ?? control.ring_value_font_weight),
     } : {}),
     ...(control.kind === "solo_mute" ? {
       soloMuteGap: normalizeSoloMuteGap(control.soloMuteGap ?? control.solo_mute_gap),
@@ -1737,7 +1744,7 @@ const toProjectPayload = (project, samples) => {
   modulation_enabled: project.modulationEnabled === true,
   interface_controls: project.interfaceControls.map((rawControl) => {
     const normalized = normalizeInterfaceControl(rawControl);
-    const { notePitch, moduleId, samplerGroupId, sampler_group_id: legacySamplerGroupId, keyCount, keyColors, key_colors: legacyKeyColors, showBackground, show_background: legacyShowBackground, labelPosition, label_position: legacyLabelPosition, labelGap, label_gap: legacyLabelGap, stateLabelGap, state_label_gap: legacyStateLabelGap, labelX, labelY, label_x: legacyLabelX, label_y: legacyLabelY, meterMode, meter_mode: legacyMeterMode, padColor, padActiveColor, pad_color: legacyPadColor, pad_active_color: legacyPadActiveColor, visualColor, visual_color: legacyVisualColor, waveformLineWidth, waveform_line_width: legacyWaveformLineWidth, ringThickness, ring_thickness: legacyRingThickness, ringGlowIntensity, ring_glow_intensity: legacyRingGlowIntensity, barWidthRatio, bar_width_ratio: legacyBarWidthRatio, spectrumBand, spectrum_band: legacySpectrumBand, prismControlMode, prism_control_mode: legacyPrismControlMode, prismContext, prism_context: legacyPrismContext, prismOwnerId, prism_owner_id: legacyPrismOwnerId, textFont, text_font: legacyTextFont, textColor, text_color: legacyTextColor, controlColor, control_color: legacyControlColor, outputFontSize, output_font_size: legacyOutputFontSize, faderMeterEnabled, fader_meter_enabled: legacyFaderMeterEnabled, faderMeterPosition, fader_meter_position: legacyFaderMeterPosition, faderMeterColor, fader_meter_color: legacyFaderMeterColor, faderMeterGap, fader_meter_gap: legacyFaderMeterGap, faderMeterWidth, fader_meter_width: legacyFaderMeterWidth, faderMeterHeight, fader_meter_height: legacyFaderMeterHeight, soloMuteGap, solo_mute_gap: legacySoloMuteGap, soloColor, solo_color: legacySoloColor, muteColor, mute_color: legacyMuteColor, buttonShape, button_shape: legacyButtonShape, indicatorSourceId, indicator_source_id: legacyIndicatorSourceId, midiSequenceId, midi_sequence_id: legacyMidiSequenceId, imageUrl, imageName, imageFit, imageOpacity, image_url: legacyImageUrl, image_name: legacyImageName, image_fit: legacyImageFit, image_opacity: legacyImageOpacity, parentPanelId, parent_panel_id: legacyParentPanelId, panelType, panel_type: legacyPanelType, panelX, panel_x: legacyPanelX, panelY, panel_y: legacyPanelY, panelWidth, panel_width: legacyPanelWidth, panelHeight, panel_height: legacyPanelHeight, mixerShowDefaultControls, mixer_show_default_controls: legacyMixerShowDefaultControls, ...control } = normalized;
+    const { notePitch, moduleId, samplerGroupId, sampler_group_id: legacySamplerGroupId, keyCount, keyColors, key_colors: legacyKeyColors, showBackground, show_background: legacyShowBackground, labelPosition, label_position: legacyLabelPosition, labelGap, label_gap: legacyLabelGap, stateLabelGap, state_label_gap: legacyStateLabelGap, labelX, labelY, label_x: legacyLabelX, label_y: legacyLabelY, meterMode, meter_mode: legacyMeterMode, padColor, padActiveColor, pad_color: legacyPadColor, pad_active_color: legacyPadActiveColor, visualColor, visual_color: legacyVisualColor, waveformLineWidth, waveform_line_width: legacyWaveformLineWidth, ringThickness, ring_thickness: legacyRingThickness, ringGlowIntensity, ring_glow_intensity: legacyRingGlowIntensity, ringValueFontSize, ring_value_font_size: legacyRingValueFontSize, ringValueColor, ring_value_color: legacyRingValueColor, ringValueFontWeight, ring_value_font_weight: legacyRingValueFontWeight, barWidthRatio, bar_width_ratio: legacyBarWidthRatio, spectrumBand, spectrum_band: legacySpectrumBand, prismControlMode, prism_control_mode: legacyPrismControlMode, prismContext, prism_context: legacyPrismContext, prismOwnerId, prism_owner_id: legacyPrismOwnerId, textFont, text_font: legacyTextFont, textColor, text_color: legacyTextColor, controlColor, control_color: legacyControlColor, outputFontSize, output_font_size: legacyOutputFontSize, faderMeterEnabled, fader_meter_enabled: legacyFaderMeterEnabled, faderMeterPosition, fader_meter_position: legacyFaderMeterPosition, faderMeterColor, fader_meter_color: legacyFaderMeterColor, faderMeterGap, fader_meter_gap: legacyFaderMeterGap, faderMeterWidth, fader_meter_width: legacyFaderMeterWidth, faderMeterHeight, fader_meter_height: legacyFaderMeterHeight, soloMuteGap, solo_mute_gap: legacySoloMuteGap, soloColor, solo_color: legacySoloColor, muteColor, mute_color: legacyMuteColor, buttonShape, button_shape: legacyButtonShape, indicatorSourceId, indicator_source_id: legacyIndicatorSourceId, midiSequenceId, midi_sequence_id: legacyMidiSequenceId, imageUrl, imageName, imageFit, imageOpacity, image_url: legacyImageUrl, image_name: legacyImageName, image_fit: legacyImageFit, image_opacity: legacyImageOpacity, parentPanelId, parent_panel_id: legacyParentPanelId, panelType, panel_type: legacyPanelType, panelX, panel_x: legacyPanelX, panelY, panel_y: legacyPanelY, panelWidth, panel_width: legacyPanelWidth, panelHeight, panel_height: legacyPanelHeight, mixerShowDefaultControls, mixer_show_default_controls: legacyMixerShowDefaultControls, ...control } = normalized;
     return {
       ...control,
       module_id: moduleId || null,
@@ -1765,6 +1772,11 @@ const toProjectPayload = (project, samples) => {
       ...(control.kind === "spectrum" && control.component_variant === "realtime-waveform" ? { waveform_line_width: Math.max(0.5, Math.min(8, Number(waveformLineWidth ?? legacyWaveformLineWidth ?? 1.8) || 1.8)) } : {}),
       ...(control.kind === "knob" && isOpenRingKnobVariant(control.component_variant) ? { ring_thickness: normalizeOpenRingThickness(ringThickness ?? legacyRingThickness ?? waveformLineWidth ?? legacyWaveformLineWidth) } : {}),
       ...(control.kind === "knob" && isOpenRingKnobVariant(control.component_variant) ? { ring_glow_intensity: normalizeOpenRingGlowIntensity(ringGlowIntensity ?? legacyRingGlowIntensity) } : {}),
+      ...(control.kind === "knob" && isOpenRingKnobVariant(control.component_variant) ? {
+        ring_value_font_size: normalizeOpenRingValueFontSize(ringValueFontSize ?? legacyRingValueFontSize),
+        ring_value_color: isHexColor(ringValueColor ?? legacyRingValueColor) ? (ringValueColor ?? legacyRingValueColor) : DEFAULT_OPEN_RING_VALUE_COLOR,
+        ring_value_font_weight: normalizeOpenRingValueFontWeight(ringValueFontWeight ?? legacyRingValueFontWeight),
+      } : {}),
       ...(control.kind === "spectrum" && control.component_variant === "bar-spectrum-visualizer" ? { bar_width_ratio: Math.max(0.1, Math.min(1, Number(barWidthRatio ?? legacyBarWidthRatio ?? 0.54) || 0.54)) } : {}),
       ...(spectrumBand === true || legacySpectrumBand === true ? { spectrum_band: true } : {}),
       ...(PRISM_CONTROL_MODES.has(prismControlMode ?? legacyPrismControlMode) ? { prism_control_mode: prismControlMode ?? legacyPrismControlMode } : {}),
@@ -5230,7 +5242,14 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       ...(kind === "indicator" ? { controlColor: variant?.color || project.accentColor, indicatorSourceId: null } : {}),
       ...(kind === "text" ? { textFont: "space-grotesk", textColor: "#F4F4F5" } : {}),
       ...(["pitch-bend-led", "modulation-led"].includes(variantId) ? { controlColor: project.accentColor } : {}),
-      ...(isOpenRingKnobVariant(variantId) ? { controlColor: project.accentColor, ringThickness: normalizeOpenRingThickness(variant?.ringThickness), ringGlowIntensity: normalizeOpenRingGlowIntensity(variant?.ringGlowIntensity) } : {}),
+      ...(isOpenRingKnobVariant(variantId) ? {
+        controlColor: project.accentColor,
+        ringThickness: normalizeOpenRingThickness(variant?.ringThickness),
+        ringGlowIntensity: normalizeOpenRingGlowIntensity(variant?.ringGlowIntensity),
+        ringValueFontSize: normalizeOpenRingValueFontSize(variant?.ringValueFontSize),
+        ringValueColor: isHexColor(variant?.ringValueColor) ? variant.ringValueColor : DEFAULT_OPEN_RING_VALUE_COLOR,
+        ringValueFontWeight: normalizeOpenRingValueFontWeight(variant?.ringValueFontWeight),
+      } : {}),
       ...(kind === "pad" ? {
         padColor: defaultPadSurfaceColor(variantId || "rubber"),
         padActiveColor: defaultPadActiveColor(variantId || "rubber", 60, project.accentColor),
@@ -8500,7 +8519,14 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
       parentPanelId: kind === "panel_button" ? null : control.parentPanelId ?? null,
       ...(isMeter ? { meterMode: control.meterMode ?? control.meter_mode ?? (kind === "gain_meter" ? "stereo" : "mono") } : {}),
       ...(kind === "fader" ? { faderMeterEnabled: control.faderMeterEnabled ?? variant.faderMeterEnabled ?? true, faderMeterPosition: control.faderMeterPosition ?? variant.faderMeterPosition ?? "right", faderMeterColor: control.faderMeterColor ?? DEFAULT_FADER_METER_COLOR, faderMeterGap: control.faderMeterGap ?? variant.faderMeterGap ?? DEFAULT_FADER_METER_GAP, faderMeterWidth: control.faderMeterWidth ?? variant.faderMeterWidth ?? DEFAULT_FADER_METER_WIDTH, faderMeterHeight: control.faderMeterHeight ?? variant.faderMeterHeight ?? DEFAULT_FADER_METER_HEIGHT, ...(isStudioMetalFaderVariant(variant.id) ? { controlColor: control.controlColor ?? control.control_color ?? variant.capColor ?? DEFAULT_STUDIO_METAL_CAP_COLOR, textColor: control.textColor ?? control.text_color ?? variant.indicatorColor ?? DEFAULT_STUDIO_METAL_INDICATOR_COLOR } : {}) } : {}),
-      ...(kind === "knob" && isOpenRingKnobVariant(variant.id) ? { controlColor: control.controlColor ?? control.control_color ?? accentColor, ringThickness: normalizeOpenRingThickness(control.ringThickness ?? control.ring_thickness ?? control.waveformLineWidth ?? control.waveform_line_width ?? variant.ringThickness), ringGlowIntensity: normalizeOpenRingGlowIntensity(control.ringGlowIntensity ?? control.ring_glow_intensity ?? variant.ringGlowIntensity) } : {}),
+      ...(kind === "knob" && isOpenRingKnobVariant(variant.id) ? {
+        controlColor: control.controlColor ?? control.control_color ?? accentColor,
+        ringThickness: normalizeOpenRingThickness(control.ringThickness ?? control.ring_thickness ?? control.waveformLineWidth ?? control.waveform_line_width ?? variant.ringThickness),
+        ringGlowIntensity: normalizeOpenRingGlowIntensity(control.ringGlowIntensity ?? control.ring_glow_intensity ?? variant.ringGlowIntensity),
+        ringValueFontSize: normalizeOpenRingValueFontSize(control.ringValueFontSize ?? control.ring_value_font_size ?? variant.ringValueFontSize),
+        ringValueColor: isHexColor(control.ringValueColor ?? control.ring_value_color) ? (control.ringValueColor ?? control.ring_value_color) : (variant.ringValueColor ?? DEFAULT_OPEN_RING_VALUE_COLOR),
+        ringValueFontWeight: normalizeOpenRingValueFontWeight(control.ringValueFontWeight ?? control.ring_value_font_weight ?? variant.ringValueFontWeight),
+      } : {}),
       ...(kind === "solo_mute" ? { soloMuteGap: control.soloMuteGap ?? DEFAULT_SOLO_MUTE_GAP, soloColor: control.soloColor ?? DEFAULT_SOLO_COLOR, muteColor: control.muteColor ?? DEFAULT_MUTE_COLOR, buttonShape: control.buttonShape ?? "square" } : {}),
       ...(kind === "indicator" ? { controlColor: control.controlColor ?? control.control_color ?? variant.color ?? accentColor, indicatorSourceId: control.indicatorSourceId ?? control.indicator_source_id ?? null } : {}),
       ...(kind === "text" ? { textFont: control.textFont ?? control.text_font ?? "space-grotesk", textColor: control.textColor ?? control.text_color ?? "#F4F4F5" } : {}),
@@ -9300,6 +9326,9 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                     ringThickness={control.ringThickness ?? control.ring_thickness ?? control.waveformLineWidth ?? control.waveform_line_width}
                     ringGlowIntensity={control.ringGlowIntensity ?? control.ring_glow_intensity}
                     ringColor={control.controlColor ?? control.control_color ?? accentColor}
+                    ringValueFontSize={control.ringValueFontSize ?? control.ring_value_font_size}
+                    ringValueColor={control.ringValueColor ?? control.ring_value_color}
+                    ringValueFontWeight={control.ringValueFontWeight ?? control.ring_value_font_weight}
                     onChange={(value) => {
                       if (PRISM_CONTEXT_PARAMETERS.has(control.parameter)) updatePrismContext(control, value);
                       else onUpdate(control.id, {
@@ -9772,6 +9801,28 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
               label="Warna nyala ring"
               value={isHexColor(selectedControl.controlColor ?? selectedControl.control_color) ? (selectedControl.controlColor ?? selectedControl.control_color) : accentColor}
               onChange={(color) => onUpdate(selectedControl.id, { controlColor: color })}
+              colorClipboard={colorClipboard}
+              onCopy={setColorClipboard}
+            />
+            <label>
+              <FieldLabel>Ukuran angka tengah · {normalizeOpenRingValueFontSize(selectedControl.ringValueFontSize ?? selectedControl.ring_value_font_size)} px</FieldLabel>
+              <input className="maker-range mt-4 w-full" type="range" min="8" max="32" step="1" value={normalizeOpenRingValueFontSize(selectedControl.ringValueFontSize ?? selectedControl.ring_value_font_size)} onChange={(event) => onUpdate(selectedControl.id, { ringValueFontSize: Number(event.target.value) })} />
+            </label>
+            <label>
+              <FieldLabel>Ketebalan font angka</FieldLabel>
+              <select className="maker-input mt-2" value={normalizeOpenRingValueFontWeight(selectedControl.ringValueFontWeight ?? selectedControl.ring_value_font_weight)} onChange={(event) => onUpdate(selectedControl.id, { ringValueFontWeight: Number(event.target.value) })}>
+                <option value="400">Regular</option>
+                <option value="500">Medium</option>
+                <option value="600">Semi Bold</option>
+                <option value="700">Bold</option>
+                <option value="800">Extra Bold</option>
+                <option value="900">Black</option>
+              </select>
+            </label>
+            <DesignerColorField
+              label="Warna angka tengah"
+              value={isHexColor(selectedControl.ringValueColor ?? selectedControl.ring_value_color) ? (selectedControl.ringValueColor ?? selectedControl.ring_value_color) : DEFAULT_OPEN_RING_VALUE_COLOR}
+              onChange={(color) => onUpdate(selectedControl.id, { ringValueColor: color })}
               colorClipboard={colorClipboard}
               onCopy={setColorClipboard}
             />
@@ -10562,7 +10613,7 @@ function ComponentThumbnail({ variant }) {
     preview = isPanLedKnobVariant(id) ? <span className={`maker-gallery-pan-led-shell maker-knob--${id}`}><PanLedRing value={50} type={panLedStyleForVariant(id)} />{sprite}</span> : sprite;
   } else if (kind === "knob") {
     const visualVariant = PAN_LED_KNOB_BASES[id] || id;
-    preview = <span className={`maker-rotary-knob maker-knob--${id} ${visualVariant !== id ? `maker-knob--${visualVariant}` : ""}`} style={{ "--knob-angle": isPanKnobVariant(id) ? "0deg" : "40deg", "--knob-progress": "175.5deg" }}>{isOpenRingKnobVariant(id) ? <OpenRingKnobVisual value={isPanKnobVariant(id) ? 50 : 65} pan={isPanKnobVariant(id)} thickness={variant.ringThickness} glowIntensity={variant.ringGlowIntensity} color="#67E8F9" /> : <>{id === "chicken-head" && <span className="maker-chicken-head-knob__scale"><span>MIN</span><span>MAX</span></span>}{id === "ivory-lever" && <span className="maker-ivory-lever__scale"><span>MIN</span><span>MAX</span></span>}{id === "orbit-encoder" && <OrbitEncoderLights value={65} />}{isPanLedKnobVariant(id) && <PanLedRing value={50} type={panLedStyleForVariant(id)} />}<span className="maker-rotary-knob__indicator" /></>}<span className="maker-rotary-knob__value">{isPanKnobVariant(id) ? "C" : "65"}</span></span>;
+    preview = <span className={`maker-rotary-knob maker-knob--${id} ${visualVariant !== id ? `maker-knob--${visualVariant}` : ""}`} style={{ "--knob-angle": isPanKnobVariant(id) ? "0deg" : "40deg", "--knob-progress": "175.5deg" }}>{isOpenRingKnobVariant(id) ? <><OpenRingKnobVisual value={isPanKnobVariant(id) ? 50 : 65} pan={isPanKnobVariant(id)} thickness={variant.ringThickness} glowIntensity={variant.ringGlowIntensity} color="#67E8F9" /><span className="maker-open-ring-knob__value" style={{ "--maker-open-ring-value-size": `${variant.ringValueFontSize}px`, "--maker-open-ring-value-color": variant.ringValueColor, "--maker-open-ring-value-weight": variant.ringValueFontWeight }}>{isPanKnobVariant(id) ? "0" : "65"}</span></> : <>{id === "chicken-head" && <span className="maker-chicken-head-knob__scale"><span>MIN</span><span>MAX</span></span>}{id === "ivory-lever" && <span className="maker-ivory-lever__scale"><span>MIN</span><span>MAX</span></span>}{id === "orbit-encoder" && <OrbitEncoderLights value={65} />}{isPanLedKnobVariant(id) && <PanLedRing value={50} type={panLedStyleForVariant(id)} />}<span className="maker-rotary-knob__indicator" /></>}<span className="maker-rotary-knob__value">{isPanKnobVariant(id) ? "C" : "65"}</span></span>;
   } else if (kind === "indicator") {
     preview = <span className="maker-gallery-led-indicator"><RoundLedIndicator active color={variant.color} /></span>;
   } else if (kind === "solo_mute") {
@@ -10623,7 +10674,14 @@ function ComponentThumbnail({ variant }) {
   return <span className="maker-gallery-preview" aria-hidden="true">{preview}</span>;
 }
 
-function RotaryKnob({ value, valueText, neutralValue = 50, label, onChange, onInteract, disabled = false, variant = "classic", ringThickness = 5, ringGlowIntensity = 65, ringColor = "#67E8F9", asset = DEFAULT_VST_FILMSTRIP_SKIN.knob }) {
+const openRingValueText = (value, pan) => {
+  const normalized = Math.max(0, Math.min(100, Number(value) || 0));
+  if (!pan) return String(Math.round(normalized));
+  const bipolar = Math.round((normalized - 50) * 2);
+  return bipolar > 0 ? `+${bipolar}` : String(bipolar);
+};
+
+function RotaryKnob({ value, valueText, neutralValue = 50, label, onChange, onInteract, disabled = false, variant = "classic", ringThickness = 5, ringGlowIntensity = 65, ringColor = "#67E8F9", ringValueFontSize = 16, ringValueColor = DEFAULT_OPEN_RING_VALUE_COLOR, ringValueFontWeight = 700, asset = DEFAULT_VST_FILMSTRIP_SKIN.knob }) {
   const dragRef = useRef(null);
   const isPanKnob = isPanKnobVariant(variant);
   const visualVariant = PAN_LED_KNOB_BASES[variant] || variant;
@@ -10646,7 +10704,7 @@ function RotaryKnob({ value, valueText, neutralValue = 50, label, onChange, onIn
       aria-valuenow={value}
       aria-valuetext={valueText || (isPanKnob ? (value === 50 ? "Center" : value < 50 ? `Left ${100 - value * 2}%` : `Right ${(value - 50) * 2}%`) : `${value}%`)}
       className={`maker-rotary-knob maker-knob--${variant} ${visualVariant !== variant ? `maker-knob--${visualVariant}` : ""} ${asset ? `maker-filmstrip-control ${asset.staticFace ? "maker-static-knob-asset" : ""}` : "maker-css-control"}`}
-      style={asset ? { ...filmstripFrameStyle(asset, (value / 100) * (asset.frames - 1)), "--knob-angle": `${-135 + (value * 2.7)}deg`, "--maker-filmstrip-angle-correction": `${angleCorrection}deg` } : { "--knob-angle": `${-135 + (value * 2.7)}deg`, "--knob-progress": `${value * 2.7}deg` }}
+      style={asset ? { "--knob-angle": `${-135 + (value * 2.7)}deg` } : { "--knob-angle": `${-135 + (value * 2.7)}deg`, "--knob-progress": `${value * 2.7}deg` }}
       onPointerDown={(event) => {
         event.preventDefault();
         onInteract?.();
@@ -10670,7 +10728,15 @@ function RotaryKnob({ value, valueText, neutralValue = 50, label, onChange, onIn
       onFocus={() => onInteract?.()}
       onKeyDown={(event) => { onInteract?.(); setFromKey(event); }}
     >
-      {asset ? <>{isPanLedKnobVariant(variant) && <PanLedRing value={value} type={panLedStyleForVariant(variant)} />}{asset.staticFace && <span className="maker-static-knob-asset__indicator" />}<span className="maker-control-value-readout">{valueText || (isPanKnob ? value === 50 ? "C" : value < 50 ? `L${100 - value * 2}` : `R${(value - 50) * 2}` : value)}</span></> : <>{isOpenRingKnobVariant(variant) ? <OpenRingKnobVisual value={value} pan={isPanKnob} thickness={ringThickness} glowIntensity={ringGlowIntensity} color={ringColor} /> : <>{variant === "chicken-head" && <span className="maker-chicken-head-knob__scale" aria-hidden="true"><span>MIN</span><span>MAX</span></span>}{variant === "ivory-lever" && <span className="maker-ivory-lever__scale" aria-hidden="true"><span>MIN</span><span>MAX</span></span>}{variant === "orbit-encoder" && <OrbitEncoderLights value={value} />}{isPanLedKnobVariant(variant) && <PanLedRing value={value} type={panLedStyleForVariant(variant)} />}<span className="maker-rotary-knob__indicator" /></>}<span className="maker-rotary-knob__value">{valueText || (isPanKnob ? value === 50 ? "C" : value < 50 ? `L${100 - value * 2}` : `R${(value - 50) * 2}` : value)}</span></>}
+      {asset ? <>
+        <span className={`maker-knob-filmstrip-face ${WING_FILMSTRIP_VARIANTS.has(variant) ? "is-wing" : ""}`} style={{ ...filmstripFrameStyle(asset, (value / 100) * (asset.frames - 1)), "--maker-filmstrip-angle-correction": `${angleCorrection}deg` }} aria-hidden="true" />
+        {isPanLedKnobVariant(variant) && <PanLedRing value={value} type={panLedStyleForVariant(variant)} />}
+        {asset.staticFace && <span className="maker-static-knob-asset__indicator" />}
+        <span className="maker-control-value-readout">{valueText || (isPanKnob ? value === 50 ? "C" : value < 50 ? `L${100 - value * 2}` : `R${(value - 50) * 2}` : value)}</span>
+      </> : <>{isOpenRingKnobVariant(variant) ? <>
+        <OpenRingKnobVisual value={value} pan={isPanKnob} thickness={ringThickness} glowIntensity={ringGlowIntensity} color={ringColor} />
+        <span className="maker-open-ring-knob__value" style={{ "--maker-open-ring-value-size": `${normalizeOpenRingValueFontSize(ringValueFontSize)}px`, "--maker-open-ring-value-color": isHexColor(ringValueColor) ? ringValueColor : DEFAULT_OPEN_RING_VALUE_COLOR, "--maker-open-ring-value-weight": normalizeOpenRingValueFontWeight(ringValueFontWeight) }}>{valueText || openRingValueText(value, isPanKnob)}</span>
+      </> : <>{variant === "chicken-head" && <span className="maker-chicken-head-knob__scale" aria-hidden="true"><span>MIN</span><span>MAX</span></span>}{variant === "ivory-lever" && <span className="maker-ivory-lever__scale" aria-hidden="true"><span>MIN</span><span>MAX</span></span>}{variant === "orbit-encoder" && <OrbitEncoderLights value={value} />}{isPanLedKnobVariant(variant) && <PanLedRing value={value} type={panLedStyleForVariant(variant)} />}<span className="maker-rotary-knob__indicator" /></>}<span className="maker-rotary-knob__value">{valueText || (isPanKnob ? value === 50 ? "C" : value < 50 ? `L${100 - value * 2}` : `R${(value - 50) * 2}` : value)}</span></>}
     </button>
   );
 }

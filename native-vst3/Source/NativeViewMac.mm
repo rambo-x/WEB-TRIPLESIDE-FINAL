@@ -111,6 +111,27 @@ NSDictionary* panelTextAttributes(CGFloat size, NSColor* color, NSTextAlignment 
     };
 }
 
+NSFontWeight openRingFontWeight(int weight) {
+    if (weight >= 900) return NSFontWeightBlack;
+    if (weight >= 800) return NSFontWeightHeavy;
+    if (weight >= 700) return NSFontWeightBold;
+    if (weight >= 600) return NSFontWeightSemibold;
+    if (weight >= 500) return NSFontWeightMedium;
+    return NSFontWeightRegular;
+}
+
+NSDictionary* openRingTextAttributes(CGFloat size, NSColor* color, int weight) {
+    NSMutableParagraphStyle* paragraph = [[NSMutableParagraphStyle alloc] init];
+    paragraph.alignment = NSTextAlignmentCenter;
+    paragraph.lineBreakMode = NSLineBreakByClipping;
+    return @{
+        NSFontAttributeName: [NSFont monospacedSystemFontOfSize:size weight:openRingFontWeight(weight)],
+        NSForegroundColorAttributeName: color,
+        NSParagraphStyleAttributeName: paragraph,
+        NSKernAttributeName: @(-size * .04),
+    };
+}
+
 void fillRounded(NSRect rect, CGFloat radius, NSColor* color) {
     [color setFill];
     [[NSBezierPath bezierPathWithRoundedRect:rect xRadius:radius yRadius:radius] fill];
@@ -1238,17 +1259,23 @@ namespace project = tripleside::project;
     if (index >= project::kControls.size() || NSWidth(rect) <= 0 || NSHeight(rect) <= 0) return;
     const auto& control = project::kControls[index]; const BOOL pan = equals(control.variant, "pan-open-led-ring");
     value = std::clamp(value, 0.f, 1.f); const CGFloat start = pan ? std::min(.5f, value) : 0.f, length = pan ? std::abs(value - .5f) : value;
-    if (length <= .00001) return;
     const CGFloat scale = std::max<CGFloat>(.01, std::min(NSWidth(rect), NSHeight(rect)) / 100.), radius = 38 * scale;
     const NSPoint center = NSMakePoint(NSMidX(rect), NSMidY(rect));
-    NSBezierPath* path = [NSBezierPath bezierPath]; path.lineCapStyle = NSLineCapStyleRound; path.lineJoinStyle = NSLineJoinStyleRound;
-    const NSInteger segments = std::max<NSInteger>(2, static_cast<NSInteger>(std::ceil(length * 96)));
-    for (NSInteger point = 0; point <= segments; ++point) { const CGFloat percent = start + length * point / segments, angle = (135 + 270 * percent) * M_PI / 180.; const NSPoint p = NSMakePoint(center.x + std::cos(angle) * radius, center.y + std::sin(angle) * radius); if (!point) [path moveToPoint:p]; else [path lineToPoint:p]; }
     constexpr std::array<CGFloat, 4> spreads{12, 8, 5, 2.5}; constexpr std::array<CGFloat, 4> opacities{.05, .075, .12, .2};
     const CGFloat strength = std::clamp<CGFloat>(control.ringGlowIntensity, 0, 100) / 100., opacity = std::clamp<CGFloat>(control.opacity, 0, 1), baseWidth = std::clamp<CGFloat>(control.ringThickness, 1, 16) * scale;
-    if (strength > 0) for (std::size_t layer = 0; layer < spreads.size(); ++layer) { [rgbColor(control.colorRgb, opacity * opacities[layer] * strength) setStroke]; path.lineWidth = baseWidth + spreads[layer] * strength * scale; [path stroke]; }
-    [rgbColor(control.colorRgb, opacity) setStroke]; path.lineWidth = baseWidth; [path stroke];
-    if (pan) { const NSPoint marker = NSMakePoint(center.x, center.y - radius); const CGFloat markerRadius = std::max<CGFloat>(1.4, control.ringThickness * .52) * scale; if (strength > 0) for (std::size_t layer = 0; layer < spreads.size(); ++layer) { const CGFloat glowRadius = markerRadius + spreads[layer] * strength * .5 * scale; [rgbColor(control.colorRgb, opacity * opacities[layer] * strength) setFill]; [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(marker.x-glowRadius, marker.y-glowRadius, glowRadius*2, glowRadius*2)] fill]; } [rgbColor(control.colorRgb, opacity) setFill]; [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(marker.x-markerRadius, marker.y-markerRadius, markerRadius*2, markerRadius*2)] fill]; }
+    if (length > .00001) {
+        NSBezierPath* path = [NSBezierPath bezierPath]; path.lineCapStyle = NSLineCapStyleRound; path.lineJoinStyle = NSLineJoinStyleRound;
+        const NSInteger segments = std::max<NSInteger>(2, static_cast<NSInteger>(std::ceil(length * 96)));
+        for (NSInteger point = 0; point <= segments; ++point) { const CGFloat percent = start + length * point / segments, angle = (135 + 270 * percent) * M_PI / 180.; const NSPoint p = NSMakePoint(center.x + std::cos(angle) * radius, center.y + std::sin(angle) * radius); if (!point) [path moveToPoint:p]; else [path lineToPoint:p]; }
+        if (strength > 0) for (std::size_t layer = 0; layer < spreads.size(); ++layer) { [rgbColor(control.colorRgb, opacity * opacities[layer] * strength) setStroke]; path.lineWidth = baseWidth + spreads[layer] * strength * scale; [path stroke]; }
+        [rgbColor(control.colorRgb, opacity) setStroke]; path.lineWidth = baseWidth; [path stroke];
+        if (pan) { const NSPoint marker = NSMakePoint(center.x, center.y - radius); const CGFloat markerRadius = std::max<CGFloat>(1.4, control.ringThickness * .52) * scale; if (strength > 0) for (std::size_t layer = 0; layer < spreads.size(); ++layer) { const CGFloat glowRadius = markerRadius + spreads[layer] * strength * .5 * scale; [rgbColor(control.colorRgb, opacity * opacities[layer] * strength) setFill]; [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(marker.x-glowRadius, marker.y-glowRadius, glowRadius*2, glowRadius*2)] fill]; } [rgbColor(control.colorRgb, opacity) setFill]; [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(marker.x-markerRadius, marker.y-markerRadius, markerRadius*2, markerRadius*2)] fill]; }
+    }
+    const NSInteger numeric = pan ? static_cast<NSInteger>(std::lround((value - .5f) * 200.f)) : static_cast<NSInteger>(std::lround(value * 100.f));
+    NSString* label = pan && numeric > 0 ? [NSString stringWithFormat:@"+%ld", static_cast<long>(numeric)] : [NSString stringWithFormat:@"%ld", static_cast<long>(numeric)];
+    NSDictionary* attributes = openRingTextAttributes(std::clamp<CGFloat>(control.ringValueFontSize, 8, 32) * scale, rgbColor(control.ringValueColorRgb, opacity), control.ringValueFontWeight);
+    const NSSize textSize = [label sizeWithAttributes:attributes];
+    [label drawInRect:NSMakeRect(NSMinX(rect), NSMidY(rect) - textSize.height * .5, NSWidth(rect), textSize.height) withAttributes:attributes];
 }
 
 - (void)drawPanelControl:(NSInteger)index {

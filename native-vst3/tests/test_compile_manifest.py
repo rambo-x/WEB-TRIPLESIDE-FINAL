@@ -66,7 +66,7 @@ def test_compiles_linked_led_and_realtime_waveform_contract(tmp_path):
         {"id": "power", "kind": "button", "label": "Power", "parameter": "bypass", "value": 0},
         {"id": "power-led", "kind": "indicator", "label": "Power LED", "parameter": "visual", "value": 0, "indicator_source_id": "power", "control_color": "#39FF88", "component_variant": "round-indicator"},
         {"id": "waveform", "kind": "spectrum", "label": "Waveform", "parameter": "visual", "value": 0, "visual_color": "#A78BFA", "component_variant": "realtime-waveform", "waveform_line_width": 4.2, "width": 480, "height": 180},
-        {"id": "open-ring", "kind": "knob", "label": "Open Ring", "parameter": "tone", "value": 65, "control_color": "#39FF88", "component_variant": "open-led-ring", "ring_thickness": 15.5, "ring_glow_intensity": 0, "width": 128, "height": 128},
+        {"id": "open-ring", "kind": "knob", "label": "Open Ring", "parameter": "tone", "value": 65, "control_color": "#39FF88", "component_variant": "open-led-ring", "ring_thickness": 15.5, "ring_glow_intensity": 0, "ring_value_font_size": 24, "ring_value_color": "#12ABEF", "ring_value_font_weight": 800, "width": 128, "height": 128},
     ]
     source = tmp_path / "project.json"
     output = tmp_path / "NativeProject.h"
@@ -82,10 +82,12 @@ def test_compiles_linked_led_and_realtime_waveform_contract(tmp_path):
     assert "0xA78BFA" in result
     assert "4.2f" in result
     assert "float waveformLineWidth, ringThickness, ringGlowIntensity, barWidthRatio;" in result
+    assert "int ringValueFontSize; unsigned int ringValueColorRgb; int ringValueFontWeight;" in result
     open_ring = next(line for line in result.splitlines() if 'ControlInfo{"open-ring"' in line)
     assert "0x39FF88" in open_ring
     assert "15.5f" in open_ring
     assert "15.5f, 0.0f, 0.54f" in open_ring
+    assert '"square", 24, 0x12ABEF, 800' in open_ring
 
 
 def test_open_ring_glow_intensity_defaults_and_clamps(tmp_path):
@@ -102,9 +104,28 @@ def test_open_ring_glow_intensity_defaults_and_clamps(tmp_path):
     MODULE.compile_manifest(source, output)
 
     lines = {match.group(1): match.group(0) for match in re.finditer(r'ControlInfo\{"([^"]+)"[^\n]+', output.read_text(encoding="utf-8"))}
-    assert "5.0f, 65.0f, 0.54f" in lines["default"]
-    assert "5.0f, 100.0f, 0.54f" in lines["high"]
-    assert "5.0f, 0.0f, 0.54f" in lines["low"]
+    assert "5.0f, 65.0f, 0.54f" in lines["default"] and '"square", 16, 0xF4F4F5, 700' in lines["default"]
+    assert "5.0f, 100.0f, 0.54f" in lines["high"] and '"square", 16, 0xF4F4F5, 700' in lines["high"]
+    assert "5.0f, 0.0f, 0.54f" in lines["low"] and '"square", 16, 0xF4F4F5, 700' in lines["low"]
+
+
+def test_open_ring_value_typography_defaults_and_clamps(tmp_path):
+    spec = project_spec()
+    spec["interface"]["controls"] = [
+        {"id": "default", "kind": "knob", "component_variant": "open-led-ring"},
+        {"id": "custom", "kind": "knob", "component_variant": "pan-open-led-ring", "ring_value_font_size": 32, "ring_value_color": "#12ABEF", "ring_value_font_weight": 900},
+        {"id": "invalid", "kind": "knob", "component_variant": "open-led-ring", "ring_value_font_size": 99, "ring_value_color": "bad", "ring_value_font_weight": 450},
+    ]
+    source = tmp_path / "project.json"
+    output = tmp_path / "NativeProject.h"
+    source.write_text(json.dumps(spec), encoding="utf-8")
+
+    MODULE.compile_manifest(source, output)
+
+    lines = {match.group(1): match.group(0) for match in re.finditer(r'ControlInfo\{"([^"]+)"[^\n]+', output.read_text(encoding="utf-8"))}
+    assert "16, 0xF4F4F5, 700" in lines["default"]
+    assert "32, 0x12ABEF, 900" in lines["custom"]
+    assert "32, 0xF4F4F5, 700" in lines["invalid"]
 
 
 def test_compiles_stomp_bar_spectrum_toggle_gap_and_tiny_led_contract(tmp_path):
@@ -385,7 +406,7 @@ def test_compiles_combined_solo_mute_native_contract(tmp_path):
     assert "unsigned int soloColorRgb, muteColorRgb;" in result
     control = next(line for line in result.splitlines() if 'ControlInfo{"snare-state"' in line)
     assert '"solo_mute", -1, -1, -1, 0,' in control
-    assert '13, 0x12ABEF, 0xEF4444, "capsule"}' in control
+    assert '13, 0x12ABEF, 0xEF4444, "capsule", 16, 0xF4F4F5, 700}' in control
 
 
 def test_native_manifest_rejects_more_than_bounded_dsp_parameter_limit(tmp_path):
