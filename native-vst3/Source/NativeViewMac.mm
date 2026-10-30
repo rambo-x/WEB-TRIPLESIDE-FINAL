@@ -241,6 +241,7 @@ using tripleside::native::fillRounded;
 using tripleside::native::groupParameterId;
 using tripleside::native::kGroupBaseId;
 using tripleside::native::panelTextAttributes;
+using tripleside::native::openRingTextAttributes;
 using tripleside::native::rgbColor;
 using tripleside::native::mixedRgbColor;
 using tripleside::native::RuntimeMidiEvent;
