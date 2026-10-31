@@ -879,6 +879,35 @@ def test_shared_preview_live_waveform_and_linked_led_match_on_both_platforms():
     assert "control.waveformLineWidth" in macos
 
 
+def test_sample_waveform_runtime_uses_cached_peaks_active_voice_and_native_style_contract():
+    header = (SOURCE_DIR / "NativeInstrument.h").read_text(encoding="utf-8")
+    instrument = (SOURCE_DIR / "NativeInstrument.cpp").read_text(encoding="utf-8")
+    windows_header = (SOURCE_DIR / "NativeView.h").read_text(encoding="utf-8")
+    windows = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+    macos = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
+    compiler = (SOURCE_DIR.parent / "tools" / "compile_manifest.py").read_text(encoding="utf-8")
+
+    assert "kSampleWaveformPeakCount=128" in header
+    assert "samplePlaybackSnapshot" in header
+    assert "copySampleWaveformPeaks" in header
+    assert "sampleWaveformPeaks" in header
+    assert "audioSamplePlayback" in instrument
+    assert "samplePlayback[slot].progress.store" in instrument
+    assert "if(loaded&&!samples[i].empty())" in instrument
+    assert "drawSampleWaveform(const D2D1_RECT_F&)" in windows_header
+    assert 'equals(currentControlVariant,"sample-waveform")' in windows
+    assert "currentSampleNameVisible=c.sampleNameVisible" in windows
+    assert "currentPlayheadThickness*scale" in windows
+    assert "drawSampleWaveformInRect" in macos
+    assert 'equals(control.variant, "sample-waveform")' in macos
+    assert "control.playheadThickness * scale" in macos
+    assert 'variant,"sample-waveform"' in windows
+    assert 'variant, "sample-waveform"' in macos
+    assert "const char* displayName" in compiler
+    assert "sampleNameVisible" in compiler
+    assert "playheadColorRgb" in compiler
+
+
 def test_relative_live_patterns_track_all_held_chord_notes():
     header = (SOURCE_DIR / "NativeInstrument.h").read_text(encoding="utf-8")
     instrument = (SOURCE_DIR / "NativeInstrument.cpp").read_text(encoding="utf-8")

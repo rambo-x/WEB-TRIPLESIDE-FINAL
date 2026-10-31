@@ -68,8 +68,12 @@ public:
     float gainReduction(int moduleIndex = -1) const noexcept;
     float groupPeak(int group) const noexcept { return groupPeaks[static_cast<size_t>(group)].load(std::memory_order_relaxed); }
     static constexpr std::size_t kAnalysisSampleCount=2048;
+    static constexpr std::size_t kSampleWaveformPeakCount=128;
+    struct SamplePlaybackSnapshot { int sampleIndex=-1, zoneIndex=-1; float progress=-1; };
     void copyAnalysisSamples(float*,std::size_t,int channel=-1) const noexcept;
     void copyGroupAnalysisSamples(int group,float*,std::size_t,int channel=-1) const noexcept;
+    SamplePlaybackSnapshot samplePlaybackSnapshot(int samplerGroup=-1) const noexcept;
+    void copySampleWaveformPeaks(int sampleIndex,float*,std::size_t) const noexcept;
     double analysisSampleRate() const noexcept { return hostSampleRate; }
     Steinberg::Vst::ParamID parameterFor(const char*) const noexcept;
     Steinberg::Vst::ParamID parameterForControl(std::size_t) const noexcept;
@@ -122,6 +126,11 @@ private:
     std::array<dsp::SmoothedValue, project::kGroups.size()> groupOutputGains{};
     std::array<std::atomic<float>, 2> peaks{}, rms{}; std::array<std::atomic<float>, project::kGroups.size()> groupPeaks{};
     std::array<std::atomic<float>, kAnalysisSampleCount> analysisSamplesLeft{},analysisSamplesRight{}; std::atomic<std::uint64_t> analysisWrite{0};
+    struct AtomicSamplePlayback { std::atomic<int> sampleIndex{-1},zoneIndex{-1}; std::atomic<float> progress{-1}; };
+    struct AudioSamplePlayback { std::uint64_t age=0; int sampleIndex=-1,zoneIndex=-1; float progress=-1; };
+    std::array<AtomicSamplePlayback,project::kGroups.size()+1> samplePlayback{};
+    std::array<AudioSamplePlayback,project::kGroups.size()+1> audioSamplePlayback{};
+    std::array<std::array<std::atomic<float>,kSampleWaveformPeakCount>,project::kSamples.size()> sampleWaveformPeaks{};
     std::array<std::array<std::atomic<float>,2>,project::kGroups.size()> groupPeaksStereo{},groupRmsStereo{};
     std::array<std::array<std::atomic<float>,kAnalysisSampleCount>,project::kGroups.size()> groupAnalysisSamplesLeft{},groupAnalysisSamplesRight{}; std::atomic<std::uint64_t> groupAnalysisWrite{0};
     std::array<std::atomic<float>, project::kDspModules.size()> compressorGainReductions{};

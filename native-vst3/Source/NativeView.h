@@ -31,7 +31,7 @@ private:
 #if defined(_WIN32)
     static LRESULT CALLBACK windowProc(HWND,UINT,WPARAM,LPARAM); LRESULT handleMessage(UINT,WPARAM,LPARAM);
     bool createResources(); bool loadBitmap(const wchar_t*,Microsoft::WRL::ComPtr<ID2D1Bitmap>&); void discardResources(); void paint(); void paintFallback(HDC,const RECT&); void drawBranding(); void drawControl(size_t); void drawLicenseOverlay(); bool licenseButtonHit(float,float) const; bool licenseInputHit(float,float) const;
-    void drawKnob(const D2D1_RECT_F&,float,const wchar_t*,bool); void drawControlValue(size_t,const D2D1_RECT_F&,float); void drawMeter(const D2D1_RECT_F&,float,float,bool,bool,const wchar_t*,bool=false); void drawSpectrum(const D2D1_RECT_F&); void drawBarSpectrum(const D2D1_RECT_F&); void drawWaveform(const D2D1_RECT_F&); void drawVectorscope(const D2D1_RECT_F&);
+    void drawKnob(const D2D1_RECT_F&,float,const wchar_t*,bool); void drawControlValue(size_t,const D2D1_RECT_F&,float); void drawMeter(const D2D1_RECT_F&,float,float,bool,bool,const wchar_t*,bool=false); void drawSpectrum(const D2D1_RECT_F&); void drawSampleWaveform(const D2D1_RECT_F&); void drawBarSpectrum(const D2D1_RECT_F&); void drawWaveform(const D2D1_RECT_F&); void drawVectorscope(const D2D1_RECT_F&);
     void drawButton(const D2D1_RECT_F&,bool,const wchar_t*); void drawFilmstrip(ID2D1Bitmap*,const D2D1_RECT_F&,int,int,int,int);
     void drawKeyboard(const D2D1_RECT_F&,int,size_t); void drawPad(const D2D1_RECT_F&,bool,const wchar_t*);
     int hitControl(float,float) const; int hitPanelChild(float,float) const; int keyboardNote(const D2D1_RECT_F&,float,float,int) const; D2D1_RECT_F designRect() const; D2D1_RECT_F controlRect(size_t) const; D2D1_POINT_2F controlPoint(size_t,float,float) const; D2D1_RECT_F labelRect(const D2D1_RECT_F&) const;
@@ -73,7 +73,7 @@ private:
     std::map<int,bool> midiLoopOverrides;
     std::set<int> hiddenMidiSequences;
     bool midiPlaying=false;
-    bool currentControlUsesFilmstrip=true,currentControlShowCorrelationMeter=true;
+    bool currentControlUsesFilmstrip=true,currentControlShowCorrelationMeter=true,currentControlShowBackground=true,currentSampleNameVisible=true;
     bool licenseInputFocused=false,presetNameFocused=false; std::wstring licenseInput,presetNameInput; wchar_t licenseForwardedKey=0,presetForwardedKey=0; std::uint64_t licenseForwardedAt=0,presetForwardedAt=0;
     std::map<size_t,std::array<float,2>> visualMeterLevels;
     std::map<size_t,std::uint64_t> visualMeterUpdatedMs;
@@ -82,7 +82,7 @@ private:
     std::array<unsigned,128> padTriggerGenerations{}; std::array<std::uint64_t,128> padFlashUntil{};
     bool hitPadFlashActive(int pitch);
     bool comInitialized=false;
-    const char* currentControlVariant="classic"; const char* currentControlParameter=""; const char* currentLabelPosition="top-left"; int currentControlModuleIndex=-1,currentControlSamplerGroupIndex=-1,currentLabelGap=12,currentStateLabelGap=5; unsigned int currentControlColor=0; float currentWaveformLineWidth=1.8f,currentBarWidthRatio=.54f;
+    const char* currentControlVariant="classic"; const char* currentControlParameter=""; const char* currentLabelPosition="top-left"; int currentControlModuleIndex=-1,currentControlSamplerGroupIndex=-1,currentLabelGap=12,currentStateLabelGap=5; unsigned int currentControlColor=0,currentPlayheadColor=0xffffff; float currentWaveformLineWidth=1.8f,currentBarWidthRatio=.54f,currentPlayheadThickness=2.f,currentPlayheadOpacity=1.f;
 #elif defined(__APPLE__)
     void* cocoaView=nullptr;
 #endif

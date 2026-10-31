@@ -274,7 +274,7 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
         suffix = Path(name).suffix.lower()
         if suffix != ".wav": fail(f"native VST3 currently supports WAV only: {name}")
         sample_indices[sample_id] = index
-        sample_lines.append(f"    SampleInfo{{{cpp_string(f'sample_{index:03d}{suffix}')}}},")
+        sample_lines.append(f"    SampleInfo{{{cpp_string(f'sample_{index:03d}{suffix}')}, {cpp_string(name)}}},")
 
     output_selector_group_ids = {
         str(control.get("sampler_group_id") or "")
@@ -402,6 +402,8 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
         ring_value_color_match = re.fullmatch(r"#?([0-9a-fA-F]{6})", str(control.get("ring_value_color") or "#F4F4F5"))
         ring_value_color_rgb = int(ring_value_color_match.group(1), 16) if ring_value_color_match else 0xF4F4F5
         ring_value_font_size = round(clamp(control.get("ring_value_font_size"), 8, 32, 16))
+        playhead_color_match = re.fullmatch(r"#?([0-9a-fA-F]{6})", str(control.get("playhead_color") or "#FFFFFF"))
+        playhead_color_rgb = int(playhead_color_match.group(1), 16) if playhead_color_match else 0xFFFFFF
         try:
             ring_value_font_weight = int(control.get("ring_value_font_weight", 700))
         except (TypeError, ValueError):
@@ -476,6 +478,10 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
             str(output_font_size),
             cpp_bool(control.get("show_correlation_meter", True)),
             cpp_float(clamp(control.get("waveform_line_width"), 0.5, 8, 1.8)),
+            cpp_bool(control.get("sample_name_visible", True)),
+            f"0x{playhead_color_rgb:06X}",
+            cpp_float(clamp(control.get("playhead_thickness"), 0.5, 12, 2)),
+            cpp_float(clamp(control.get("playhead_opacity"), 0, 100, 100) / 100),
             cpp_float(clamp(
                 control.get("ring_thickness", control.get("waveform_line_width") if control.get("component_variant") in {"open-led-ring", "pan-open-led-ring"} else None),
                 1, 16, 5,
@@ -659,10 +665,10 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
 #define TS_PLUGIN_CID_C 0x{cid[2]:08X}
 #define TS_PLUGIN_CID_D 0x{cid[3]:08X}
 namespace tripleside::project {{
-struct SampleInfo {{ const char* resourceFile; }};
+struct SampleInfo {{ const char* resourceFile; const char* displayName; }};
 struct GroupInfo {{ const char* id; const char* name; float volume; float pan; bool mute; bool solo; int outputBusIndex; }};
 struct ZoneInfo {{ int sampleIndex, groupIndex, articulationIndex, micIndex, roundRobinSet, rootPitch, lowPitch, highPitch, velocityLow, velocityHigh, roundRobin; float sampleStart, sampleEnd, loopStart, loopEnd, fadeInMs, fadeOutMs, loopCrossfadeMs; int tuneSemitones; float tuneCents, gainDb, pan; bool loopEnabled, tempoSync; float sourceBpm; std::array<int, 16> chokeTargetPitches; int chokeTargetCount; }};
-struct ControlInfo {{ const char* id; const char* kind; const char* label; const char* offLabel; const char* onLabel; const char* parameter; int moduleIndex; int indicatorSourceIndex; int midiSequenceIndex; int samplerGroupIndex; float x, y; int width, height; float value, opacity, rotation; unsigned int colorRgb; bool showBackground; int notePitch, keyCount; const char* labelPosition; int labelGap, stateLabelGap; const char* variant; const char* meterMode; const char* textFont; unsigned int textColorRgb; int outputFontSize; bool showCorrelationMeter; float waveformLineWidth, ringThickness, ringGlowIntensity, barWidthRatio; bool spectrumBand; bool useFilmstrip; bool faderMeterEnabled; const char* faderMeterPosition; unsigned int faderMeterColorRgb; int faderMeterGap, faderMeterWidth, faderMeterHeight; int soloMuteGap; unsigned int soloColorRgb, muteColorRgb; const char* buttonShape; int ringValueFontSize; unsigned int ringValueColorRgb; int ringValueFontWeight; }};
+struct ControlInfo {{ const char* id; const char* kind; const char* label; const char* offLabel; const char* onLabel; const char* parameter; int moduleIndex; int indicatorSourceIndex; int midiSequenceIndex; int samplerGroupIndex; float x, y; int width, height; float value, opacity, rotation; unsigned int colorRgb; bool showBackground; int notePitch, keyCount; const char* labelPosition; int labelGap, stateLabelGap; const char* variant; const char* meterMode; const char* textFont; unsigned int textColorRgb; int outputFontSize; bool showCorrelationMeter; float waveformLineWidth; bool sampleNameVisible; unsigned int playheadColorRgb; float playheadThickness, playheadOpacity, ringThickness, ringGlowIntensity, barWidthRatio; bool spectrumBand; bool useFilmstrip; bool faderMeterEnabled; const char* faderMeterPosition; unsigned int faderMeterColorRgb; int faderMeterGap, faderMeterWidth, faderMeterHeight; int soloMuteGap; unsigned int soloColorRgb, muteColorRgb; const char* buttonShape; int ringValueFontSize; unsigned int ringValueColorRgb; int ringValueFontWeight; }};
 struct KeyColorInfo {{ int control, pitch; unsigned int colorRgb; }};
 struct PanelControlInfo {{ int parentPanelIndex; const char* panelType; float panelX, panelY, panelWidth, panelHeight; bool mixerShowDefaultControls; }};
 struct PresetInfo {{ const char* id; const char* name; bool factory; int valueOffset, valueCount, groupOffset, groupCount, moduleOffset, moduleCount, midiSequenceIndex; }};

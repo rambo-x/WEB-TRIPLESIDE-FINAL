@@ -313,6 +313,7 @@ namespace project = tripleside::project;
 - (void)drawWaveformInRect:(NSRect)rect color:(unsigned)color lineWidth:(CGFloat)lineWidth samplerGroup:(int)samplerGroup;
 - (void)drawBarSpectrumInRect:(NSRect)rect color:(unsigned)color barWidthRatio:(CGFloat)barWidthRatio samplerGroup:(int)samplerGroup;
 - (void)drawSpectrumInRect:(NSRect)rect color:(unsigned)color samplerGroup:(int)samplerGroup;
+- (void)drawSampleWaveformInRect:(NSRect)rect control:(const project::ControlInfo&)control;
 - (void)drawVectorscopeInRect:(NSRect)rect color:(unsigned)color samplerGroup:(int)samplerGroup showCorrelation:(BOOL)showCorrelation;
 - (void)drawOpenRing:(std::size_t)index rect:(NSRect)rect value:(float)value;
 - (void)drawInlineFaderMeter:(std::size_t)index rect:(NSRect)rect exact:(BOOL)exact;
@@ -1241,6 +1242,24 @@ namespace project = tripleside::project;
     [rgbColor(color, .9) setStroke]; line.lineWidth = 1.5; [line stroke]; strokeRounded(rect, 11.2, rgbColor(color, .18));
 }
 
+- (void)drawSampleWaveformInRect:(NSRect)rect control:(const project::ControlInfo&)control {
+    const CGFloat width = NSWidth(rect), height = NSHeight(rect), scale = std::max<CGFloat>(.05, std::min(width / 640., height / 260.));
+    auto snapshot = _instrument->samplePlaybackSnapshot(control.samplerGroupIndex);
+    if (snapshot.sampleIndex < 0) for (std::size_t zoneIndex = 0; zoneIndex < project::kZones.size(); ++zoneIndex) {
+        const auto& zone = project::kZones[zoneIndex];
+        if (control.samplerGroupIndex < 0 || zone.groupIndex == control.samplerGroupIndex) { snapshot.sampleIndex = zone.sampleIndex; snapshot.zoneIndex = static_cast<int>(zoneIndex); break; }
+    }
+    if (control.showBackground) { [rgbColor(0x08080b, 1) setFill]; [[NSBezierPath bezierPathWithRoundedRect:rect xRadius:11.2 yRadius:11.2] fill]; [rgbColor(control.colorRgb ? control.colorRgb : project::kAccentRgb, .32) setStroke]; [[NSBezierPath bezierPathWithRoundedRect:rect xRadius:11.2 yRadius:11.2] stroke]; }
+    std::array<float, NativeInstrument::kSampleWaveformPeakCount> peaks{};
+    _instrument->copySampleWaveformPeaks(snapshot.sampleIndex, peaks.data(), peaks.size());
+    const CGFloat waveformTop = NSMinY(rect) + height * (control.sampleNameVisible ? .08 : .05), waveformBottom = NSMaxY(rect) - height * (control.sampleNameVisible ? .13 : .05), waveformHeight = std::max<CGFloat>(1, waveformBottom - waveformTop), slot = width / peaks.size();
+    const unsigned color = control.colorRgb ? control.colorRgb : project::kAccentRgb;
+    for (std::size_t index = 0; index < peaks.size(); ++index) { const CGFloat peak = std::clamp<CGFloat>(peaks[index], 0, 1), barHeight = std::max<CGFloat>(.6 * scale, peak * waveformHeight * .82), barWidth = std::max<CGFloat>(.08, slot * .76), x = NSMinX(rect) + slot * index + (slot - barWidth) * .5, y = (waveformTop + waveformBottom - barHeight) * .5; [rgbColor(color, .3 + peak * .65) setFill]; [[NSBezierPath bezierPathWithRoundedRect:NSMakeRect(x, y, barWidth, barHeight) xRadius:barWidth * .5 yRadius:barWidth * .5] fill]; }
+    if (snapshot.zoneIndex >= 0 && snapshot.zoneIndex < static_cast<int>(project::kZones.size())) { const auto& zone = project::kZones[static_cast<std::size_t>(snapshot.zoneIndex)]; [rgbColor(0x000000, .68) setFill]; if (zone.sampleStart > 0) NSRectFill(NSMakeRect(NSMinX(rect), NSMinY(rect), width * zone.sampleStart, height)); if (zone.sampleEnd < 1) NSRectFill(NSMakeRect(NSMinX(rect) + width * zone.sampleEnd, NSMinY(rect), width * (1 - zone.sampleEnd), height)); if (zone.loopEnabled && zone.loopEnd > zone.loopStart) { const NSRect loop = NSMakeRect(NSMinX(rect) + width * zone.loopStart, NSMinY(rect) + height * .07, width * (zone.loopEnd - zone.loopStart), height * .83); [rgbColor(0x6ee7b7, .05) setFill]; NSRectFill(loop); [rgbColor(0x6ee7b7, .72) setStroke]; NSBezierPath* path = [NSBezierPath bezierPath]; path.lineWidth = std::max<CGFloat>(.5, scale); [path moveToPoint:NSMakePoint(NSMinX(loop), NSMinY(loop))]; [path lineToPoint:NSMakePoint(NSMinX(loop), NSMaxY(loop))]; [path moveToPoint:NSMakePoint(NSMaxX(loop), NSMinY(loop))]; [path lineToPoint:NSMakePoint(NSMaxX(loop), NSMaxY(loop))]; [path stroke]; } }
+    if (control.sampleNameVisible && snapshot.sampleIndex >= 0 && snapshot.sampleIndex < static_cast<int>(project::kSamples.size())) { NSString* name = [[NSString stringWithUTF8String:project::kSamples[static_cast<std::size_t>(snapshot.sampleIndex)].displayName] uppercaseString]; if (name) { NSMutableParagraphStyle* paragraph = [[NSMutableParagraphStyle alloc] init]; paragraph.lineBreakMode = NSLineBreakByTruncatingTail; NSDictionary* attributes = @{NSFontAttributeName: [NSFont boldSystemFontOfSize:std::clamp<CGFloat>(10 * scale, 3, 12)], NSForegroundColorAttributeName: rgbColor(0xf4f4f5, .52), NSParagraphStyleAttributeName: paragraph}; [name drawInRect:NSMakeRect(NSMinX(rect) + width * .015, NSMaxY(rect) - height * .09, width * .97, height * .09) withAttributes:attributes]; } }
+    if (snapshot.progress >= 0) { const CGFloat x = NSMinX(rect) + width * std::clamp<CGFloat>(snapshot.progress, 0, 1), thickness = std::max<CGFloat>(.05, control.playheadThickness * scale), marker = std::max<CGFloat>(2, 4 * scale); [rgbColor(control.playheadColorRgb, control.playheadOpacity) setFill]; NSRectFill(NSMakeRect(x - thickness * .5, NSMinY(rect), thickness, height)); NSBezierPath* triangle = [NSBezierPath bezierPath]; [triangle moveToPoint:NSMakePoint(x, NSMinY(rect) + marker * 2)]; [triangle lineToPoint:NSMakePoint(x - marker, NSMinY(rect))]; [triangle lineToPoint:NSMakePoint(x + marker, NSMinY(rect))]; [triangle closePath]; [triangle fill]; }
+}
+
 - (void)drawVectorscopeInRect:(NSRect)rect color:(unsigned)color samplerGroup:(int)samplerGroup showCorrelation:(BOOL)showCorrelation {
     color = color ? color : project::kAccentRgb; constexpr std::size_t sampleCount = 512;
     std::array<float, sampleCount> left{}, right{};
@@ -1285,6 +1304,9 @@ namespace project = tripleside::project;
     const auto& control = project::kControls[static_cast<std::size_t>(index)];
     const auto& visual = project::kVisualControls[static_cast<std::size_t>(index)];
     if (equals(control.kind, "solo_mute")) { [self drawSoloMutePair:static_cast<std::size_t>(index) rect:[self panelChildRect:index]]; return; }
+    if (equals(control.kind, "spectrum") && equals(control.variant, "sample-waveform")) {
+        const NSRect waveform = [self panelChildRect:index]; [NSGraphicsContext saveGraphicsState]; CGContextSetAlpha([[NSGraphicsContext currentContext] CGContext], std::clamp<CGFloat>(control.opacity, 0, 1)); if (std::abs(control.rotation) >= .001f) { const NSPoint center = NSMakePoint(NSMidX(waveform), NSMidY(waveform)); NSAffineTransform* rotation = [NSAffineTransform transform]; [rotation translateXBy:center.x yBy:center.y]; [rotation rotateByDegrees:control.rotation]; [rotation translateXBy:-center.x yBy:-center.y]; [rotation concat]; } [self drawSampleWaveformInRect:waveform control:control]; [NSGraphicsContext restoreGraphicsState]; return;
+    }
     if (equals(control.kind, "spectrum") && equals(control.variant, "realtime-waveform")) {
         const NSRect waveform = [self panelChildRect:index];
         [NSGraphicsContext saveGraphicsState];
@@ -1378,6 +1400,9 @@ namespace project = tripleside::project;
         const auto& control = project::kControls[index];
         if (project::kPanelControls[index].parentPanelIndex >= 0) continue;
         if (!controlVisible(index) || !visual.file || !*visual.file || visual.frames <= 0) continue;
+        if (equals(control.kind, "spectrum") && equals(control.variant, "sample-waveform")) {
+            const NSRect waveform = controlLayoutRect(control, visual); [NSGraphicsContext saveGraphicsState]; CGContextSetAlpha([[NSGraphicsContext currentContext] CGContext], std::clamp<CGFloat>(control.opacity, 0, 1)); if (std::abs(control.rotation) >= .001f) { const NSPoint center = NSMakePoint(NSMidX(waveform), NSMidY(waveform)); NSAffineTransform* rotation = [NSAffineTransform transform]; [rotation translateXBy:center.x yBy:center.y]; [rotation rotateByDegrees:control.rotation]; [rotation translateXBy:-center.x yBy:-center.y]; [rotation concat]; } [self drawSampleWaveformInRect:waveform control:control]; [NSGraphicsContext restoreGraphicsState]; continue;
+        }
         if (equals(control.kind, "spectrum") && equals(control.variant, "realtime-waveform")) {
             const NSRect waveform = controlLayoutRect(control, visual);
             [NSGraphicsContext saveGraphicsState];
@@ -1616,7 +1641,7 @@ namespace project = tripleside::project;
 - (NSInteger)prismBandAt:(NSPoint)point {
     if constexpr (!project::kIsPrismEq && !project::kHasPrismModule) return -1;
     for (std::size_t index = 0; index < project::kControls.size(); ++index) {
-        if (!equals(project::kControls[index].kind, "spectrum") || equals(project::kControls[index].variant, "pure-spectrum")) continue;
+        if (!equals(project::kControls[index].kind, "spectrum") || equals(project::kControls[index].variant, "pure-spectrum") || equals(project::kControls[index].variant, "sample-waveform")) continue;
         const auto& control = project::kControls[index];
         const auto& visual = project::kVisualControls[index];
         const NSRect spectrum = controlLayoutRect(control, visual);
@@ -1632,7 +1657,7 @@ namespace project = tripleside::project;
 
 - (void)updatePrismBand:(NSInteger)band point:(NSPoint)point {
     for (std::size_t index = 0; index < project::kControls.size(); ++index) {
-        if (!equals(project::kControls[index].kind, "spectrum") || equals(project::kControls[index].variant, "pure-spectrum")) continue;
+        if (!equals(project::kControls[index].kind, "spectrum") || equals(project::kControls[index].variant, "pure-spectrum") || equals(project::kControls[index].variant, "sample-waveform")) continue;
         const auto& control = project::kControls[index];
         const auto& visual = project::kVisualControls[index];
         const NSRect spectrum = controlLayoutRect(control, visual);
@@ -1772,7 +1797,7 @@ namespace project = tripleside::project;
     if ([self panelMouseDown:point]) return;
     if (event.clickCount >= 2 && (project::kIsPrismEq || project::kHasPrismModule)) {
         for (std::size_t index = 0; index < project::kControls.size(); ++index) {
-            if (!equals(project::kControls[index].kind, "spectrum") || equals(project::kControls[index].variant, "pure-spectrum")) continue;
+            if (!equals(project::kControls[index].kind, "spectrum") || equals(project::kControls[index].variant, "pure-spectrum") || equals(project::kControls[index].variant, "sample-waveform")) continue;
             const auto& control = project::kControls[index];
             const auto& visual = project::kVisualControls[index];
             if (!NSPointInRect(controlLocalPoint(control, point), controlLayoutRect(control, visual))) continue;
