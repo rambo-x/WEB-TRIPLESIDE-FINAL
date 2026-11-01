@@ -20,6 +20,11 @@ assert VERIFIER_SPEC.loader is not None
 VERIFIER_SPEC.loader.exec_module(VERIFIER)
 
 
+def test_visual_tolerance_allows_small_antialiasing_drift():
+    assert VERIFIER.MIN_PERCENT_WITHIN_8 == 99.7
+    assert VERIFIER.MAX_MEAN_ABSOLUTE_RGBA == 0.5
+
+
 def test_only_transient_playwright_failures_are_retryable():
     assert RENDERER.is_transient_capture_error(PlaywrightTimeoutError("page.goto timed out"))
     assert RENDERER.is_transient_capture_error(
@@ -198,6 +203,20 @@ def test_live_pattern_controls_and_linked_indicators_start_in_transient_off_stat
     active = {"id": "pattern-button", "value": 100}
     assert VERIFIER.control_frame_value(controls[0], controls, active) == 100
     assert VERIFIER.control_frame_value(controls[1], controls, active) == 100
+
+
+def test_choice_buttons_recompose_from_the_bound_dsp_parameter_as_a_radio_group():
+    controls = [
+        {
+            "id": f"mode-{index}", "kind": "button", "value": 100,
+            "module_id": "reverb-a", "parameter": "mode", "option_value": value,
+        }
+        for index, value in enumerate((0, 1 / 3, 2 / 3, 1))
+    ]
+    modules = [{"id": "reverb-a", "type": "reverb", "parameters": {"mode": 1}}]
+
+    assert [VERIFIER.control_frame_value(control, controls, {}, modules) for control in controls] == [0, 0, 0, 100]
+    assert VERIFIER.control_frame_value(controls[0], controls, {"id": "mode-0", "value": 100}, modules) == 100
 
 
 def test_windows_build_retries_visual_capture_once_only():

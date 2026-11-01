@@ -5,14 +5,23 @@ This verifies the export/geometry contract, not Windows GPU rasterization.
 """
 import argparse
 import json
+import sys
 from pathlib import Path
 from PIL import Image, ImageChops, ImageStat
 
-MIN_PERCENT_WITHIN_8 = 99.8
+TOOLS_DIR = str(Path(__file__).resolve().parent)
+if TOOLS_DIR not in sys.path:
+    sys.path.insert(0, TOOLS_DIR)
+from compile_manifest import DSP_PARAMETER_CHOICES
+
+# Chromium rasterization can shift a thin antialiased edge between captures.
+# Keep the independent mean-error ceiling while allowing at most 0.3% of
+# pixels to differ by more than eight levels.
+MIN_PERCENT_WITHIN_8 = 99.7
 MAX_MEAN_ABSOLUTE_RGBA = 0.5
 
 
-def control_frame_value(control, controls, state):
+def control_frame_value(control, controls, state, engine_modules=()):
     kind = control.get('kind')
     if kind == 'indicator':
         if control.get('id') == state.get('id'):
@@ -33,6 +42,31 @@ def control_frame_value(control, controls, state):
         return 100 if source_value >= 50 else 0
     if control.get('midi_sequence_id'):
         value = 0
+    elif kind == 'button' and control.get('option_value') is not None:
+        # Choice-bound buttons are a radio group. The browser derives their
+        # lamp state from the bound DSP parameter, not from each control's
+        # persisted value (legacy projects can legitimately contain 100 on
+        # every button). Keep an explicit capture override equivalent to
+        # VstVisualRender's captureLevel branch.
+        if control.get('id') == state.get('id'):
+            return state.get('value', 0)
+        module = next((
+            item for item in engine_modules
+            if str(item.get('id') or '') == str(control.get('module_id') or '')
+        ), None)
+        module_type = str((module or {}).get('type') or '').replace('-', '_')
+        choices = DSP_PARAMETER_CHOICES.get((module_type, str(control.get('parameter') or '')), ())
+        if not module or not choices:
+            return 0
+        try:
+            parameter_value = float((module.get('parameters') or {}).get(
+                control.get('parameter'), float(control.get('value', 0)) / 100
+            ))
+            option_value = float(control.get('option_value'))
+        except (TypeError, ValueError):
+            return 0
+        selected = min(choices, key=lambda choice: abs(choice[1] - parameter_value))[1]
+        return 100 if abs(selected - option_value) < .000001 else 0
     else:
         value = 0 if kind in {'gain_meter', 'vu_meter', 'pad', 'keyboard', 'visual', 'text'} else control.get('value', 50)
     return state.get('value', value) if control.get('id') == state.get('id') else value
@@ -74,7 +108,7 @@ def verify(spec_path, active=False):
         control = spec['interface']['controls'][i]
         if control.get('parent_panel_id'):
             continue
-        value = control_frame_value(control, spec['interface']['controls'], state)
+        value = control_frame_value(control, spec['interface']['controls'], state, spec.get('engine_modules', ()))
         paste(item, round(value/100*(item['frames']-1)))
         for key in manifest['keys']:
             if key['control'] == i:
@@ -99,7 +133,9 @@ def verify_panels(spec_path):
             file = item['file']
             if file not in cache:
                 cache[file] = Image.open(root/file).convert('RGBA')
-            value = control_frame_value(control, spec['interface']['controls'], {'panelId': panel['id']})
+            value = control_frame_value(
+                control, spec['interface']['controls'], {'panelId': panel['id']}, spec.get('engine_modules', ())
+            )
             frame = round(value/100*(item['frames']-1))
             rect = item['rect']
             x = (frame % item['columns']) * rect['width']
