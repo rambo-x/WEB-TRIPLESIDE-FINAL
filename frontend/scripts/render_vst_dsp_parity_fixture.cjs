@@ -14,7 +14,7 @@ const reverbModes = {
   "--reverb-hall": 3,
 };
 const reverbMode = reverbModes[process.argv[4]];
-const workletPath = path.resolve(__dirname, "..", "public", "vst-dsp-worklet-v25.js");
+const workletPath = path.resolve(__dirname, "..", "public", "vst-dsp-worklet-v26.js");
 let Processor = null;
 class AudioWorkletProcessor { constructor() { this.port = { onmessage: null }; } }
 vm.runInContext(fs.readFileSync(workletPath, "utf8"), vm.createContext({

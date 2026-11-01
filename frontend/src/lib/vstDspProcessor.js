@@ -1148,7 +1148,9 @@ export const createNativeDspProcessorClass = (BaseProcessor, workletSampleRate) 
         if (node.modulationPhase >= 2 * PI) node.modulationPhase -= 2 * PI;
         if (node.hallModulationPhase >= 2 * PI) node.hallModulationPhase -= 2 * PI;
         const lateLeft = (x[0] + x[2] + x[5] - x[7]) * [0.32, 0.3, 0.3, 0.28][mode]; const lateRight = (x[1] + x[3] + x[4] - x[6]) * [0.32, 0.3, 0.3, 0.28][mode];
-        const wetLeft = lateLeft * [0.82, 0.88, 0.94, 1][mode] + diffuseLeft * [0.16, 0.12, 0.085, 0.075][mode]; const wetRight = lateRight * [0.82, 0.88, 0.94, 1][mode] + diffuseRight * [0.16, 0.12, 0.085, 0.075][mode];
+        const trueReverbWetOutputGain = 1.9952623149688795; // +6 dB; dry and Chord Bloom/Shimmer remain unchanged.
+        const wetLeft = (lateLeft * [0.82, 0.88, 0.94, 1][mode] + diffuseLeft * [0.16, 0.12, 0.085, 0.075][mode]) * trueReverbWetOutputGain;
+        const wetRight = (lateRight * [0.82, 0.88, 0.94, 1][mode] + diffuseRight * [0.16, 0.12, 0.085, 0.075][mode]) * trueReverbWetOutputGain;
         left = dryLeft * (1 - mix) + wetLeft * mix; right = dryRight * (1 - mix) + wetRight * mix;
       } else {
         const envelopeTarget = Math.min(1, Math.max(Math.abs(dryLeft), Math.abs(dryRight)) * 8);
@@ -1313,7 +1315,7 @@ export const installNativeDspWorklet = async (context) => {
     // A static same-origin module survives production minification and can be
     // cached independently. prestart/prebuild regenerate it from this file.
     const publicRoot = process.env.PUBLIC_URL || "";
-    context.__tripleSideNativeDspWorklet = context.audioWorklet.addModule(`${publicRoot}/vst-dsp-worklet-v25.js`);
+    context.__tripleSideNativeDspWorklet = context.audioWorklet.addModule(`${publicRoot}/vst-dsp-worklet-v26.js`);
   }
   await context.__tripleSideNativeDspWorklet;
 };

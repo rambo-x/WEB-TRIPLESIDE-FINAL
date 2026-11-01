@@ -39,7 +39,7 @@ const rms = (signal, start = 0) => Math.sqrt(
 );
 
 describe("native-parity DSP AudioWorklet", () => {
-  test("loads the cache-busted v25 worklet and reuses its context promise", async () => {
+  test("loads the cache-busted v26 worklet and reuses its context promise", async () => {
     const originalAudioWorkletNode = global.AudioWorkletNode;
     global.AudioWorkletNode = function AudioWorkletNode() {};
     const addModule = jest.fn(() => Promise.resolve());
@@ -47,7 +47,7 @@ describe("native-parity DSP AudioWorklet", () => {
     await installNativeDspWorklet(context);
     await installNativeDspWorklet(context);
     expect(addModule).toHaveBeenCalledTimes(1);
-    expect(addModule).toHaveBeenCalledWith("/vst-dsp-worklet-v25.js");
+    expect(addModule).toHaveBeenCalledWith("/vst-dsp-worklet-v26.js");
     if (originalAudioWorkletNode === undefined) delete global.AudioWorkletNode;
     else global.AudioWorkletNode = originalAudioWorkletNode;
   });
@@ -150,7 +150,7 @@ describe("native-parity DSP AudioWorklet", () => {
     });
   });
 
-  test("keeps Reverb v20 deterministic while every legacy Shimmer setting uses Chord Bloom", () => {
+  test("raises only the True Reverb wet output by 6 dB while every legacy Shimmer setting uses Chord Bloom", () => {
     const input = Float32Array.from({ length: 24000 }, (_, index) => (
       Math.sin(2 * Math.PI * 220 * index / 48000) * 0.17 + Math.sin(2 * Math.PI * 277.18 * index / 48000) * 0.11
     ));
@@ -163,8 +163,15 @@ describe("native-parity DSP AudioWorklet", () => {
       id: "reverb", type: "reverb", mix: 1, parameters: reverbParameters,
       explicitParameters: Object.keys(reverbParameters),
     }], input, input, 48000);
-    expect(Array.from(currentReverb.left)).toEqual(Array.from(legacyReverb.left));
-    expect(Array.from(currentReverb.right)).toEqual(Array.from(legacyReverb.right));
+    const wetOutputGain = 10 ** (6 / 20);
+    expect(rms(currentReverb.left) / rms(legacyReverb.left)).toBeCloseTo(wetOutputGain, 5);
+    expect(rms(currentReverb.right) / rms(legacyReverb.right)).toBeCloseTo(wetOutputGain, 5);
+    const dryReverb = render([{
+      id: "reverb-dry", type: "reverb", mix: 1, parameters: { ...reverbParameters, mix: 0 },
+      explicitParameters: Object.keys(reverbParameters),
+    }], input, input, 48000);
+    expect(Array.from(dryReverb.left)).toEqual(Array.from(input));
+    expect(Array.from(dryReverb.right)).toEqual(Array.from(input));
 
     const bloomParameters = { mix: 1, size: 0.68, decay: 0.68, damping: 0.48, pre_delay: 0.03, shimmer: 0.7, rise: 0.5, tone: 0.42 };
     const implicit = render([{

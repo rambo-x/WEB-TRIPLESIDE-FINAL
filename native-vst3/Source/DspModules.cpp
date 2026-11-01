@@ -1499,7 +1499,10 @@ void SpatialReverb::processFrame(float& left, float& right) noexcept {
     const double lateRight = (hallLines_[1] + hallLines_[3] + hallLines_[4] - hallLines_[6]) * lateScale;
     const float wetGain = shimmerMode_ ? 1.0f : std::array<float, 4>{0.82f, 0.88f, 0.94f, 1.0f}[mode];
     const float earlyGain = shimmerMode_ ? 0.075f : std::array<float, 4>{0.16f, 0.12f, 0.085f, 0.075f}[mode];
-    const double wetLeft = lateLeft * wetGain + diffuseLeft * earlyGain, wetRight = lateRight * wetGain + diffuseRight * earlyGain;
+    constexpr float trueReverbWetOutputGain = 1.995262315f; // +6 dB; shimmer retains its approved output level.
+    const float outputGain = shimmerMode_ ? 1.0f : trueReverbWetOutputGain;
+    const double wetLeft = (lateLeft * wetGain + diffuseLeft * earlyGain) * outputGain;
+    const double wetRight = (lateRight * wetGain + diffuseRight * earlyGain) * outputGain;
     left = static_cast<float>(dryLeft * (1.0f - mix) + wetLeft * mix);
     right = static_cast<float>(dryRight * (1.0f - mix) + wetRight * mix);
 }
