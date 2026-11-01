@@ -47,7 +47,7 @@ def test_sampler_audio_uses_named_exclusive_output_busses_and_scoped_racks():
     assert process.index("groupEffectRacks[group].processFrame(gl,gr)") < process.index("if(bus==0){sl+=gl;sr+=gr;}")
     assert process.index("if(bus==0){sl+=gl;sr+=gr;}") < process.index("if(instrumentUsesDspRack)effectRack.processFrame(sl,sr)")
     assert "for(size_t bus=0;bus<outL.size();++bus)" in process
-    assert "if constexpr(project::kLicenseRequired){if(!LicenseRuntime::isLicensed()){for(int32 bus=0;bus<availableOutputs;++bus)" in process
+    assert "if constexpr(project::kLicenseRequired){if(!LicenseRuntime::isLicensed()){for(size_t bus=0;bus<outL.size();++bus)" in process
 
 
 def test_output_selector_is_automatable_stateful_and_uses_captured_bus_frames():
@@ -753,6 +753,23 @@ def test_effect_runtime_applies_sample_offset_automation_and_reports_tails():
     assert "effectBypassMix.next()" in source
     assert "getTailSamples()" in header
     assert "hostSampleRate*120.0" in source
+
+
+def test_effect_runtime_preserves_in_place_host_input_buffers():
+    source = (SOURCE_DIR / "NativeInstrument.cpp").read_text(encoding="utf-8")
+    process = source.split("tresult PLUGIN_API NativeInstrument::process(ProcessData&data)", 1)[1].split(
+        "void NativeInstrument::copyAnalysisSamples", 1
+    )[0]
+
+    input_capture = "if constexpr(project::kIsEffect){if(data.numInputs>0&&data.inputs&&data.inputs[0].numChannels>0&&data.inputs[0].channelBuffers32)"
+    instrument_clear = "if constexpr(!project::kIsEffect){for(size_t bus=0;bus<outL.size();++bus)"
+    assert input_capture in process
+    assert instrument_clear in process
+    assert process.index(input_capture) < process.index(instrument_clear)
+    assert "if constexpr(project::kIsEffect){if(outR[0]==outL[0])outL[0][i]=(sl+sr)*.5f;else{outL[0][i]=sl;outR[0][i]=sr;}}" in process
+    assert "else{outL[0][i]+=sl;outR[0][i]+=sr;}" in process
+    assert "if constexpr(project::kIsEffect){for(size_t bus=0;bus<outL.size();++bus)" not in process
+    assert "if constexpr(project::kLicenseRequired){if(!LicenseRuntime::isLicensed()){for(size_t bus=0;bus<outL.size();++bus)" in process
 
 
 def test_customer_build_runtime_requires_machine_bound_activation():

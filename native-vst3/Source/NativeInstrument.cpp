@@ -758,10 +758,10 @@ tresult PLUGIN_API NativeInstrument::process(ProcessData&data){
     const auto availableOutputs=std::min<int32>(data.numOutputs,project::kAudioOutputBusCount);
     for(int32 bus=0;bus<availableOutputs;++bus){if(data.outputs[bus].numChannels>0&&data.outputs[bus].channelBuffers32){outL[static_cast<size_t>(bus)]=data.outputs[bus].channelBuffers32[0];outR[static_cast<size_t>(bus)]=data.outputs[bus].numChannels>1?data.outputs[bus].channelBuffers32[1]:outL[static_cast<size_t>(bus)];}}
     if(!outL[0]||!outR[0])return kResultFalse;
-    for(size_t bus=0;bus<outL.size();++bus){if(outL[bus])std::fill(outL[bus],outL[bus]+data.numSamples,0);if(outR[bus]&&outR[bus]!=outL[bus])std::fill(outR[bus],outR[bus]+data.numSamples,0);}
-    if constexpr(project::kLicenseRequired){if(!LicenseRuntime::isLicensed()){for(int32 bus=0;bus<availableOutputs;++bus)data.outputs[bus].silenceFlags=std::numeric_limits<uint64>::max();applyParameterChanges(data.inputParameterChanges);return kResultOk;}}
     float*inL=nullptr,*inR=nullptr;
-    if constexpr(project::kIsEffect){if(data.numInputs>0&&data.inputs){inL=data.inputs[0].channelBuffers32[0];inR=data.inputs[0].numChannels>1?data.inputs[0].channelBuffers32[1]:inL;}}
+    if constexpr(project::kIsEffect){if(data.numInputs>0&&data.inputs&&data.inputs[0].numChannels>0&&data.inputs[0].channelBuffers32){inL=data.inputs[0].channelBuffers32[0];inR=data.inputs[0].numChannels>1?data.inputs[0].channelBuffers32[1]:inL;}}
+    if constexpr(project::kLicenseRequired){if(!LicenseRuntime::isLicensed()){for(size_t bus=0;bus<outL.size();++bus){if(outL[bus])std::fill(outL[bus],outL[bus]+data.numSamples,0);if(outR[bus]&&outR[bus]!=outL[bus])std::fill(outR[bus],outR[bus]+data.numSamples,0);}for(int32 bus=0;bus<availableOutputs;++bus)data.outputs[bus].silenceFlags=std::numeric_limits<uint64>::max();applyParameterChanges(data.inputParameterChanges);return kResultOk;}}
+    if constexpr(!project::kIsEffect){for(size_t bus=0;bus<outL.size();++bus){if(outL[bus])std::fill(outL[bus],outL[bus]+data.numSamples,0);if(outR[bus]&&outR[bus]!=outL[bus])std::fill(outR[bus],outR[bus]+data.numSamples,0);}}
     struct AutomationCursor{IParamValueQueue*queue=nullptr;int32 point=0;int32 count=0;};
     std::array<AutomationCursor,256> automation{};int32 automationCount=0;
     if(data.inputParameterChanges){
@@ -790,7 +790,10 @@ tresult PLUGIN_API NativeInstrument::process(ProcessData&data){
             for(size_t group=0;group<project::kGroups.size();++group){float gl=groupLeft[group],gr=groupRight[group],dryL=gl,dryR=gr;if(groupEffectRacks[group].size())groupEffectRacks[group].processFrame(gl,gr);gl+=(dryL-gl)*bypassMix;gr+=(dryR-gr)*bypassMix;if(mute&&!solo)gl=gr=0;groupAnalysisSamplesLeft[group][groupAnalysisSlot].store(gl,std::memory_order_relaxed);groupAnalysisSamplesRight[group][groupAnalysisSlot].store(gr,std::memory_order_relaxed);groupPeakL[group]=std::max(groupPeakL[group],std::abs(gl));groupPeakR[group]=std::max(groupPeakR[group],std::abs(gr));groupEnergyL[group]+=gl*gl;groupEnergyR[group]+=gr*gr;const auto bus=static_cast<size_t>(groupOutputBuses[group]);if(bus==0){sl+=gl;sr+=gr;}else if(bus<outL.size()){if(outL[bus])outL[bus][i]+=gl;if(outR[bus])outR[bus][i]+=gr;busPeaks[bus]=std::max(busPeaks[bus],std::max(std::abs(gl),std::abs(gr)));}}
             const float dryL=sl,dryR=sr;if(instrumentUsesDspRack)effectRack.processFrame(sl,sr);else applyToneAndSpace(sl,sr);sl+=(dryL-sl)*bypassMix;sr+=(dryR-sr)*bypassMix;if(mute&&!solo)sl=sr=0;instrumentMasterGain.processFrame(sl,sr);
         }
-        applyMasterPan(sl,sr);outL[0][i]+=sl;outR[0][i]+=sr;busPeaks[0]=std::max(busPeaks[0],std::max(std::abs(sl),std::abs(sr)));
+        applyMasterPan(sl,sr);
+        if constexpr(project::kIsEffect){if(outR[0]==outL[0])outL[0][i]=(sl+sr)*.5f;else{outL[0][i]=sl;outR[0][i]=sr;}}
+        else{outL[0][i]+=sl;outR[0][i]+=sr;}
+        busPeaks[0]=std::max(busPeaks[0],std::max(std::abs(sl),std::abs(sr)));
         float analysisL=sl,analysisR=sr;if constexpr(!project::kIsEffect)for(size_t bus=1;bus<outL.size();++bus){if(outL[bus])analysisL+=outL[bus][i];if(outR[bus])analysisR+=outR[bus][i];}
         const auto analysisIndex=analysisWrite.fetch_add(1,std::memory_order_relaxed);const auto analysisSlot=static_cast<size_t>(analysisIndex%kAnalysisSampleCount);analysisSamplesLeft[analysisSlot].store(analysisL,std::memory_order_relaxed);analysisSamplesRight[analysisSlot].store(analysisR,std::memory_order_relaxed);peakL=std::max(peakL,std::abs(analysisL));peakR=std::max(peakR,std::abs(analysisR));energyL+=analysisL*analysisL;energyR+=analysisR*analysisR;
     }
