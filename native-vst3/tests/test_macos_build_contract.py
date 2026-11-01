@@ -47,7 +47,7 @@ def test_macos_panels_follow_preview_and_are_fully_interactive():
     assert '@"PRESET BROWSER"' in view
     assert '@"GROOVE BROWSER"' in view
     assert '@"GROOVE LIBRARY"' in view
-    assert "Simpan kondisi" in view
+    assert "Simpan preset" in view
     assert '[self applyFactoryPreset:absolute]' in view
     assert 'groupParameterId(static_cast<int>(group), 1)' in view
     assert '[self startMidiSequence:source]' in view

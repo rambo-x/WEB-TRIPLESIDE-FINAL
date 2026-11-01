@@ -18,6 +18,9 @@ def test_macos_builder_outputs_pkg_and_scoped_uninstaller_app():
     assert "preset" in uninstaller.lower()
     assert "rm -rf -- " in uninstaller
     assert "rm -rf /Library/Audio/Plug-Ins/VST3" not in uninstaller
+    assert "tripleside-uninstall.icns" in script
+    assert "CFBundleIconFile" in script
+    assert (ROOT / "packaging/icons/tripleside-uninstall.icns").read_bytes().startswith(b"icns")
     assert 'if [ "\\${1:-}" = "--silent" ]' in script
     assert '/bin/rm -rf -- "\\$plugin_path"' in script
 
@@ -43,6 +46,10 @@ def test_windows_builder_outputs_native_exe_with_registered_uninstaller():
 
     assert "TripleSideWindowsInstaller" in cmake
     assert "TripleSideWindowsUninstaller" in cmake
+    assert "InstallerResources.rc" in cmake
+    assert "UninstallerResources.rc" in cmake
+    assert (ROOT / "packaging/icons/tripleside-install.ico").read_bytes().startswith(b"\x00\x00\x01\x00")
+    assert (ROOT / "packaging/icons/tripleside-uninstall.ico").read_bytes().startswith(b"\x00\x00\x01\x00")
     assert "package_windows_installer.py" in script
     assert '"--verify"' in script
     assert "GetFileNameWithoutExtension($Bundle.Name)" in script

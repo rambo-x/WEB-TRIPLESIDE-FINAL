@@ -1,0 +1,2 @@
+#define IDI_TRIPLESIDE_APP 101
+IDI_TRIPLESIDE_APP ICON "../icons/tripleside-uninstall.ico"

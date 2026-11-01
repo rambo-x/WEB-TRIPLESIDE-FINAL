@@ -17,6 +17,7 @@
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <limits>
 #include <set>
 #include <vector>
 
@@ -54,10 +55,29 @@ float neutralControlValue(const project::ControlInfo& control) {
     return .5f;
 }
 
+NSInteger nearestChoiceIndex(const project::ControlInfo& control, float value) {
+    NSInteger result = -1;
+    float distance = std::numeric_limits<float>::max();
+    for (NSInteger row = 0; row < control.choiceCount; ++row) {
+        const NSInteger index = control.choiceOffset + row;
+        if (index < 0 || static_cast<std::size_t>(index) >= project::kControlChoices.size()) continue;
+        const float next = std::abs(project::kControlChoices[static_cast<std::size_t>(index)].value - value);
+        if (next < distance) { distance = next; result = row; }
+    }
+    return result;
+}
+
+float quantizeControlValue(const project::ControlInfo& control, float value) {
+    value = std::clamp(value, 0.f, 1.f);
+    if (!equals(control.kind, "knob") || control.knobStateCount <= 0) return value;
+    if (control.knobStateCount == 1) return 0.f;
+    return std::round(value * static_cast<float>(control.knobStateCount - 1)) / static_cast<float>(control.knobStateCount - 1);
+}
+
 bool interactiveKind(const char* kind) {
     return equals(kind, "knob") || equals(kind, "fader") || equals(kind, "button")
         || equals(kind, "mute") || equals(kind, "solo") || equals(kind, "solo_mute") || equals(kind, "pad")
-        || equals(kind, "keyboard") || equals(kind, "panel_button") || equals(kind, "output_selector");
+        || equals(kind, "keyboard") || equals(kind, "panel_button") || equals(kind, "output_selector") || equals(kind, "dsp_selector");
 }
 
 struct RuntimeMidiEvent { int tick = 0, note = 60, velocity = 0, channel = 0; bool on = false; };
@@ -573,8 +593,10 @@ namespace project = tripleside::project;
 
 - (NSRect)outputMenuRect:(NSInteger)index {
     const NSRect anchor = [self runtimeControlRect:index];
+    const auto& control = project::kControls[static_cast<std::size_t>(index)];
+    const NSInteger rows = equals(control.kind, "dsp_selector") ? std::max(1, control.choiceCount) : 2;
     const CGFloat width = std::min<CGFloat>(std::max<CGFloat>(96, NSWidth(anchor)), project::kCanvasWidth - 8);
-    const CGFloat height = 64;
+    const CGFloat height = 28 * rows + 8;
     const CGFloat left = std::clamp<CGFloat>(NSMinX(anchor), 4, project::kCanvasWidth - width - 4);
     CGFloat top = NSMaxY(anchor) + 4;
     if (top + height > project::kCanvasHeight - 4) top = std::max<CGFloat>(4, NSMinY(anchor) - height - 4);
@@ -585,19 +607,25 @@ namespace project = tripleside::project;
     if (_outputMenuControl < 0 || static_cast<std::size_t>(_outputMenuControl) >= project::kControls.size()
         || !controlVisible(static_cast<std::size_t>(_outputMenuControl))) return;
     const auto& control = project::kControls[static_cast<std::size_t>(_outputMenuControl)];
-    if (!equals(control.kind, "output_selector")) return;
+    if (!equals(control.kind, "output_selector") && !equals(control.kind, "dsp_selector")) return;
     const NSRect menu = [self outputMenuRect:_outputMenuControl];
-    const CGFloat rowHeight = (NSHeight(menu) - 8) * .5;
+    const NSInteger rows = equals(control.kind, "dsp_selector") ? std::max(1, control.choiceCount) : 2;
+    const CGFloat rowHeight = (NSHeight(menu) - 8) / rows;
     const auto parameter = displayedParameter(*_instrument, static_cast<std::size_t>(_outputMenuControl), _selectedPrismBand);
-    const BOOL selected = parameter != kNoParamId && _instrument->getParamNormalized(parameter) >= .5;
+    const float value = parameter == kNoParamId ? control.value : static_cast<float>(_instrument->getParamNormalized(parameter));
+    const NSInteger selected = equals(control.kind, "dsp_selector") ? nearestChoiceIndex(control, value) : (value >= .5 ? 1 : 0);
     fillRounded(menu, 8, rgbColor(0x09090b, .99));
     strokeRounded(NSInsetRect(menu, .5, .5), 8, rgbColor(0xffffff, .14));
-    for (NSInteger row = 0; row < 2; ++row) {
+    for (NSInteger row = 0; row < rows; ++row) {
         const NSRect item = NSMakeRect(NSMinX(menu) + 4, NSMinY(menu) + 4 + row * rowHeight, NSWidth(menu) - 8, rowHeight);
-        const BOOL active = row == (selected ? 1 : 0);
+        const BOOL active = row == selected;
         if (active) fillRounded(item, 5, rgbColor(project::kAccentRgb, .16));
         NSString* label = @"Master";
-        if (row) {
+        if (equals(control.kind, "dsp_selector")) {
+            const NSInteger choice = control.choiceOffset + row;
+            label = choice >= 0 && static_cast<std::size_t>(choice) < project::kControlChoices.size()
+                ? [NSString stringWithUTF8String:project::kControlChoices[static_cast<std::size_t>(choice)].label] : @"Choice";
+        } else if (row) {
             NSInteger bus = 1;
             if (control.samplerGroupIndex >= 0) bus = project::kGroups[static_cast<std::size_t>(control.samplerGroupIndex)].outputBusIndex;
             label = [NSString stringWithFormat:@"Out%ld", static_cast<long>(bus)];
@@ -614,11 +642,18 @@ namespace project = tripleside::project;
 - (BOOL)handleOutputMenuMouseDown:(NSPoint)point {
     if (_outputMenuControl < 0) return NO;
     const NSInteger index = _outputMenuControl;
+    const auto& control = project::kControls[static_cast<std::size_t>(index)];
+    const NSInteger rows = equals(control.kind, "dsp_selector") ? std::max(1, control.choiceCount) : 2;
     const NSRect menu = [self outputMenuRect:index];
     if (NSPointInRect(point, menu)) {
-        const CGFloat rowHeight = (NSHeight(menu) - 8) * .5;
-        const NSInteger row = std::clamp<NSInteger>(static_cast<NSInteger>((point.y - NSMinY(menu) - 4) / std::max<CGFloat>(1, rowHeight)), 0, 1);
-        [self setControl:index value:row ? 1.f : 0.f];
+        const CGFloat rowHeight = (NSHeight(menu) - 8) / rows;
+        const NSInteger row = std::clamp<NSInteger>(static_cast<NSInteger>((point.y - NSMinY(menu) - 4) / std::max<CGFloat>(1, rowHeight)), 0, rows - 1);
+        float value = row ? 1.f : 0.f;
+        if (equals(control.kind, "dsp_selector")) {
+            const NSInteger choice = control.choiceOffset + row;
+            if (choice >= 0 && static_cast<std::size_t>(choice) < project::kControlChoices.size()) value = project::kControlChoices[static_cast<std::size_t>(choice)].value;
+        }
+        [self setControl:index value:value];
         _outputMenuControl = -1;
         _dragControl = -1;
         [self setNeedsDisplay:YES];
@@ -813,7 +848,7 @@ namespace project = tripleside::project;
            withAttributes:panelTextAttributes(10, _presetNameInput.empty() ? rgbColor(0x71717a) : rgbColor(0xf4f4f5), NSTextAlignmentLeft, NSFontWeightRegular)];
         const NSRect save = NSMakeRect(NSMaxX(field) + 8, top, right - NSMaxX(field) - 8, 35);
         fillRounded(save, 9, accent);
-        [@"▣  Simpan kondisi" drawInRect:NSMakeRect(NSMinX(save) + 6, NSMinY(save) + 10, NSWidth(save) - 12, 15)
+        [@"▣  Simpan preset" drawInRect:NSMakeRect(NSMinX(save) + 6, NSMinY(save) + 10, NSWidth(save) - 12, 15)
           withAttributes:panelTextAttributes(9, NSColor.whiteColor, NSTextAlignmentCenter, NSFontWeightBold)];
         const NSInteger total = static_cast<NSInteger>(project::kPresets.size() + _userPresets.size());
         const CGFloat rowStart = top + 47;
@@ -851,7 +886,7 @@ namespace project = tripleside::project;
             fillRounded(NSMakeRect(right - 6, rowStart, 6, trackHeight), 3, rgbColor(0xffffff, .07));
             fillRounded(NSMakeRect(right - 6, thumbTop, 6, thumbHeight), 3, rgbColor(project::kAccentRgb, .65));
         }
-        if (!total) [@"Belum ada preset. Atur suara lalu simpan kondisi saat ini." drawInRect:NSMakeRect(left, top + 50, right - left, 100)
+        if (!total) [@"Belum ada preset. Atur suara lalu simpan preset." drawInRect:NSMakeRect(left, top + 50, right - left, 100)
             withAttributes:panelTextAttributes(10, rgbColor(0x71717a), NSTextAlignmentCenter, NSFontWeightMedium)];
     } else if (equals(panel.panelType, "mixer") && panel.mixerShowDefaultControls) {
         CGFloat x = left;
@@ -1351,6 +1386,7 @@ namespace project = tripleside::project;
     else if (equals(control.kind, "pad")) value = hitPadVariant(control.variant)
         ? ([self hitPadFlashActive:control.notePitch] ? 1.f : 0.f)
         : ((_instrument->isNoteActive(control.notePitch) || _activeNote == control.notePitch) ? 1.f : 0.f);
+    if (equals(control.kind, "button") && control.optionValue >= 0.f) value = nearestChoiceIndex(control, value) == nearestChoiceIndex(control, control.optionValue) ? 1.f : 0.f;
     const NSInteger frame = std::clamp<NSInteger>(static_cast<NSInteger>(std::lround(value * std::max(0, visual.frames - 1))), 0, visual.frames - 1);
     const NSInteger columns = std::max(1, visual.columns), row = frame / columns, column = frame % columns;
     const CGFloat sourceY = image.size.height - (row + 1) * visual.h;
@@ -1441,6 +1477,9 @@ namespace project = tripleside::project;
         auto value = equals(control.kind, "indicator")
             ? indicatorValue(*_instrument, index, _selectedPrismBand, _openPanel, _activeNote, _playingMidiSequence)
             : [self displayedValueForControl:index];
+        if (equals(control.kind, "button") && control.optionValue >= 0.f) {
+            value = nearestChoiceIndex(control, value) == nearestChoiceIndex(control, control.optionValue) ? 1.f : 0.f;
+        }
         if (control.midiSequenceIndex >= 0) value = _instrument->livePatternSequenceIndex() == control.midiSequenceIndex ? 1.f : 0.f;
         if (equals(control.kind, "panel_button")) value = _openPanel == static_cast<NSInteger>(index) ? 1.f : 0.f;
         const bool hitPad = equals(control.kind, "pad") && hitPadVariant(control.variant);
@@ -1484,14 +1523,15 @@ namespace project = tripleside::project;
 
     for (std::size_t index = 0; index < project::kControls.size(); ++index) {
         const auto& control = project::kControls[index];
-        if (!equals(control.kind, "output_selector") || project::kPanelControls[index].parentPanelIndex >= 0 || !controlVisible(index)) continue;
+        if ((!equals(control.kind, "output_selector") && !equals(control.kind, "dsp_selector")) || project::kPanelControls[index].parentPanelIndex >= 0 || !controlVisible(index)) continue;
         if (index < project::kVisualControls.size()) {
             const auto& visual = project::kVisualControls[index];
-            if (visual.file && *visual.file && visual.frames > 0) continue;
+            if (visual.file && *visual.file && visual.frames > 0 && !equals(control.kind, "dsp_selector")) continue;
         }
         const NSRect rect = NSMakeRect(project::kCanvasWidth * control.x / 100. - control.width * .5, project::kCanvasHeight * control.y / 100. - control.height * .5, control.width, control.height);
         const auto value = displayedValue(*_instrument, index, _selectedPrismBand);
-        const bool selected = value >= .5f;
+        const NSInteger selectedChoice = nearestChoiceIndex(control, value);
+        const bool selected = equals(control.kind, "dsp_selector") ? selectedChoice >= 0 : value >= .5f;
         const CGFloat inset = std::clamp<CGFloat>(NSHeight(rect) * .07, 3, 6);
         const CGFloat header = std::clamp<CGFloat>(NSHeight(rect) * .24, 11, 22);
         const NSRect box = NSMakeRect(NSMinX(rect) + inset, NSMinY(rect) + header + inset * .35,
@@ -1500,7 +1540,10 @@ namespace project = tripleside::project;
         fillRounded(box, std::clamp<CGFloat>(NSHeight(rect) * .12, 5, 9), rgbColor(control.colorRgb));
         strokeRounded(box, std::clamp<CGFloat>(NSHeight(rect) * .12, 5, 9), selected ? rgbColor(project::kAccentRgb) : [rgbColor(control.textColorRgb) colorWithAlphaComponent:.18], 1);
         NSString* outputName = @"Master";
-        if (selected && control.samplerGroupIndex >= 0) {
+        if (equals(control.kind, "dsp_selector") && selectedChoice >= 0) {
+            const NSInteger choice = control.choiceOffset + selectedChoice;
+            if (choice >= 0 && static_cast<std::size_t>(choice) < project::kControlChoices.size()) outputName = [NSString stringWithUTF8String:project::kControlChoices[static_cast<std::size_t>(choice)].label] ?: @"Choice";
+        } else if (selected && control.samplerGroupIndex >= 0) {
             const auto& samplerGroup = project::kGroups[static_cast<std::size_t>(control.samplerGroupIndex)];
             outputName = [NSString stringWithUTF8String:samplerGroup.name] ?: @"Sampler";
         }
@@ -1683,7 +1726,7 @@ namespace project = tripleside::project;
     if (index < 0 || static_cast<std::size_t>(index) >= project::kControls.size()) return;
     const auto parameter = displayedParameter(*_instrument, static_cast<std::size_t>(index), _selectedPrismBand);
     if (parameter == kNoParamId) return;
-    [self setParameter:parameter value:std::clamp(value, 0.f, 1.f)];
+    [self setParameter:parameter value:quantizeControlValue(project::kControls[static_cast<std::size_t>(index)], value)];
     [self setNeedsDisplay:YES];
 }
 
@@ -1755,12 +1798,12 @@ namespace project = tripleside::project;
         if (equals(control.kind, "solo_mute")) {
             [self activateSoloMute:_dragControl point:point reset:event.clickCount >= 2];
             _dragControl = -1;
-        } else if (equals(control.kind, "output_selector")) {
+        } else if (equals(control.kind, "output_selector") || equals(control.kind, "dsp_selector")) {
             _outputMenuControl = _dragControl;
             [self setNeedsDisplay:YES];
             _dragControl = -1;
         } else if (event.clickCount >= 2 && (equals(control.kind, "knob") || equals(control.kind, "fader"))) {
-            [self setControl:_dragControl value:neutralControlValue(control)];
+            [self setControl:_dragControl value:quantizeControlValue(control, neutralControlValue(control))];
             _dragControl = -1;
         } else if (control.midiSequenceIndex >= 0 && (equals(control.kind, "button") || equals(control.kind, "pad"))) {
             [self stopMidiSequence];
@@ -1778,7 +1821,7 @@ namespace project = tripleside::project;
                                                       : static_cast<float>(_instrument->getParamNormalized(parameter));
             _dragStartY = point.y;
             if (equals(control.kind, "button") || equals(control.kind, "mute") || equals(control.kind, "solo")) {
-                [self setControl:_dragControl value:_dragStartValue >= .5f ? 0.f : 1.f];
+                [self setControl:_dragControl value:control.optionValue >= 0.f ? control.optionValue : (_dragStartValue >= .5f ? 0.f : 1.f)];
                 _dragControl = -1;
             }
         }
@@ -1823,12 +1866,12 @@ namespace project = tripleside::project;
     if (equals(control.kind, "solo_mute")) {
         [self activateSoloMute:_dragControl point:point reset:event.clickCount >= 2];
         _dragControl = -1;
-    } else if (equals(control.kind, "output_selector")) {
+    } else if (equals(control.kind, "output_selector") || equals(control.kind, "dsp_selector")) {
         _outputMenuControl = _dragControl;
         [self setNeedsDisplay:YES];
         _dragControl = -1;
     } else if (event.clickCount >= 2 && (equals(control.kind, "knob") || equals(control.kind, "fader"))) {
-        [self setControl:_dragControl value:neutralControlValue(control)];
+        [self setControl:_dragControl value:quantizeControlValue(control, neutralControlValue(control))];
         _dragControl = -1;
     } else if (equals(control.kind, "panel_button")) {
         if (_openPanel == _dragControl) [self closePanel]; else [self openPanel:_dragControl];
@@ -1854,7 +1897,7 @@ namespace project = tripleside::project;
                                                   : static_cast<float>(_instrument->getParamNormalized(parameter));
         _dragStartY = controlLocalPoint(control, point).y;
         if (equals(control.kind, "button") || equals(control.kind, "mute") || equals(control.kind, "solo")) {
-            [self setControl:_dragControl value:_dragStartValue >= .5f ? 0.f : 1.f];
+            [self setControl:_dragControl value:control.optionValue >= 0.f ? control.optionValue : (_dragStartValue >= .5f ? 0.f : 1.f)];
             _dragControl = -1;
         }
     }
@@ -1962,7 +2005,8 @@ namespace project = tripleside::project;
             const auto parameter = displayedParameter(*_instrument, static_cast<std::size_t>(panelControl), _selectedPrismBand);
             if (parameter != kNoParamId) {
                 const auto current = static_cast<float>(_instrument->getParamNormalized(parameter));
-                float next = current + (event.scrollingDeltaY > 0 ? .02f : -.02f);
+                const float increment = equals(control.kind, "knob") && control.knobStateCount > 1 ? 1.f / static_cast<float>(control.knobStateCount - 1) : .02f;
+                float next = current + (event.scrollingDeltaY > 0 ? increment : -increment);
                 if (control.moduleIndex >= 0 && equals(control.parameter, "tuning")) {
                     const NSInteger semitones = std::clamp<NSInteger>(std::lround(current * 48.f) - 24 + (event.scrollingDeltaY > 0 ? 1 : -1), -24, 24);
                     next = static_cast<float>(semitones + 24) / 48.f;
@@ -2025,7 +2069,8 @@ namespace project = tripleside::project;
     const auto parameter = displayedParameter(*_instrument, static_cast<std::size_t>(index), _selectedPrismBand);
     if (parameter == kNoParamId) return;
     const auto current = static_cast<float>(_instrument->getParamNormalized(parameter));
-    float next = current + static_cast<float>(event.scrollingDeltaY * .01);
+    const float increment = equals(control.kind, "knob") && control.knobStateCount > 1 ? 1.f / static_cast<float>(control.knobStateCount - 1) : .01f;
+    float next = current + (event.scrollingDeltaY > 0 ? increment : -increment);
     if (control.moduleIndex >= 0 && equals(control.parameter, "tuning")) {
         const NSInteger semitones = std::clamp<NSInteger>(std::lround(current * 48.f) - 24 + (event.scrollingDeltaY > 0 ? 1 : -1), -24, 24);
         next = static_cast<float>(semitones + 24) / 48.f;

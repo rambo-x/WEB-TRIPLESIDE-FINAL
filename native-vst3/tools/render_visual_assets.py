@@ -23,7 +23,7 @@ TRANSIENT_EXIT_CODE = 75
 SUPPORTED_CONTROL_KINDS = {
     'knob', 'fader', 'vu_meter', 'gain_meter', 'keyboard', 'pad', 'button',
     'mute', 'solo', 'visual', 'text', 'image', 'panel_button', 'spectrum', 'indicator',
-    'output_selector', 'solo_mute',
+    'output_selector', 'dsp_selector', 'solo_mute',
 }
 TRANSIENT_PLAYWRIGHT_MARKERS = (
     'browser has been closed',
@@ -102,12 +102,16 @@ def control_frame_count(kind, spec):
     """Return the exact number of visual states needed by a control atlas."""
     if kind == 'output_selector':
         return 2  # Master plus the control's bound sampler output.
+    if kind == 'dsp_selector':
+        return max(1, int(spec.get('choice_count') or 1))
     if kind in {'keyboard', 'visual', 'text', 'image', 'spectrum', 'solo_mute'}:
         # The paired buttons are drawn from live group solo/mute parameters by
         # NativeView; the capture only supplies their shared idle backdrop.
         return 1
     if kind in {'button', 'mute', 'solo', 'pad', 'panel_button', 'indicator'}:
         return 2
+    if kind == 'knob' and spec.get('knob_state_count'):
+        return max(1, min(127, int(spec['knob_state_count'])))
     return 101
 
 

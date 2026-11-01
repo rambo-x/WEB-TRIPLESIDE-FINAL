@@ -45,6 +45,14 @@ NORMALIZED_DSP_PARAMETERS = {
     "output_trim": {"normalized", "value", "amount", "output", "gain"},
 }
 SPECIAL_DSP_PARAMETERS = {"input_trim": {"gain_db"}, "output_trim": {"gain_db"}}
+DSP_PARAMETER_CHOICES = {
+    ("legend_preamp", "model"): (("British Class-A", 0.0), ("American Discrete", 1 / 3), ("Tube Broadcast", 2 / 3), ("Modern Transformer", 1.0)),
+    ("legend_compressor", "model"): (("FET Punch", 0.0), ("Optical Smooth", 1 / 3), ("VCA Bus", 2 / 3), ("Vari-Mu Glue", 1.0)),
+    ("legend_eq", "model"): (("Passive Tube", 0.0), ("British Console", 1 / 3), ("American Proportional-Q", 2 / 3), ("Modern Clean", 1.0)),
+    ("legend_tape", "model"): (("Warm Ferric", 0.0), ("Studio 456", 1 / 3), ("High-Output GP9", 2 / 3), ("Mastering Clean", 1.0)),
+    ("legend_tape", "speed"): (("7.5 ips", 0.0), ("15 ips", 0.5), ("30 ips", 1.0)),
+    ("reverb", "mode"): (("Room", 0.0), ("Spring", 1 / 3), ("Plate", 2 / 3), ("Hall", 1.0)),
+}
 
 def fail(message: str) -> None: raise SystemExit(f"error: {message}")
 def cpp_string(value: object) -> str: return json.dumps(str(value or ""), ensure_ascii=True)
@@ -388,15 +396,28 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
             )
             if not valid_sampler_binding:
                 fail("sampler group binding is incompatible with the control")
-    control_lines, panel_lines, key_color_lines = [], [], []
+    control_lines, panel_lines, key_color_lines, control_choice_lines = [], [], [], []
     for index, control in enumerate(controls):
         label = "Control" if control.get("label") is None else control.get("label")
         off_label = label if control.get("off_label") is None else control.get("off_label")
         on_label = "ON" if control.get("on_label") is None else control.get("on_label")
         control_kind = str(control.get("kind") or "knob")
+        bound_module_index = dsp_module_ids.get(str(control.get("module_id") or ""), -1)
+        bound_module_type = str(dsp_modules[bound_module_index].get("type") or "").replace("-", "_") if bound_module_index >= 0 else ""
+        control_choices = DSP_PARAMETER_CHOICES.get((bound_module_type, str(control.get("parameter") or "")), ())
+        if control_kind == "dsp_selector" and not control_choices:
+            fail("DSP selector must bind to a supported choice parameter")
+        option_value = clamp(control.get("option_value"), 0, 1, -1) if control.get("option_value") is not None else -1
+        if option_value >= 0 and (control_kind != "button" or not control_choices or min(abs(option_value - value) for _, value in control_choices) > .0001):
+            fail("button option value must match a supported DSP choice")
+        choice_offset = len(control_choice_lines)
+        control_choice_lines.extend(
+            f"    ControlChoiceInfo{{{index}, {cpp_float(value)}, {cpp_string(label)}}},"
+            for label, value in control_choices
+        )
         color_value = control.get("visual_color") if control_kind == "spectrum" else control.get("control_color")
         control_color_match = re.fullmatch(r"#?([0-9a-fA-F]{6})", str(color_value or ""))
-        control_color_rgb = int(control_color_match.group(1), 16) if control_color_match else (0x111216 if control_kind == "output_selector" else 0)
+        control_color_rgb = int(control_color_match.group(1), 16) if control_color_match else (0x111216 if control_kind in {"output_selector", "dsp_selector"} else 0)
         text_color_match = re.fullmatch(r"#?([0-9a-fA-F]{6})", str(control.get("text_color") or "#F4F4F5"))
         text_color_rgb = int(text_color_match.group(1), 16) if text_color_match else 0xF4F4F5
         ring_value_color_match = re.fullmatch(r"#?([0-9a-fA-F]{6})", str(control.get("ring_value_color") or "#F4F4F5"))
@@ -506,6 +527,10 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
             str(ring_value_font_size),
             f"0x{ring_value_color_rgb:06X}",
             str(ring_value_font_weight),
+            str(max(0, min(127, int(control.get("knob_state_count") or 0)))) if control_kind == "knob" else "0",
+            cpp_float(option_value),
+            str(choice_offset),
+            str(len(control_choices)),
         )
         control_lines.append("    ControlInfo{" + ", ".join(fields) + "},")
         panel_lines.append("    PanelControlInfo{" + ", ".join((
@@ -668,7 +693,8 @@ namespace tripleside::project {{
 struct SampleInfo {{ const char* resourceFile; const char* displayName; }};
 struct GroupInfo {{ const char* id; const char* name; float volume; float pan; bool mute; bool solo; int outputBusIndex; }};
 struct ZoneInfo {{ int sampleIndex, groupIndex, articulationIndex, micIndex, roundRobinSet, rootPitch, lowPitch, highPitch, velocityLow, velocityHigh, roundRobin; float sampleStart, sampleEnd, loopStart, loopEnd, fadeInMs, fadeOutMs, loopCrossfadeMs; int tuneSemitones; float tuneCents, gainDb, pan; bool loopEnabled, tempoSync; float sourceBpm; std::array<int, 16> chokeTargetPitches; int chokeTargetCount; }};
-struct ControlInfo {{ const char* id; const char* kind; const char* label; const char* offLabel; const char* onLabel; const char* parameter; int moduleIndex; int indicatorSourceIndex; int midiSequenceIndex; int samplerGroupIndex; float x, y; int width, height; float value, opacity, rotation; unsigned int colorRgb; bool showBackground; int notePitch, keyCount; const char* labelPosition; int labelGap, stateLabelGap; const char* variant; const char* meterMode; const char* textFont; unsigned int textColorRgb; int outputFontSize; bool showCorrelationMeter; float waveformLineWidth; bool sampleNameVisible; unsigned int playheadColorRgb; float playheadThickness, playheadOpacity, ringThickness, ringGlowIntensity, barWidthRatio; bool spectrumBand; bool useFilmstrip; bool faderMeterEnabled; const char* faderMeterPosition; unsigned int faderMeterColorRgb; int faderMeterGap, faderMeterWidth, faderMeterHeight; int soloMuteGap; unsigned int soloColorRgb, muteColorRgb; const char* buttonShape; int ringValueFontSize; unsigned int ringValueColorRgb; int ringValueFontWeight; }};
+struct ControlInfo {{ const char* id; const char* kind; const char* label; const char* offLabel; const char* onLabel; const char* parameter; int moduleIndex; int indicatorSourceIndex; int midiSequenceIndex; int samplerGroupIndex; float x, y; int width, height; float value, opacity, rotation; unsigned int colorRgb; bool showBackground; int notePitch, keyCount; const char* labelPosition; int labelGap, stateLabelGap; const char* variant; const char* meterMode; const char* textFont; unsigned int textColorRgb; int outputFontSize; bool showCorrelationMeter; float waveformLineWidth; bool sampleNameVisible; unsigned int playheadColorRgb; float playheadThickness, playheadOpacity, ringThickness, ringGlowIntensity, barWidthRatio; bool spectrumBand; bool useFilmstrip; bool faderMeterEnabled; const char* faderMeterPosition; unsigned int faderMeterColorRgb; int faderMeterGap, faderMeterWidth, faderMeterHeight; int soloMuteGap; unsigned int soloColorRgb, muteColorRgb; const char* buttonShape; int ringValueFontSize; unsigned int ringValueColorRgb; int ringValueFontWeight; int knobStateCount; float optionValue; int choiceOffset, choiceCount; }};
+struct ControlChoiceInfo {{ int controlIndex; float value; const char* label; }};
 struct KeyColorInfo {{ int control, pitch; unsigned int colorRgb; }};
 struct PanelControlInfo {{ int parentPanelIndex; const char* panelType; float panelX, panelY, panelWidth, panelHeight; bool mixerShowDefaultControls; }};
 struct PresetInfo {{ const char* id; const char* name; bool factory; int valueOffset, valueCount, groupOffset, groupCount, moduleOffset, moduleCount, midiSequenceIndex; }};
@@ -786,6 +812,7 @@ inline constexpr std::array<GroupInfo, {len(group_lines)}> kGroups {{{{\n{chr(10
 inline constexpr std::array<bool, {len(group_output_defaults)}> kGroupOutputSeparateDefaults {{{{ {', '.join(cpp_bool(value) for value in group_output_defaults)} }}}};
 inline constexpr std::array<ZoneInfo, {len(zone_lines)}> kZones {{{{\n{chr(10).join(zone_lines)}\n}}}};
 inline constexpr std::array<ControlInfo, {len(control_lines)}> kControls {{{{\n{chr(10).join(control_lines)}\n}}}};
+inline constexpr std::array<ControlChoiceInfo, {len(control_choice_lines)}> kControlChoices {{{{\n{chr(10).join(control_choice_lines)}\n}}}};
 inline constexpr std::array<KeyColorInfo, {len(key_color_lines)}> kKeyColors {{{{\n{chr(10).join(key_color_lines)}\n}}}};
 inline constexpr std::array<PanelControlInfo, {len(panel_lines)}> kPanelControls {{{{\n{chr(10).join(panel_lines)}\n}}}};
 inline constexpr std::array<PresetInfo, {len(preset_lines)}> kPresets {{{{\n{chr(10).join(preset_lines)}\n}}}};

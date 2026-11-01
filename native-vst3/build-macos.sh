@@ -161,6 +161,7 @@ pkgutil --check-signature "$pkg_path" || [[ -z "$installer_sign_identity" ]]
 uninstaller="$package_dir/Uninstall ${bundle_name}.app"
 mkdir -p "$uninstaller/Contents/MacOS" "$uninstaller/Contents/Resources"
 cp "$runtime_root/packaging/macos/uninstall.applescript" "$uninstaller/Contents/Resources/uninstall.applescript"
+cp "$runtime_root/packaging/icons/tripleside-uninstall.icns" "$uninstaller/Contents/Resources/uninstall.icns"
 cat > "$uninstaller/Contents/MacOS/uninstall" <<LAUNCHER
 #!/bin/sh
 plugin_path="/Library/Audio/Plug-Ins/VST3/${bundle_name}.vst3"
@@ -183,6 +184,7 @@ cat > "$uninstaller/Contents/Info.plist" <<PLIST
 <key>CFBundleExecutable</key><string>uninstall</string>
 <key>CFBundleIdentifier</key><string>${package_id}.uninstaller</string>
 <key>CFBundleName</key><string>Uninstall ${bundle_name}</string>
+<key>CFBundleIconFile</key><string>uninstall.icns</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>${package_version}</string>
 </dict></plist>

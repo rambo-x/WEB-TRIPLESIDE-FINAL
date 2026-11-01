@@ -286,7 +286,7 @@ def test_shared_preview_meters_keep_browser_visuals_and_independent_stereo_level
     mac = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
 
     assert "drawVisualSpriteRegion" in header
-    assert 'if(equals(c.kind,"spectrum"))drawControl(i);else drawVisualControl(i)' in source
+    assert 'if(equals(c.kind,"spectrum")||equals(c.kind,"dsp_selector"))drawControl(i);else drawVisualControl(i)' in source
     assert 'equals(c.meterMode,"stereo")&&s.mlw>0' in source
     assert "instrument.groupOutputPeak(c.samplerGroupIndex,0)" in source
     assert "instrument.groupOutputPeak(c.samplerGroupIndex,1)" in source
@@ -484,7 +484,8 @@ def test_native_knobs_and_faders_support_preview_neutral_reset_and_mouse_wheel()
     assert "neutralControlValue(control)" in mac_source
     assert "value:1.f" in mac_source
     assert "value:.5f" in mac_source
-    assert "current+steps*.01f" in source
+    assert "current+steps*increment" in source
+    assert "quantizeControlValue(c,next)" in source
     assert 'equals(c.parameter,"tuning")' in source
     assert "(semitones+24)/48.f" in source
     assert 'equals(control.parameter, "tuning")' in mac_source
@@ -573,7 +574,7 @@ def test_native_user_presets_are_persistent_overwritable_and_deletable():
     assert "persistUserPresets()" in source
     assert 'L"TripleSide Studio"/L"VST3 Presets"' in source
     assert "MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH" in source
-    assert 'L"\\u25A3  Simpan kondisi"' in source
+    assert 'L"\\u25A3  Simpan preset"' in source
     assert "presetNameInput" in header
     assert "deleteUserPreset(userRow)" in source
     assert "void overwriteUserPreset(int)" in header

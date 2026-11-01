@@ -138,9 +138,11 @@ if(WIN32)
         packaging/windows/InstallerSupport.h)
     add_executable(TripleSideWindowsInstaller WIN32
         packaging/windows/InstallerMain.cpp
+        packaging/windows/InstallerResources.rc
         ${TRIPLESIDE_INSTALLER_SUPPORT})
     add_executable(TripleSideWindowsUninstaller WIN32
         packaging/windows/UninstallerMain.cpp
+        packaging/windows/UninstallerResources.rc
         ${TRIPLESIDE_INSTALLER_SUPPORT})
     foreach(TRIPLESIDE_PACKAGING_TARGET TripleSideWindowsInstaller TripleSideWindowsUninstaller)
         target_compile_features(${TRIPLESIDE_PACKAGING_TARGET} PRIVATE cxx_std_20)

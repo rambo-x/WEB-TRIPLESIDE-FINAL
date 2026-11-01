@@ -428,7 +428,7 @@ def test_compiles_combined_solo_mute_native_contract(tmp_path):
     assert "unsigned int soloColorRgb, muteColorRgb;" in result
     control = next(line for line in result.splitlines() if 'ControlInfo{"snare-state"' in line)
     assert '"solo_mute", -1, -1, -1, 0,' in control
-    assert '13, 0x12ABEF, 0xEF4444, "capsule", 16, 0xF4F4F5, 700}' in control
+    assert '13, 0x12ABEF, 0xEF4444, "capsule", 16, 0xF4F4F5, 700, 0, -1.0f, 0, 0}' in control
 
 
 def test_native_manifest_rejects_more_than_bounded_dsp_parameter_limit(tmp_path):
@@ -475,6 +475,33 @@ def test_compiles_module_control_binding_to_native_module_index(tmp_path):
     result = output.read_text(encoding="utf-8")
     assert 'ControlInfo{"drive-control", "knob", "Drive", "Drive", "ON", "drive", 0,' in result
     assert "int moduleIndex;" in result
+
+
+def test_compiles_knob_states_and_universal_dsp_choice_controls(tmp_path):
+    spec = project_spec()
+    reverb = {"id": "reverb-a", "type": "reverb", "name": "Reverb", "parameters": {"mode": 1 / 3}}
+    spec["engine_modules"] = [reverb]
+    spec["dsp_graph"] = {"version": 2, "mode": "instrument_serial_rack", "source": "project", "modules": [reverb]}
+    spec["interface"]["controls"] = [
+        {"id": "state-knob", "kind": "knob", "label": "State", "parameter": "mix", "value": 50, "knob_state_count": 17},
+        {"id": "mode-menu", "kind": "dsp_selector", "label": "Space", "parameter": "mode", "module_id": "reverb-a", "value": 33.333},
+        {"id": "spring-button", "kind": "button", "label": "Spring", "parameter": "mode", "module_id": "reverb-a", "value": 33.333, "option_value": 1 / 3},
+    ]
+    source = tmp_path / "project.json"
+    output = tmp_path / "NativeProject.h"
+    source.write_text(json.dumps(spec), encoding="utf-8")
+
+    MODULE.compile_manifest(source, output)
+
+    result = output.read_text(encoding="utf-8")
+    assert "int knobStateCount; float optionValue; int choiceOffset, choiceCount;" in result
+    assert 'ControlChoiceInfo{1, 0.0f, "Room"}' in result
+    assert 'ControlChoiceInfo{1, 0.333333333f, "Spring"}' in result
+    assert 'ControlChoiceInfo{2, 0.333333333f, "Spring"}' in result
+    state_knob = next(line for line in result.splitlines() if 'ControlInfo{"state-knob"' in line)
+    spring_button = next(line for line in result.splitlines() if 'ControlInfo{"spring-button"' in line)
+    assert ", 17, -1.0f, 0, 0}," in state_knob
+    assert ", 0, 0.333333333f, 4, 4}," in spring_button
 
 
 def test_compiles_instrument_macro_to_first_matching_rack_module(tmp_path):
