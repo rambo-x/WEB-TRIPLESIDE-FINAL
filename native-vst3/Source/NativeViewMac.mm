@@ -255,6 +255,8 @@ using tripleside::native::interactiveKind;
 using tripleside::native::hitPadVariant;
 using tripleside::native::loadResourceImage;
 using tripleside::native::neutralControlValue;
+using tripleside::native::nearestChoiceIndex;
+using tripleside::native::quantizeControlValue;
 using tripleside::native::controlLocalPoint;
 using tripleside::native::controlLayoutRect;
 using tripleside::native::fillRounded;
