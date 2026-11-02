@@ -306,6 +306,8 @@ namespace project = tripleside::project;
     NSInteger _presetScrollOffset;
     NSInteger _selectedPresetRow;
     NSInteger _hoveredPresetRow;
+    NSInteger _hoveredPresetDeleteRow;
+    NSInteger _pendingDeletePresetRow;
     NSInteger _hoveredControl;
     NSInteger _outputMenuControl;
     NSTrackingArea* _trackingArea;
@@ -382,6 +384,8 @@ namespace project = tripleside::project;
         _presetScrollOffset = 0;
         _selectedPresetRow = -1;
         _hoveredPresetRow = -1;
+        _hoveredPresetDeleteRow = -1;
+        _pendingDeletePresetRow = -1;
         _hoveredControl = -1;
         _outputMenuControl = -1;
         _licenseInputFocused = NO;
@@ -726,7 +730,11 @@ namespace project = tripleside::project;
     _mixerDragSlot = -1;
     _midiDragCandidate = -1;
     _presetNameFocused = NO;
+    _presetNameInput.clear();
+    _selectedPresetRow = -1;
     _hoveredPresetRow = -1;
+    _hoveredPresetDeleteRow = -1;
+    _pendingDeletePresetRow = -1;
     [self.window invalidateCursorRectsForView:self];
     [self setNeedsDisplay:YES];
 }
@@ -830,8 +838,13 @@ namespace project = tripleside::project;
               withAttributes:panelTextAttributes(8, rgbColor(0x71717a), NSTextAlignmentLeft, NSFontWeightMedium)];
             const NSRect loop = NSMakeRect(contentRight - 64, rowTop + 9, 30, 28);
             fillRounded(loop, 9, [self midiSequenceLoopEnabled:sourceIndex] ? rgbColor(project::kAccentRgb, .26) : rgbColor(0xffffff, .05));
-            [@"↻" drawInRect:NSMakeRect(NSMinX(loop), NSMinY(loop) + 6, 30, 15)
-              withAttributes:panelTextAttributes(12, [self midiSequenceLoopEnabled:sourceIndex] ? accent : rgbColor(0x71717a), NSTextAlignmentCenter, NSFontWeightBold)];
+            [([self midiSequenceLoopEnabled:sourceIndex] ? accent : rgbColor(0xa1a1aa)) setStroke];
+            NSBezierPath* repeatIcon = [NSBezierPath bezierPath]; repeatIcon.lineWidth = 1.35; repeatIcon.lineCapStyle = NSLineCapStyleRound; repeatIcon.lineJoinStyle = NSLineJoinStyleRound;
+            const CGFloat ix = NSMinX(loop) + 8, iy = NSMinY(loop) + 7;
+            [repeatIcon moveToPoint:NSMakePoint(ix, iy + 3)]; [repeatIcon lineToPoint:NSMakePoint(ix, iy + 1)]; [repeatIcon lineToPoint:NSMakePoint(ix + 12, iy + 1)];
+            [repeatIcon moveToPoint:NSMakePoint(ix + 9, iy - 2)]; [repeatIcon lineToPoint:NSMakePoint(ix + 12, iy + 1)]; [repeatIcon lineToPoint:NSMakePoint(ix + 9, iy + 4)];
+            [repeatIcon moveToPoint:NSMakePoint(ix + 12, iy + 7)]; [repeatIcon lineToPoint:NSMakePoint(ix + 12, iy + 9)]; [repeatIcon lineToPoint:NSMakePoint(ix, iy + 9)];
+            [repeatIcon moveToPoint:NSMakePoint(ix + 3, iy + 6)]; [repeatIcon lineToPoint:NSMakePoint(ix, iy + 9)]; [repeatIcon lineToPoint:NSMakePoint(ix + 3, iy + 12)]; [repeatIcon stroke];
             const NSRect play = NSMakeRect(contentRight - 30, rowTop + 9, 30, 28);
             fillRounded(play, 9, accent);
             [(playing ? @"■" : @"▶") drawInRect:NSMakeRect(NSMinX(play), NSMinY(play) + 7, 30, 14)
@@ -883,18 +896,15 @@ namespace project = tripleside::project;
             const NSRect row = NSMakeRect(left, y, contentRight - left, 41);
             fillRounded(row, 10, selected ? rgbColor(project::kAccentRgb, .11) : hovered ? rgbColor(project::kAccentRgb, .065) : rgbColor(0xffffff, .025));
             strokeRounded(NSInsetRect(row, .5, .5), 10, selected ? rgbColor(project::kAccentRgb, .58) : hovered ? rgbColor(project::kAccentRgb, .32) : rgbColor(0xffffff, .08));
-            [name drawInRect:NSMakeRect(left + 14, y + 7, NSWidth(row) - (user ? 181 : 76), 16)
+            [name drawInRect:NSMakeRect(left + 14, y + 7, NSWidth(row) - (user ? 104 : 76), 16)
               withAttributes:panelTextAttributes(10, rgbColor(0xe4e4e7), NSTextAlignmentLeft, NSFontWeightBold)];
-            [(user ? @"USER" : @"FACTORY") drawInRect:NSMakeRect(user ? contentRight - 172 : contentRight - 68, y + 9, 60, 14)
+            [(user ? @"USER" : @"FACTORY") drawInRect:NSMakeRect(user ? contentRight - 95 : contentRight - 68, y + 9, 60, 14)
               withAttributes:panelTextAttributes(7, selected ? accent : rgbColor(0x71717a), NSTextAlignmentCenter, NSFontWeightBold)];
             if (user) {
-                const NSRect update = NSMakeRect(contentRight - 103, y + 7, 70, 27);
-                fillRounded(update, 7, rgbColor(project::kAccentRgb, .10)); strokeRounded(NSInsetRect(update, .5, .5), 7, rgbColor(project::kAccentRgb, .40));
-                [(project::kUiLanguageEnglish ? @"↻ Update" : @"↻ Perbarui") drawInRect:NSMakeRect(NSMinX(update) + 2, NSMinY(update) + 8, NSWidth(update) - 4, 13)
-                  withAttributes:panelTextAttributes(7, accent, NSTextAlignmentCenter, NSFontWeightBold)];
+                const BOOL deleteHovered = absolute == _hoveredPresetDeleteRow;
                 const NSRect remove = NSMakeRect(contentRight - 27, y + 7, 27, 27);
-                fillRounded(remove, 7, rgbColor(0xfb7185, .06)); strokeRounded(NSInsetRect(remove, .5, .5), 7, rgbColor(0xfb7185, .20));
-                [rgbColor(0xfb7185) setStroke]; NSBezierPath* removeIcon = [NSBezierPath bezierPath]; removeIcon.lineWidth = 1.35;
+                fillRounded(remove, 7, rgbColor(0xfb7185, deleteHovered ? .22 : .06)); strokeRounded(NSInsetRect(remove, .5, .5), 7, rgbColor(0xfb7185, deleteHovered ? .62 : .20));
+                [(deleteHovered ? rgbColor(0xfff1f2) : rgbColor(0xfb7185)) setStroke]; NSBezierPath* removeIcon = [NSBezierPath bezierPath]; removeIcon.lineWidth = 1.35;
                 [removeIcon moveToPoint:NSMakePoint(contentRight - 19, y + 16)]; [removeIcon lineToPoint:NSMakePoint(contentRight - 8, y + 16)];
                 [removeIcon moveToPoint:NSMakePoint(contentRight - 17, y + 14)]; [removeIcon lineToPoint:NSMakePoint(contentRight - 10, y + 14)];
                 [removeIcon appendBezierPathWithRoundedRect:NSMakeRect(contentRight - 18, y + 18, 9, 10) xRadius:1.5 yRadius:1.5];
@@ -911,6 +921,22 @@ namespace project = tripleside::project;
         }
         if (!total) [(project::kUiLanguageEnglish ? @"No presets yet. Shape your sound, then save a preset." : @"Belum ada preset. Atur suara lalu simpan preset.") drawInRect:NSMakeRect(left, top + 50, right - left, 100)
             withAttributes:panelTextAttributes(10, rgbColor(0x71717a), NSTextAlignmentCenter, NSFontWeightMedium)];
+        if (_pendingDeletePresetRow >= static_cast<NSInteger>(project::kPresets.size()) && _pendingDeletePresetRow < total) {
+            const NSRect dialog = NSMakeRect(std::max<CGFloat>(left, NSMidX(panelRect) - 145), std::max<CGFloat>(top + 42, NSMidY(panelRect) - 55),
+                                             std::min<CGFloat>(right, NSMidX(panelRect) + 145) - std::max<CGFloat>(left, NSMidX(panelRect) - 145),
+                                             std::min<CGFloat>(NSMaxY(panelRect) - 18, NSMidY(panelRect) + 55) - std::max<CGFloat>(top + 42, NSMidY(panelRect) - 55));
+            fillRounded(dialog, 12, rgbColor(0x09090b, .99)); strokeRounded(NSInsetRect(dialog, .5, .5), 12, rgbColor(0xfb7185, .48));
+            const NSInteger userIndex = _pendingDeletePresetRow - static_cast<NSInteger>(project::kPresets.size());
+            NSString* presetName = [NSString stringWithUTF8String:_userPresets[static_cast<std::size_t>(userIndex)].name.c_str()] ?: @"Preset";
+            NSString* message = project::kUiLanguageEnglish ? [NSString stringWithFormat:@"Delete “%@”?", presetName] : [NSString stringWithFormat:@"Hapus “%@”?", presetName];
+            [message drawInRect:NSMakeRect(NSMinX(dialog) + 12, NSMinY(dialog) + 15, NSWidth(dialog) - 24, 18) withAttributes:panelTextAttributes(10, rgbColor(0xfff1f2), NSTextAlignmentCenter, NSFontWeightBold)];
+            const NSRect cancel = NSMakeRect(NSMinX(dialog) + 14, NSMaxY(dialog) - 42, NSWidth(dialog) * .5 - 18, 29);
+            const NSRect confirm = NSMakeRect(NSMidX(dialog) + 4, NSMaxY(dialog) - 42, NSWidth(dialog) * .5 - 18, 29);
+            fillRounded(cancel, 7, rgbColor(0xffffff, .07)); strokeRounded(NSInsetRect(cancel, .5, .5), 7, rgbColor(0xffffff, .15));
+            fillRounded(confirm, 7, rgbColor(0xfb7185, .20)); strokeRounded(NSInsetRect(confirm, .5, .5), 7, rgbColor(0xfb7185, .52));
+            [(project::kUiLanguageEnglish ? @"Cancel" : @"Batalkan") drawInRect:NSInsetRect(cancel, 3, 7) withAttributes:panelTextAttributes(8, rgbColor(0xf4f4f5), NSTextAlignmentCenter, NSFontWeightBold)];
+            [(project::kUiLanguageEnglish ? @"Continue" : @"Lanjutkan") drawInRect:NSInsetRect(confirm, 3, 7) withAttributes:panelTextAttributes(8, rgbColor(0xfecdd3), NSTextAlignmentCenter, NSFontWeightBold)];
+        }
     } else if (equals(panel.panelType, "mixer") && panel.mixerShowDefaultControls) {
         CGFloat x = left;
         for (std::size_t index = 0; index < project::kGroups.size() && x + 112 <= right; ++index, x += 122) {
@@ -1013,13 +1039,6 @@ namespace project = tripleside::project;
     _selectedMidiSequence = preset.midiSequenceIndex;
 }
 
-- (void)overwriteUserPreset:(NSInteger)index {
-    if (index < 0 || index >= static_cast<NSInteger>(_userPresets.size())) return;
-    const auto name = _userPresets[static_cast<std::size_t>(index)].name;
-    _userPresets[static_cast<std::size_t>(index)] = [self captureUserPreset:name];
-    [self persistUserPresets];
-}
-
 - (void)saveUserPreset {
     while (!_presetNameInput.empty() && std::isspace(static_cast<unsigned char>(_presetNameInput.front()))) _presetNameInput.erase(_presetNameInput.begin());
     while (!_presetNameInput.empty() && std::isspace(static_cast<unsigned char>(_presetNameInput.back()))) _presetNameInput.pop_back();
@@ -1028,16 +1047,24 @@ namespace project = tripleside::project;
         NSString* name = [NSString stringWithUTF8String:preset.name ?: ""] ?: @"";
         return [name caseInsensitiveCompare:candidate] == NSOrderedSame;
     });
+    const NSInteger selectedUser = _selectedPresetRow - static_cast<NSInteger>(project::kPresets.size());
+    const bool canOverwrite = selectedUser >= 0 && selectedUser < static_cast<NSInteger>(_userPresets.size());
+    const RuntimeUserPreset* selectedPreset = canOverwrite ? &_userPresets[static_cast<std::size_t>(selectedUser)] : nullptr;
     const bool userName = std::any_of(_userPresets.begin(), _userPresets.end(), [&](const auto& preset) {
         NSString* name = [NSString stringWithUTF8String:preset.name.c_str()] ?: @"";
-        return [name caseInsensitiveCompare:candidate] == NSOrderedSame;
+        return &preset != selectedPreset && [name caseInsensitiveCompare:candidate] == NSOrderedSame;
     });
     if (_presetNameInput.empty() || factoryName || userName) return;
+    if (canOverwrite) {
+        _userPresets[static_cast<std::size_t>(selectedUser)] = [self captureUserPreset:_presetNameInput];
+        [self persistUserPresets];
+        return;
+    }
     if (_userPresets.size() >= 128) _userPresets.erase(_userPresets.begin());
     _userPresets.push_back([self captureUserPreset:_presetNameInput]);
     _selectedPresetRow = static_cast<NSInteger>(project::kPresets.size() + _userPresets.size() - 1);
     _presetScrollOffset = _selectedPresetRow;
-    _presetNameInput.clear(); _presetNameFocused = NO;
+    _presetNameFocused = NO;
     [self persistUserPresets];
 }
 
@@ -1118,11 +1145,25 @@ namespace project = tripleside::project;
             }
         }
     } else if (equals(panel.panelType, "preset_browser")) {
+        const NSInteger total = static_cast<NSInteger>(project::kPresets.size() + _userPresets.size());
+        if (_pendingDeletePresetRow >= static_cast<NSInteger>(project::kPresets.size()) && _pendingDeletePresetRow < total) {
+            const CGFloat dialogLeft = std::max<CGFloat>(left, NSMidX(rect) - 145), dialogRight = std::min<CGFloat>(right, NSMidX(rect) + 145);
+            const CGFloat dialogTop = std::max<CGFloat>(top + 42, NSMidY(rect) - 55), dialogBottom = std::min<CGFloat>(NSMaxY(rect) - 18, NSMidY(rect) + 55), middle = (dialogLeft + dialogRight) * .5;
+            if (point.y >= dialogBottom - 42 && point.y <= dialogBottom - 13) {
+                if (point.x >= dialogLeft + 14 && point.x <= middle - 4) _pendingDeletePresetRow = -1;
+                else if (point.x >= middle + 4 && point.x <= dialogRight - 14) {
+                    const NSInteger user = _pendingDeletePresetRow - static_cast<NSInteger>(project::kPresets.size());
+                    _userPresets.erase(_userPresets.begin() + user);
+                    _selectedPresetRow = -1; _pendingDeletePresetRow = -1; _presetNameInput.clear();
+                    [self persistUserPresets];
+                }
+            }
+            [self setNeedsDisplay:YES]; return YES;
+        }
         const CGFloat fieldWidth = std::max<CGFloat>(80, right - left - 156);
         if (point.y >= top && point.y <= top + 35) { if (point.x <= left + fieldWidth) { _presetNameFocused = YES; _textCaretResetAt = [NSDate timeIntervalSinceReferenceDate]; [self.window makeFirstResponder:self]; } else if (point.x >= left + fieldWidth + 8) [self saveUserPreset]; [self setNeedsDisplay:YES]; return YES; }
         _presetNameFocused = NO;
         const CGFloat rowStart = top + 47;
-        const NSInteger total = static_cast<NSInteger>(project::kPresets.size() + _userPresets.size());
         const NSInteger capacity = std::max<NSInteger>(1, static_cast<NSInteger>((NSMaxY(rect) - 12 - rowStart + 6) / 47));
         const NSInteger maxOffset = std::max<NSInteger>(0, total - capacity);
         _presetScrollOffset = std::clamp(_presetScrollOffset, static_cast<NSInteger>(0), maxOffset);
@@ -1131,16 +1172,21 @@ namespace project = tripleside::project;
             const NSInteger slot = static_cast<NSInteger>((point.y - rowStart) / 47), absolute = _presetScrollOffset + slot;
             const CGFloat rowOffset = std::fmod(point.y - rowStart, 47.);
             if (slot >= 0 && slot < capacity && rowOffset <= 41 && absolute >= 0 && absolute < total) {
+                const BOOL alreadySelected = _selectedPresetRow == absolute;
                 _selectedPresetRow = absolute;
-                if (absolute < static_cast<NSInteger>(project::kPresets.size())) [self applyFactoryPreset:absolute];
-                else {
-                    const NSInteger user = absolute - static_cast<NSInteger>(project::kPresets.size());
+                _pendingDeletePresetRow = -1;
+                if (absolute < static_cast<NSInteger>(project::kPresets.size())) _presetNameInput = project::kPresets[static_cast<std::size_t>(absolute)].name ?: "Preset";
+                else _presetNameInput = _userPresets[static_cast<std::size_t>(absolute - static_cast<NSInteger>(project::kPresets.size()))].name;
+                if (absolute >= static_cast<NSInteger>(project::kPresets.size())) {
                     if (point.x >= contentRight - 27) {
-                        _userPresets.erase(_userPresets.begin() + user);
-                        _selectedPresetRow = -1;
-                        [self persistUserPresets];
-                    } else if (point.x >= contentRight - 103 && point.x <= contentRight - 33) [self overwriteUserPreset:user];
-                    else [self applyUserPreset:user];
+                        _pendingDeletePresetRow = absolute;
+                        [self setNeedsDisplay:YES]; return YES;
+                    }
+                }
+                if (alreadySelected) {
+                    if (absolute < static_cast<NSInteger>(project::kPresets.size())) [self applyFactoryPreset:absolute];
+                    else [self applyUserPreset:absolute - static_cast<NSInteger>(project::kPresets.size())];
+                    [self closePanel];
                 }
                 [self setNeedsDisplay:YES]; return YES;
             }
@@ -1572,13 +1618,19 @@ namespace project = tripleside::project;
         const auto value = displayedValue(*_instrument, index, _selectedPrismBand);
         const NSInteger selectedChoice = nearestChoiceIndex(control, value);
         const bool selected = equals(control.kind, "dsp_selector") ? selectedChoice >= 0 : value >= .5f;
+        const bool presetBrowserStyle = equals(control.variant, "preset-browser-combo");
         const CGFloat inset = std::clamp<CGFloat>(NSHeight(rect) * .07, 3, 6);
         const CGFloat header = std::clamp<CGFloat>(NSHeight(rect) * .24, 11, 22);
         const NSRect box = NSMakeRect(NSMinX(rect) + inset, NSMinY(rect) + header + inset * .35,
                                       std::max<CGFloat>(1, NSWidth(rect) - inset * 2),
                                       std::max<CGFloat>(1, NSHeight(rect) - header - inset * 1.35));
-        fillRounded(box, std::clamp<CGFloat>(NSHeight(rect) * .12, 5, 9), rgbColor(control.colorRgb));
-        strokeRounded(box, std::clamp<CGFloat>(NSHeight(rect) * .12, 5, 9), selected ? rgbColor(project::kAccentRgb) : [rgbColor(control.textColorRgb) colorWithAlphaComponent:.18], 1);
+        const CGFloat radius = std::clamp<CGFloat>(NSHeight(rect) * .12, 5, 9);
+        if (presetBrowserStyle) {
+            NSBezierPath* boxPath = [NSBezierPath bezierPathWithRoundedRect:box xRadius:radius yRadius:radius];
+            NSGradient* gradient = [[NSGradient alloc] initWithStartingColor:rgbColor(0x292930) endingColor:rgbColor(0x101014)];
+            [gradient drawInBezierPath:boxPath angle:-90];
+        } else fillRounded(box, radius, rgbColor(control.colorRgb));
+        strokeRounded(box, radius, presetBrowserStyle ? rgbColor(project::kAccentRgb, .55) : (selected ? rgbColor(project::kAccentRgb) : [rgbColor(control.textColorRgb) colorWithAlphaComponent:.18]), 1);
         NSString* outputName = @"Master";
         if (equals(control.kind, "dsp_selector") && selectedChoice >= 0) {
             const NSInteger choice = control.choiceOffset + selectedChoice;
@@ -1590,7 +1642,7 @@ namespace project = tripleside::project;
         const CGFloat fontSize = std::clamp<CGFloat>(std::min<CGFloat>(control.outputFontSize, std::min(NSHeight(rect) * .30, NSWidth(rect) * .12)), 6, 32);
         const CGFloat leftPadding = std::clamp<CGFloat>(NSWidth(rect) * .05, 5, 12);
         const CGFloat rightPadding = std::clamp<CGFloat>(NSWidth(rect) * .14, 20, 34);
-        [outputName drawInRect:NSMakeRect(NSMinX(box)+leftPadding, NSMinY(box), std::max<CGFloat>(1, NSWidth(box)-leftPadding-rightPadding), NSHeight(box)) withAttributes:panelTextAttributes(fontSize, rgbColor(control.textColorRgb), NSTextAlignmentLeft, NSFontWeightSemibold)];
+        [outputName drawInRect:NSMakeRect(NSMinX(box)+leftPadding, NSMinY(box), std::max<CGFloat>(1, NSWidth(box)-leftPadding-rightPadding), NSHeight(box)) withAttributes:panelTextAttributes(fontSize, rgbColor(presetBrowserStyle ? 0xfafafa : control.textColorRgb), NSTextAlignmentLeft, NSFontWeightSemibold)];
         [(selected ? @"›" : @"⌄") drawInRect:NSMakeRect(NSMaxX(box)-rightPadding, NSMidY(box)-10, rightPadding, 20) withAttributes:panelTextAttributes(std::min<CGFloat>(15, fontSize+4), selected ? rgbColor(project::kAccentRgb) : rgbColor(control.textColorRgb, .45), NSTextAlignmentCenter, NSFontWeightBold)];
     }
 
@@ -1823,7 +1875,7 @@ namespace project = tripleside::project;
     if (nextHoveredControl < 0) { const BOOL insidePanel = _openPanel >= 0 && NSPointInRect(point, [self panelRect:_openPanel]); if (!insidePanel) nextHoveredControl = [self controlAt:point]; }
     if (nextHoveredControl >= 0) { const auto& control = project::kControls[static_cast<std::size_t>(nextHoveredControl)]; if (!equals(control.kind, "knob") && !equals(control.kind, "fader")) nextHoveredControl = -1; }
     if (nextHoveredControl != _hoveredControl) { _hoveredControl = nextHoveredControl; [self setNeedsDisplay:YES]; }
-    NSInteger nextHovered = -1;
+    NSInteger nextHovered = -1, nextHoveredDelete = -1;
     if (_openPanel >= 0 && equals(project::kPanelControls[static_cast<std::size_t>(_openPanel)].panelType, "preset_browser")) {
         const NSRect panel = [self panelRect:_openPanel];
         const CGFloat left = NSMinX(panel) + 16, right = NSMaxX(panel) - 16, rowStart = NSMinY(panel) + 107;
@@ -1834,15 +1886,18 @@ namespace project = tripleside::project;
         if (point.x >= left && point.x <= contentRight && point.y >= rowStart && point.y <= NSMaxY(panel) - 12) {
             const NSInteger slot = static_cast<NSInteger>((point.y - rowStart) / 47), absolute = _presetScrollOffset + slot;
             const CGFloat rowOffset = std::fmod(point.y - rowStart, 47.);
-            if (slot >= 0 && slot < capacity && rowOffset <= 41 && absolute < total) nextHovered = absolute;
+            if (slot >= 0 && slot < capacity && rowOffset <= 41 && absolute < total) {
+                nextHovered = absolute;
+                if (absolute >= static_cast<NSInteger>(project::kPresets.size()) && point.x >= contentRight - 27) nextHoveredDelete = absolute;
+            }
         }
     }
-    if (nextHovered != _hoveredPresetRow) { _hoveredPresetRow = nextHovered; [self setNeedsDisplay:YES]; }
+    if (nextHovered != _hoveredPresetRow || nextHoveredDelete != _hoveredPresetDeleteRow) { _hoveredPresetRow = nextHovered; _hoveredPresetDeleteRow = nextHoveredDelete; [self setNeedsDisplay:YES]; }
 }
 
 - (void)mouseExited:(NSEvent*)event {
     (void)event;
-    if (_hoveredPresetRow >= 0 || _hoveredControl >= 0) { _hoveredPresetRow = -1; _hoveredControl = -1; [self setNeedsDisplay:YES]; }
+    if (_hoveredPresetRow >= 0 || _hoveredPresetDeleteRow >= 0 || _hoveredControl >= 0) { _hoveredPresetRow = -1; _hoveredPresetDeleteRow = -1; _hoveredControl = -1; [self setNeedsDisplay:YES]; }
 }
 
 - (void)mouseDown:(NSEvent*)event {

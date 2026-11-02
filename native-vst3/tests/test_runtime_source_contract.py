@@ -588,31 +588,58 @@ def test_native_user_presets_are_persistent_overwritable_and_deletable():
     assert "MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH" in source
     assert 'L"\\u25A3  Simpan preset"' in source
     assert "presetNameInput" in header
-    assert "deleteUserPreset(userRow)" in source
-    assert "overwriteUserPreset(userRow)" in source
-    assert "void overwriteUserPreset(int)" in header
+    assert "pendingDeletePresetRow" in header
+    assert "deleteUserPreset(pendingDeletePresetRow" in source
+    assert "canOverwrite" in source
+    assert "captureUserPreset(presetNameInput)" in source
+    assert "void overwriteUserPreset(int)" not in header
     assert "void deleteUserPreset(int)" in header
     assert "presetScrollOffset" in header
     assert "selectedPresetRow" in header
     assert "hoveredPresetRow" in header
+    assert "hoveredPresetDeleteRow" in header
     assert "thumbHeight" in source
     assert "absolute==selectedPresetRow" in source
     assert "absolute==hoveredPresetRow" in source
     assert 'L"OVR"' not in source
-    assert 'L"\\u21BB Perbarui"' in source
-    assert 'L"\\u21BB Update"' in source
+    assert 'L"\\u21BB Perbarui"' not in source
+    assert 'L"\\u21BB Update"' not in source
+    assert 'L"Continue"' in source
+    assert 'L"Lanjutkan"' in source
+    assert "const bool alreadySelected=selectedPresetRow==absolute" in source
+    assert "presetNameInput=wide(project::kPresets" in source
+    assert "applyFactoryPreset(absolute);else applyUserPreset" in source
+    assert "closePanel();" in source
     assert "factoryName||userName" in source
     assert "presetCursorKind" in source
     assert "IDC_HAND" in source
     assert "IDC_IBEAM" in source
 
     macos = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
-    assert "- (void)overwriteUserPreset:(NSInteger)index" in macos
-    assert "[self overwriteUserPreset:user]" in macos
-    assert '@"↻ Perbarui"' in macos
-    assert '@"↻ Update"' in macos
+    assert "- (void)overwriteUserPreset:(NSInteger)index" not in macos
+    assert "const BOOL alreadySelected = _selectedPresetRow == absolute" in macos
+    assert "_pendingDeletePresetRow = absolute" in macos
+    assert '@"Continue"' in macos
+    assert '@"Lanjutkan"' in macos
+    assert '@"↻ Perbarui"' not in macos
+    assert '@"↻ Update"' not in macos
     assert "NSCursor.pointingHandCursor" in macos
     assert "NSCursor.IBeamCursor" in macos
+
+
+def test_native_groove_loop_icon_matches_repeat2_and_preset_combo_style():
+    windows = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+    macos = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
+
+    assert 'button(contentRight-64,midiSequenceLoopEnabled(source),L"\\u21BB")' not in windows
+    assert "const float loopX=contentRight-64" in windows
+    assert "target->DrawLine(D2D1::Point2F(ix+9,iy-2)" in windows
+    assert '@"↻"' not in macos
+    assert "NSBezierPath* repeatIcon" in macos
+    assert 'equals(c.variant,"preset-browser-combo")' in windows
+    assert "rgb(0x292930)" in windows
+    assert 'equals(control.variant, "preset-browser-combo")' in macos
+    assert "rgbColor(0x292930)" in macos
 
 
 def test_native_text_inputs_draw_blinking_carets_after_focus_and_typing():
@@ -1081,7 +1108,7 @@ def test_loading_native_presets_preserves_running_groove_transport():
     mac = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
 
     windows_factory = windows.split("void NativeView::applyFactoryPreset", 1)[1].split("NativeView::UserPreset", 1)[0]
-    windows_user = windows.split("void NativeView::applyUserPreset", 1)[1].split("void NativeView::overwriteUserPreset", 1)[0]
+    windows_user = windows.split("void NativeView::applyUserPreset", 1)[1].split("void NativeView::deleteUserPreset", 1)[0]
     mac_factory = mac.split("- (void)applyFactoryPreset:", 1)[1].split("- (void)applyUserPreset:", 1)[0]
     mac_user = mac.split("- (void)applyUserPreset:", 1)[1].split("- (void)saveUserPreset", 1)[0]
     assert "stopMidiSequence" not in windows_factory
