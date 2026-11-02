@@ -157,6 +157,17 @@ float projectModuleParameter(int moduleIndex,const char*key,float fallback){
 bool isModuleControlKind(const char*kind){
     return kind&&std::strcmp(kind,"visual")&&std::strcmp(kind,"text")&&std::strcmp(kind,"gain_meter")&&std::strcmp(kind,"vu_meter")&&std::strcmp(kind,"keyboard")&&std::strcmp(kind,"pad");
 }
+bool sameChoiceBinding(const project::ControlInfo&left,const project::ControlInfo&right){
+    return left.choiceCount>0&&right.choiceCount>0&&left.moduleIndex>=0&&left.moduleIndex==right.moduleIndex
+        &&left.parameter&&right.parameter&&!std::strcmp(left.parameter,right.parameter);
+}
+size_t choiceBindingLeader(size_t index){
+    if(index>=project::kControls.size())return index;
+    const auto&control=project::kControls[index];
+    if(control.choiceCount<=0||control.moduleIndex<0)return index;
+    for(size_t candidate=0;candidate<index;++candidate)if(sameChoiceBinding(control,project::kControls[candidate]))return candidate;
+    return index;
+}
 bool buildCustomImpulse(const WavFile& source,const project::ImpulseResponseInfo& settings,double targetSampleRate,
     std::vector<std::size_t>& delays,std::vector<float>& coefficients){
     if(source.empty()||source.sampleRate<=0||targetSampleRate<=0)return false;
@@ -262,7 +273,14 @@ tresult PLUGIN_API NativeInstrument::initialize(FUnknown* context) {
         const auto&control=project::kControls[i];
         moduleControlValues[i]=control.value;
         if(control.moduleIndex<0||!isModuleControlKind(control.kind)||isPrismContextParameter(control.parameter))continue;
-        String title(project::kDspModules[static_cast<size_t>(control.moduleIndex)].name,kCP_Utf8);title.append(STR16(" · "));String label(control.label,kCP_Utf8);title.append(label.text16());
+        const auto bindingLeader=choiceBindingLeader(i);
+        if(control.choiceCount>0&&bindingLeader!=i)continue;
+        String title(project::kDspModules[static_cast<size_t>(control.moduleIndex)].name,kCP_Utf8);title.append(STR16(" · "));String label(control.label&&*control.label?control.label:control.parameter,kCP_Utf8);title.append(label.text16());
+        if(control.choiceCount>0){
+            auto*choiceParameter=new StringListParameter(title.text16(),kModuleControlBaseId+static_cast<ParamID>(bindingLeader),nullptr,ParameterInfo::kCanAutomate);
+            for(int row=0;row<control.choiceCount;++row){const int choice=control.choiceOffset+row;if(choice<0||choice>=static_cast<int>(project::kControlChoices.size()))continue;String choiceLabel(project::kControlChoices[static_cast<size_t>(choice)].label,kCP_Utf8);choiceParameter->appendString(choiceLabel.text16());}
+            choiceParameter->getInfo().defaultNormalizedValue=control.value;choiceParameter->setNormalized(control.value);parameters.addParameter(choiceParameter);continue;
+        }
         const int32 steps=!std::strcmp(control.kind,"button")||!std::strcmp(control.kind,"mute")||!std::strcmp(control.kind,"solo")?1:0;
         parameters.addParameter(title.text16(),nullptr,steps,control.value,ParameterInfo::kCanAutomate,kModuleControlBaseId+static_cast<ParamID>(i));
     }
@@ -320,7 +338,7 @@ ParamID NativeInstrument::parameterForControl(size_t index) const noexcept {
     const auto&control=project::kControls[index];
     if(isPrismContextParameter(control.parameter))return kNoParamId;
     if(control.samplerGroupIndex>=0){if(!std::strcmp(control.parameter,"volume"))return groupParameterId(control.samplerGroupIndex,0);if(!std::strcmp(control.parameter,"pan"))return groupParameterId(control.samplerGroupIndex,1);if(!std::strcmp(control.parameter,"mute"))return groupParameterId(control.samplerGroupIndex,2);if(!std::strcmp(control.parameter,"solo"))return groupParameterId(control.samplerGroupIndex,3);}
-    if(control.moduleIndex>=0&&isModuleControlKind(control.kind))return kModuleControlBaseId+static_cast<ParamID>(index);
+    if(control.moduleIndex>=0&&isModuleControlKind(control.kind))return kModuleControlBaseId+static_cast<ParamID>(choiceBindingLeader(index));
     return parameterFor(control.parameter);
 }
 ParamID NativeInstrument::prismParameterFor(int band,int slot) const noexcept {
@@ -352,7 +370,9 @@ void NativeInstrument::applyModuleControl(size_t index,float value) noexcept {
     if(index>=project::kControls.size())return;
     const auto&control=project::kControls[index];
     if(control.moduleIndex<0||control.moduleIndex>=static_cast<int>(project::kDspModules.size()))return;
-    moduleControlValues[index]=clamp01(value);
+    value=clamp01(value);
+    if(control.choiceCount>0){for(size_t candidate=0;candidate<project::kControls.size();++candidate)if(sameChoiceBinding(control,project::kControls[candidate]))moduleControlValues[candidate]=value;}
+    else moduleControlValues[index]=value;
     applyModulePresetValue(static_cast<size_t>(control.moduleIndex),control.parameter,value);
 }
 void NativeInstrument::applyPrismRackParameter(int band,int slot,float value) noexcept {
@@ -826,7 +846,7 @@ tresult PLUGIN_API NativeInstrument::setState(IBStream*s){
     articulation=project::kArticulations.size()>1?std::lround(clamp01(v[7])*(project::kArticulations.size()-1)):0;mic=project::kMicPositions.size()>1?std::lround(clamp01(v[8])*(project::kMicPositions.size()-1)):0;
     }if constexpr(project::kIsEffect){effectBypassMix.reset(bypass?1.0f:0.0f);effectInputTrim.reset(input);effectMix.reset(mix);effectOutputTrim.reset(output);effectRack.setInput(input);effectRack.setDrive(drive);effectRack.setCompress(compress);effectRack.setTone(tone);effectRack.setWidth(width);effectRack.setSpace(space);effectRack.setDryWet(mix);effectRack.setOutput(output);effectRack.reset();}else{instrumentMasterGain.reset(volume);instrumentSaturation.reset(tone);instrumentChorus.reset(space);instrumentDelay.reset(space);instrumentReverb.reset(space);effectRack.setTone(tone);effectRack.setSpace(space);effectRack.reset();for(auto&rack:groupEffectRacks)rack.reset();}ParamID effectIds[]={kInputId,kDriveId,kCompressId,kToneId,kWidthId,kSpaceId,kMixId,kOutputId,kBypassId};ParamID instrumentIds[]={kVolumeId,kToneId,kAttackId,kReleaseId,kSpaceId,kMuteId,kSoloId,kArticulationId,kMicId};auto*ids=project::kIsEffect?effectIds:instrumentIds;for(int i=0;i<9;++i)setParamNormalized(ids[i],clamp01(v[i]));if constexpr(!project::kIsEffect){setSustain(project::kDefaultSustain);setParamNormalized(kSustainId,project::kDefaultSustain?1:0);}
     for(size_t g=0;g<project::kGroups.size();++g){float values[4]{};for(auto&x:values)if(!b.readFloat(x))return kResultFalse;groupVolumes[g]=clamp01(values[0]);groupPans[g]=clamp01(values[1])*2-1;groupMutes[g]=values[2]>=.5f;groupSolos[g]=!groupMutes[g]&&values[3]>=.5f;values[2]=groupMutes[g]?1.f:0.f;values[3]=groupSolos[g]?1.f:0.f;for(int slot=0;slot<4;++slot)setParamNormalized(groupParameterId(static_cast<int>(g),slot),clamp01(values[slot]));}
-    if(version>=2){uint32 count=0;if(!b.readInt32u(count)||count>4096)return kResultFalse;for(uint32 i=0;i<count;++i){float value=0;if(!b.readFloat(value))return kResultFalse;if(i<project::kControls.size()&&project::kControls[i].moduleIndex>=0&&!isPrismContextParameter(project::kControls[i].parameter)){const float normalized=clamp01(value);setParamNormalized(kModuleControlBaseId+i,normalized);applyModuleControl(i,normalized);}}}
+    if(version>=2){uint32 count=0;if(!b.readInt32u(count)||count>4096)return kResultFalse;for(uint32 i=0;i<count;++i){float value=0;if(!b.readFloat(value))return kResultFalse;if(i<project::kControls.size()&&project::kControls[i].moduleIndex>=0&&!isPrismContextParameter(project::kControls[i].parameter)){const float normalized=clamp01(value);setParamNormalized(parameterForControl(i),normalized);applyModuleControl(i,normalized);}}}
     pan=project::kDefaultPan;if(version>=3&&!b.readFloat(pan))return kResultFalse;pan=clamp01(pan);masterPan.reset(pan);setParamNormalized(kPanId,pan);
     if constexpr(project::kIsPrismEq||project::kHasPrismModule){
         if(version>=5){for(auto&value:prismFrequencies)if(!b.readFloat(value))return kResultFalse;for(auto&value:prismGains)if(!b.readFloat(value))return kResultFalse;for(auto&value:prismQs)if(!b.readFloat(value))return kResultFalse;for(auto&enabled:prismEnabled){float value=0;if(!b.readFloat(value))return kResultFalse;enabled=value>=.5f;}}

@@ -34,22 +34,24 @@ def png_bytes(rows):
 
 
 def render(action):
-    rose = (244, 63, 94, 255) if action == "install" else (251, 113, 133, 255)
+    # Website theme: a circular rose-red badge with a high-contrast white TS
+    # monogram. Keep the silhouette transparent so Explorer/Finder never shows
+    # the old dark rounded square around the icon.
+    theme_red = (225, 29, 72, 255)  # #E11D48
+    deep_red = (190, 18, 60, 255)
+    white = (255, 255, 255, 255)
     rows = []
     for y in range(SIZE):
         row = []
         for x in range(SIZE):
-            radius = 44
-            corner_x = min(x, SIZE - 1 - x)
-            corner_y = min(y, SIZE - 1 - y)
-            outside = corner_x < radius and corner_y < radius and (corner_x - radius) ** 2 + (corner_y - radius) ** 2 > radius ** 2
-            if outside:
-                row.append((0, 0, 0, 0)); continue
-            glow = max(0.0, 1.0 - ((x - 80) ** 2 + (y - 60) ** 2) ** .5 / 260)
-            base = (13 + round(18 * glow), 16 + round(8 * glow), 27 + round(15 * glow), 255)
-            border = min(x, y, SIZE - 1 - x, SIZE - 1 - y)
-            if border < 4: base = blend(base, rose, .7)
-            row.append(base)
+            distance = ((x + .5 - SIZE / 2) ** 2 + (y + .5 - SIZE / 2) ** 2) ** .5
+            edge = max(0.0, min(1.0, 123.5 - distance))
+            if edge <= 0:
+                row.append((0, 0, 0, 0))
+                continue
+            shade = max(0.0, min(1.0, (x + y) / (2 * (SIZE - 1))))
+            red = tuple(round(theme_red[index] * (1 - .22 * shade) + deep_red[index] * (.22 * shade)) for index in range(3))
+            row.append((*red, round(255 * edge)))
         rows.append(row)
 
     def paint_polygon(points, color, alpha=1.0):
@@ -59,22 +61,29 @@ def render(action):
             for x in range(max(0, left), min(SIZE, right + 1)):
                 if inside_polygon(x + .5, y + .5, points): rows[y][x] = blend(rows[y][x], color, alpha)
 
-    # Triple-sided monogram: three rising facets with a clean negative-space S.
-    paint_polygon([(42, 68), (118, 38), (102, 80), (42, 104)], rose)
-    paint_polygon([(104, 84), (190, 50), (177, 91), (90, 126)], (255, 255, 255, 255), .96)
-    paint_polygon([(61, 130), (155, 93), (141, 137), (48, 174)], rose)
-    paint_polygon([(139, 141), (210, 113), (194, 158), (123, 186)], (255, 255, 255, 255), .96)
+    # Fine white inner ring makes the round silhouette legible on dark and
+    # light desktops without changing the solid brand-red appearance.
+    for y in range(SIZE):
+        for x in range(SIZE):
+            distance = ((x + .5 - SIZE / 2) ** 2 + (y + .5 - SIZE / 2) ** 2) ** .5
+            if 114.5 <= distance <= 116.5:
+                rows[y][x] = blend(rows[y][x], white, .28)
 
-    # A compact action badge makes installer and uninstaller immediately distinct.
-    badge_center = (190, 194)
-    for y in range(155, 234):
-        for x in range(151, 230):
-            distance = ((x - badge_center[0]) ** 2 + (y - badge_center[1]) ** 2) ** .5
-            if distance <= 37: rows[y][x] = blend(rows[y][x], rose, 1 if distance < 34 else .55)
+    # Bold geometric "TS" monogram, intentionally font-independent so Windows
+    # ICO and macOS ICNS are generated identically on every machine.
+    paint_polygon([(49, 58), (124, 58), (124, 78), (97, 78), (97, 145), (76, 145), (76, 78), (49, 78)], white)
+    paint_polygon([(129, 58), (202, 58), (202, 78), (129, 78)], white)
+    paint_polygon([(129, 58), (149, 58), (149, 117), (129, 117)], white)
+    paint_polygon([(129, 98), (202, 98), (202, 118), (129, 118)], white)
+    paint_polygon([(182, 98), (202, 98), (202, 158), (182, 158)], white)
+    paint_polygon([(129, 138), (202, 138), (202, 158), (129, 158)], white)
+
+    # Compact white action mark: down-to-device for install, X for uninstall.
     if action == "install":
-        paint_polygon([(181, 172), (199, 172), (199, 195), (210, 195), (190, 216), (170, 195), (181, 195)], (255, 255, 255, 255))
+        paint_polygon([(117, 169), (139, 169), (139, 195), (153, 195), (128, 220), (103, 195), (117, 195)], white)
+        paint_polygon([(92, 221), (164, 221), (164, 229), (92, 229)], white)
     else:
-        paint_polygon([(171, 180), (178, 173), (190, 186), (202, 173), (209, 180), (197, 193), (209, 206), (202, 213), (190, 200), (178, 213), (171, 206), (183, 193)], (255, 255, 255, 255))
+        paint_polygon([(101, 176), (110, 167), (128, 185), (146, 167), (155, 176), (137, 194), (155, 212), (146, 221), (128, 203), (110, 221), (101, 212), (119, 194)], white)
     return png_bytes(rows)
 
 

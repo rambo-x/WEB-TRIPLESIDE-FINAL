@@ -1,8 +1,24 @@
 from pathlib import Path
 
+from PIL import Image
+
 
 ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY = ROOT.parent
+
+
+def test_packaging_icons_are_round_brand_red_with_white_monograms():
+    generator = (ROOT / "tools/generate_packaging_icons.py").read_text(encoding="utf-8")
+    assert "#E11D48" in generator
+    for action in ("install", "uninstall"):
+        image = Image.open(ROOT / f"packaging/icons/tripleside-{action}.png").convert("RGBA")
+        assert image.size == (256, 256)
+        assert all(image.getpixel(point)[3] == 0 for point in ((0, 0), (255, 0), (0, 255), (255, 255), (20, 20)))
+        assert all(image.getpixel(point)[3] >= 250 for point in ((128, 6), (249, 128), (128, 249), (6, 128)))
+        center = image.getpixel((128, 128))
+        assert center[0] > 180 and center[0] > center[1] * 3 and center[0] > center[2] * 2
+        pixels = image.load()
+        assert sum(1 for y in range(256) for x in range(256) if pixels[x, y][3] > 250 and min(pixels[x, y][:3]) > 245) > 5000
 
 
 def test_macos_builder_outputs_pkg_and_scoped_uninstaller_app():

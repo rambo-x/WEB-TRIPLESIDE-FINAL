@@ -441,6 +441,18 @@ def test_native_sampler_mute_and_solo_are_exclusive_while_multi_solo_remains_val
     assert "slot == 2 || slot == 3" in mac
 
 
+def test_choice_buttons_and_combo_box_share_one_native_parameter_and_persisted_value():
+    source = (SOURCE_DIR / "NativeInstrument.cpp").read_text(encoding="utf-8")
+
+    assert "bool sameChoiceBinding" in source
+    assert "size_t choiceBindingLeader" in source
+    assert "if(control.choiceCount>0&&bindingLeader!=i)continue" in source
+    assert "new StringListParameter" in source
+    assert "choiceBindingLeader(index)" in source
+    assert "sameChoiceBinding(control,project::kControls[candidate])" in source
+    assert "setParamNormalized(parameterForControl(i),normalized)" in source
+
+
 def test_native_css_controls_and_branding_follow_preview_tokens():
     header = (SOURCE_DIR / "NativeView.h").read_text(encoding="utf-8")
     source = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
