@@ -1,103 +1,110 @@
 #!/usr/bin/env python3
-"""Generate deterministic TripleSide installer icons using only the Python stdlib."""
+"""Generate polished, deterministic TripleSide installer icons."""
 from __future__ import annotations
 
-import binascii
+import io
 import struct
-import zlib
 from pathlib import Path
 
-SIZE = 256
+from PIL import Image, ImageDraw, ImageFont
 
 
-def blend(pixel, color, alpha=1.0):
-    return tuple(round(pixel[index] * (1 - alpha) + color[index] * alpha) for index in range(4))
+DESIGN_SIZE = 1024
+OUTPUT_SIZE = 256
+ICO_SIZES = (16, 24, 32, 48, 64, 128, 256)
+ICNS_TYPES = {16: b"icp4", 32: b"icp5", 64: b"icp6", 128: b"ic07", 256: b"ic08"}
+THEME_RED = (225, 29, 72)  # Website #E11D48.
 
 
-def inside_polygon(x, y, points):
-    result = False
-    previous = points[-1]
-    for current in points:
-        if (current[1] > y) != (previous[1] > y):
-            edge = (previous[0] - current[0]) * (y - current[1]) / (previous[1] - current[1]) + current[0]
-            if x < edge:
-                result = not result
-        previous = current
-    return result
+def png_bytes(image: Image.Image, size: int) -> bytes:
+    resized = image.resize((size, size), Image.Resampling.LANCZOS)
+    output = io.BytesIO()
+    resized.save(output, format="PNG", optimize=True, compress_level=9)
+    return output.getvalue()
 
 
-def png_bytes(rows):
-    raw = b"".join(b"\0" + bytes(channel for pixel in row for channel in pixel) for row in rows)
-    def chunk(kind, payload):
-        return struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", binascii.crc32(kind + payload) & 0xFFFFFFFF)
-    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", SIZE, SIZE, 8, 6, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b"")
+def brand_font(size: int) -> ImageFont.FreeTypeFont:
+    path = Path(__file__).resolve().parents[1] / "Assets/fonts/Outfit-wght.ttf"
+    font = ImageFont.truetype(str(path), size)
+    try:
+        font.set_variation_by_name("Black")
+    except OSError:
+        pass
+    return font
 
 
-def render(action):
-    # Website theme: a circular rose-red badge with a high-contrast white TS
-    # monogram. Keep the silhouette transparent so Explorer/Finder never shows
-    # the old dark rounded square around the icon.
-    theme_red = (225, 29, 72, 255)  # #E11D48
-    deep_red = (190, 18, 60, 255)
-    white = (255, 255, 255, 255)
-    rows = []
-    for y in range(SIZE):
-        row = []
-        for x in range(SIZE):
-            distance = ((x + .5 - SIZE / 2) ** 2 + (y + .5 - SIZE / 2) ** 2) ** .5
-            edge = max(0.0, min(1.0, 123.5 - distance))
-            if edge <= 0:
-                row.append((0, 0, 0, 0))
+def render(action: str) -> Image.Image:
+    image = Image.new("RGBA", (DESIGN_SIZE, DESIGN_SIZE), (0, 0, 0, 0))
+    circle = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    pixels = circle.load()
+    center = DESIGN_SIZE / 2
+    radius = 482
+    for y in range(DESIGN_SIZE):
+        vertical = y / (DESIGN_SIZE - 1)
+        for x in range(DESIGN_SIZE):
+            distance = ((x + .5 - center) ** 2 + (y + .5 - center) ** 2) ** .5
+            coverage = max(0.0, min(1.0, radius + 1 - distance))
+            if not coverage:
                 continue
-            shade = max(0.0, min(1.0, (x + y) / (2 * (SIZE - 1))))
-            red = tuple(round(theme_red[index] * (1 - .22 * shade) + deep_red[index] * (.22 * shade)) for index in range(3))
-            row.append((*red, round(255 * edge)))
-        rows.append(row)
+            highlight = max(0.0, 1.0 - (((x - 330) / 760) ** 2 + ((y - 230) / 680) ** 2) ** .5)
+            shade = .13 * vertical
+            red = round(THEME_RED[0] * (1 - shade) + 190 * shade + 16 * highlight)
+            green = round(THEME_RED[1] * (1 - shade) + 18 * shade + 8 * highlight)
+            blue = round(THEME_RED[2] * (1 - shade) + 60 * shade + 9 * highlight)
+            pixels[x, y] = (min(255, red), min(255, green), min(255, blue), round(255 * coverage))
+    image.alpha_composite(circle)
 
-    def paint_polygon(points, color, alpha=1.0):
-        left, right = int(min(p[0] for p in points)), int(max(p[0] for p in points))
-        top, bottom = int(min(p[1] for p in points)), int(max(p[1] for p in points))
-        for y in range(max(0, top), min(SIZE, bottom + 1)):
-            for x in range(max(0, left), min(SIZE, right + 1)):
-                if inside_polygon(x + .5, y + .5, points): rows[y][x] = blend(rows[y][x], color, alpha)
+    decoration = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    decoration_draw = ImageDraw.Draw(decoration, "RGBA")
+    decoration_draw.ellipse((48, 48, 976, 976), outline=(255, 255, 255, 70), width=9)
+    decoration_draw.ellipse((63, 63, 961, 961), outline=(120, 0, 35, 80), width=5)
+    image.alpha_composite(decoration)
+    draw = ImageDraw.Draw(image, "RGBA")
 
-    # Fine white inner ring makes the round silhouette legible on dark and
-    # light desktops without changing the solid brand-red appearance.
-    for y in range(SIZE):
-        for x in range(SIZE):
-            distance = ((x + .5 - SIZE / 2) ** 2 + (y + .5 - SIZE / 2) ** 2) ** .5
-            if 114.5 <= distance <= 116.5:
-                rows[y][x] = blend(rows[y][x], white, .28)
+    # Match the website favicon with a genuine Outfit Black "3S" wordmark.
+    font = brand_font(365)
+    text = "3S"
+    bounds = draw.textbbox((0, 0), text, font=font, stroke_width=0)
+    text_width = bounds[2] - bounds[0]
+    draw.text(((DESIGN_SIZE - text_width) / 2 - bounds[0], 155 - bounds[1]), text, font=font, fill=(255, 255, 255, 255))
 
-    # Bold geometric "TS" monogram, intentionally font-independent so Windows
-    # ICO and macOS ICNS are generated identically on every machine.
-    paint_polygon([(49, 58), (124, 58), (124, 78), (97, 78), (97, 145), (76, 145), (76, 78), (49, 78)], white)
-    paint_polygon([(129, 58), (202, 58), (202, 78), (129, 78)], white)
-    paint_polygon([(129, 58), (149, 58), (149, 117), (129, 117)], white)
-    paint_polygon([(129, 98), (202, 98), (202, 118), (129, 118)], white)
-    paint_polygon([(182, 98), (202, 98), (202, 158), (182, 158)], white)
-    paint_polygon([(129, 138), (202, 138), (202, 158), (129, 158)], white)
-
-    # Compact white action mark: down-to-device for install, X for uninstall.
+    # A restrained action mark keeps install and uninstall easy to distinguish.
     if action == "install":
-        paint_polygon([(117, 169), (139, 169), (139, 195), (153, 195), (128, 220), (103, 195), (117, 195)], white)
-        paint_polygon([(92, 221), (164, 221), (164, 229), (92, 229)], white)
+        draw.rounded_rectangle((479, 620, 545, 790), radius=28, fill=(255, 255, 255, 255))
+        draw.polygon(((404, 755), (620, 755), (512, 872)), fill=(255, 255, 255, 255))
+        draw.rounded_rectangle((365, 882, 659, 913), radius=15, fill=(255, 255, 255, 255))
     else:
-        paint_polygon([(101, 176), (110, 167), (128, 185), (146, 167), (155, 176), (137, 194), (155, 212), (146, 221), (128, 203), (110, 221), (101, 212), (119, 194)], white)
-    return png_bytes(rows)
+        draw.line((420, 690, 604, 874), fill=(255, 255, 255, 255), width=66)
+        draw.line((604, 690, 420, 874), fill=(255, 255, 255, 255), width=66)
+    return image
 
 
-def main():
-    output = Path(__file__).resolve().parents[1] / "packaging" / "icons"
+def main() -> None:
+    output = Path(__file__).resolve().parents[1] / "packaging/icons"
     output.mkdir(parents=True, exist_ok=True)
     for action in ("install", "uninstall"):
-        png = render(action)
-        (output / f"tripleside-{action}.png").write_bytes(png)
-        ico_header = struct.pack("<HHH", 0, 1, 1)
-        ico_entry = struct.pack("<BBBBHHII", 0, 0, 0, 0, 1, 32, len(png), 22)
-        (output / f"tripleside-{action}.ico").write_bytes(ico_header + ico_entry + png)
-        icns_element = b"ic08" + struct.pack(">I", len(png) + 8) + png
-        (output / f"tripleside-{action}.icns").write_bytes(b"icns" + struct.pack(">I", len(icns_element) + 8) + icns_element)
+        image = render(action)
+        pngs = {size: png_bytes(image, size) for size in ICO_SIZES}
+        (output / f"tripleside-{action}.png").write_bytes(pngs[OUTPUT_SIZE])
+
+        offset = 6 + 16 * len(ICO_SIZES)
+        entries = []
+        for size in ICO_SIZES:
+            png = pngs[size]
+            entries.append(struct.pack(
+                "<BBBBHHII",
+                0 if size == 256 else size,
+                0 if size == 256 else size,
+                0, 0, 1, 32, len(png), offset,
+            ))
+            offset += len(png)
+        ico = struct.pack("<HHH", 0, 1, len(ICO_SIZES)) + b"".join(entries) + b"".join(pngs[size] for size in ICO_SIZES)
+        (output / f"tripleside-{action}.ico").write_bytes(ico)
+
+        elements = [kind + struct.pack(">I", len(pngs[size]) + 8) + pngs[size] for size, kind in ICNS_TYPES.items()]
+        (output / f"tripleside-{action}.icns").write_bytes(
+            b"icns" + struct.pack(">I", sum(map(len, elements)) + 8) + b"".join(elements)
+        )
 
 
 if __name__ == "__main__":

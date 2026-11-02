@@ -1,3 +1,4 @@
+import struct
 from pathlib import Path
 
 from PIL import Image
@@ -14,11 +15,15 @@ def test_packaging_icons_are_round_brand_red_with_white_monograms():
         image = Image.open(ROOT / f"packaging/icons/tripleside-{action}.png").convert("RGBA")
         assert image.size == (256, 256)
         assert all(image.getpixel(point)[3] == 0 for point in ((0, 0), (255, 0), (0, 255), (255, 255), (20, 20)))
-        assert all(image.getpixel(point)[3] >= 250 for point in ((128, 6), (249, 128), (128, 249), (6, 128)))
+        assert all(image.getpixel(point)[3] >= 250 for point in ((128, 8), (247, 128), (128, 247), (8, 128)))
         center = image.getpixel((128, 128))
         assert center[0] > 180 and center[0] > center[1] * 3 and center[0] > center[2] * 2
         pixels = image.load()
         assert sum(1 for y in range(256) for x in range(256) if pixels[x, y][3] > 250 and min(pixels[x, y][:3]) > 245) > 5000
+        ico = (ROOT / f"packaging/icons/tripleside-{action}.ico").read_bytes()
+        assert struct.unpack_from("<HHH", ico, 0) == (0, 1, 7)
+        sizes = [tuple(256 if value == 0 else value for value in ico[6 + index * 16:8 + index * 16]) for index in range(7)]
+        assert sizes == [(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
 
 
 def test_macos_builder_outputs_pkg_and_scoped_uninstaller_app():
