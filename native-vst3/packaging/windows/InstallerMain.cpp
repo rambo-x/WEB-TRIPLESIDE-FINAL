@@ -76,7 +76,7 @@ int install() {
         }
         installedBytes += item.size;
     }
-    const fs::path stagedUninstaller = uninstallStage / L"uninstall.exe";
+    const fs::path stagedUninstaller = uninstallStage / L"TripleSide-Uninstaller.exe";
     if (!extractPayloadItem(package, manifest.uninstaller, stagedUninstaller, error) ||
         !writeUninstallMetadata(uninstallStage / L"uninstall.dat", {manifest.productName, manifest.bundleName, manifest.installerId}, error)) {
         removeTreeNoFollow(bundleStage, error);
@@ -121,7 +121,7 @@ int install() {
         return 19;
     }
 
-    const fs::path installedUninstaller = productUninstallRoot / L"uninstall.exe";
+    const fs::path installedUninstaller = productUninstallRoot / L"TripleSide-Uninstaller.exe";
     if (!registerUninstaller(manifest, bundleTarget, installedUninstaller, installedBytes, error)) {
         removeTreeNoFollow(bundleTarget, error);
         removeTreeNoFollow(productUninstallRoot, error);

@@ -74,10 +74,12 @@ def test_windows_builder_outputs_native_exe_with_registered_uninstaller():
     assert "package_windows_installer.py" in script
     assert '"--verify"' in script
     assert "GetFileNameWithoutExtension($Bundle.Name)" in script
-    assert "-windows-vst3-setup" in script
-    assert "-windows-vst3-uninstall.exe" in script
+    assert '$ProductBaseName + "-Installer"' in script
+    assert '$ProductBaseName + "-Uninstaller.exe"' in script
     assert '"--portable-uninstaller-output"' in script
-    assert "-windows-vst3-installer.zip" in script
+    assert '$ProductBaseName + "-Windows-Installer.zip"' in script
+    assert 'TripleSide-Uninstaller.exe' in installer
+    assert 'TripleSide-Uninstaller.exe' in uninstaller
     assert "FOOTER_MAGIC" in packager
     assert "MAX_MANIFEST_BYTES" in packager
     assert "_copy_and_hash" in packager

@@ -126,9 +126,9 @@ if ([string]::IsNullOrWhiteSpace($Publisher)) { $Publisher = "TripleSide Studio"
 $InstallerSlug = ($ProductBaseName.ToLowerInvariant() -replace '[^a-z0-9]+', '-').Trim('-')
 if ([string]::IsNullOrWhiteSpace($InstallerSlug)) { $InstallerSlug = "plugin" }
 $InstallerId = "com.triplesidestudio.vst3.$InstallerSlug"
-$InstallerBaseName = $ProductBaseName + "-windows-vst3-setup"
+$InstallerBaseName = $ProductBaseName + "-Installer"
 $InstallerPath = Join-Path $ArtifactDir ($InstallerBaseName + ".exe")
-$PortableUninstallerPath = Join-Path $ArtifactDir ($ProductBaseName + "-windows-vst3-uninstall.exe")
+$PortableUninstallerPath = Join-Path $ArtifactDir ($ProductBaseName + "-Uninstaller.exe")
 $InstallerStub = Join-Path $BuildDir "packaging\tripleside-native-setup-stub.exe"
 $UninstallerStub = Join-Path $BuildDir "packaging\tripleside-native-uninstaller.exe"
 foreach ($NativeStub in @($InstallerStub, $UninstallerStub)) {
@@ -155,7 +155,7 @@ if ($PackagingResult.ExitCode -ne 0) { Throw-CapturedFailure "Native Windows ins
 if (-not (Test-Path -LiteralPath $InstallerPath -PathType Leaf)) { throw "Native Windows installer EXE was not produced." }
 if (-not (Test-Path -LiteralPath $PortableUninstallerPath -PathType Leaf)) { throw "Portable Windows uninstaller EXE was not produced." }
 
-$ZipPath = Join-Path $ArtifactDir ($ProductBaseName + "-windows-vst3-installer.zip")
+$ZipPath = Join-Path $ArtifactDir ($ProductBaseName + "-Windows-Installer.zip")
 if (Test-Path $ZipPath) { Remove-Item $ZipPath -Force }
 $NoticesDir = Join-Path $ResolvedOutput "package-notices"
 New-Item -ItemType Directory -Force -Path $NoticesDir | Out-Null

@@ -104,7 +104,7 @@ int uninstall() {
     std::wstring error;
     UninstallMetadata metadata;
     const fs::path currentDirectory = currentExecutable.parent_path();
-    const bool installedCopy = isDirectChild(uninstallRoot(), currentDirectory) && pathEquals(currentExecutable, currentDirectory / L"uninstall.exe");
+    const bool installedCopy = isDirectChild(uninstallRoot(), currentDirectory) && pathEquals(currentExecutable, currentDirectory / L"TripleSide-Uninstaller.exe");
     if (!(installedCopy ? readUninstallMetadata(currentDirectory / L"uninstall.dat", metadata, error)
                         : readPortableUninstallMetadata(currentExecutable, metadata, error))) {
         showError(error);
