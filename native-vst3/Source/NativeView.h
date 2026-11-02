@@ -74,7 +74,7 @@ private:
     std::set<int> hiddenMidiSequences;
     bool midiPlaying=false;
     bool currentControlUsesFilmstrip=true,currentControlShowCorrelationMeter=true,currentControlShowBackground=true,currentSampleNameVisible=true;
-    bool licenseInputFocused=false,presetNameFocused=false; std::wstring licenseInput,presetNameInput; wchar_t licenseForwardedKey=0,presetForwardedKey=0; std::uint64_t licenseForwardedAt=0,presetForwardedAt=0;
+    bool licenseInputFocused=false,presetNameFocused=false; std::wstring licenseInput,presetNameInput; wchar_t licenseForwardedKey=0,presetForwardedKey=0; std::uint64_t licenseForwardedAt=0,presetForwardedAt=0,textCaretResetAt=0;
     std::map<size_t,std::array<float,2>> visualMeterLevels;
     std::map<size_t,std::uint64_t> visualMeterUpdatedMs;
     std::array<float,128> spectrumLevels{}; std::uint64_t spectrumUpdatedMs=0,barSpectrumUpdatedMs=0; float vectorscopeCorrelation=0;

@@ -600,6 +600,22 @@ def test_native_user_presets_are_persistent_overwritable_and_deletable():
     assert 'L"OVR"' not in source
 
 
+def test_native_text_inputs_draw_blinking_carets_after_focus_and_typing():
+    header = (SOURCE_DIR / "NativeView.h").read_text(encoding="utf-8")
+    windows = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+    macos = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
+
+    assert "textCaretResetAt" in header
+    assert "((GetTickCount64()-textCaretResetAt)%1000)<530" in windows
+    assert windows.count("widthIncludingTrailingWhitespace") >= 2
+    assert "_licenseInputFocused" in macos
+    assert "_textCaretResetAt" in macos
+    assert macos.count("std::fmod") >= 2
+    assert 'NSEventModifierFlagCommand' in macos
+    assert '@"Masukkan serial lisensi"' in macos
+    assert '@"AKTIFKAN LISENSI"' in macos
+
+
 def test_windows_mixer_matches_preview_channel_cards():
     source = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
     mac_source = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
@@ -823,8 +839,10 @@ def test_macos_runtime_uses_keychain_machine_binding_and_activation_overlay():
     assert 'os_name\\\":\\\"macOS' in runtime
     assert "startOnlineRefreshMac" in runtime
     assert 'defined(_WIN32) || defined(__APPLE__)' in header
-    assert "AKTIFKAN DARI CLIPBOARD" in view
+    assert "AKTIFKAN LISENSI" in view
     assert "NSPasteboard.generalPasteboard" in view
+    assert "_licenseInputFocused" in view
+    assert "NSEventModifierFlagCommand" in view
     assert "LicenseRuntime::activateSerial(value)" in view
     assert 'set_source_files_properties(Source/LicenseRuntime.cpp PROPERTIES LANGUAGE OBJCXX)' in cmake
     assert '"-framework Security"' in cmake

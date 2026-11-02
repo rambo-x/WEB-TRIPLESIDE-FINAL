@@ -316,8 +316,11 @@ namespace project = tripleside::project;
     std::map<int, bool> _midiLoopOverrides;
     std::set<int> _hiddenMidiSequences;
     std::vector<RuntimeUserPreset> _userPresets;
+    std::string _licenseInput;
+    BOOL _licenseInputFocused;
     std::string _presetNameInput;
     BOOL _presetNameFocused;
+    NSTimeInterval _textCaretResetAt;
 }
 - (instancetype)initWithFrame:(NSRect)frame instrument:(NativeInstrument*)instrument;
 - (BOOL)hitPadFlashActive:(int)pitch;
@@ -381,7 +384,9 @@ namespace project = tripleside::project;
         _hoveredPresetRow = -1;
         _hoveredControl = -1;
         _outputMenuControl = -1;
+        _licenseInputFocused = NO;
         _presetNameFocused = NO;
+        _textCaretResetAt = [NSDate timeIntervalSinceReferenceDate];
         _panelX = 50;
         _panelY = 52;
         _panelWidth = 88;
@@ -846,8 +851,16 @@ namespace project = tripleside::project;
         const NSRect field = NSMakeRect(left, top, std::max<CGFloat>(80, right - left - 156), 35);
         fillRounded(field, 9, rgbColor(0x09090b)); strokeRounded(NSInsetRect(field, .5, .5), 9, rgbColor(0xffffff, .10));
         NSString* presetFieldText = _presetNameInput.empty() ? @"Nama preset baru" : [NSString stringWithUTF8String:_presetNameInput.c_str()];
-        [presetFieldText drawInRect:NSInsetRect(field, 10, 10)
-           withAttributes:panelTextAttributes(10, _presetNameInput.empty() ? rgbColor(0x71717a) : rgbColor(0xf4f4f5), NSTextAlignmentLeft, NSFontWeightRegular)];
+        NSDictionary* presetFieldAttributes = panelTextAttributes(10, _presetNameInput.empty() ? rgbColor(0x71717a) : rgbColor(0xf4f4f5), NSTextAlignmentLeft, NSFontWeightRegular);
+        [presetFieldText drawInRect:NSInsetRect(field, 10, 10) withAttributes:presetFieldAttributes];
+        const NSTimeInterval caretNow = [NSDate timeIntervalSinceReferenceDate];
+        if (_presetNameFocused && std::fmod(std::max<NSTimeInterval>(0, caretNow - _textCaretResetAt), 1.0) < .53) {
+            NSString* typed = [NSString stringWithUTF8String:_presetNameInput.c_str()] ?: @"";
+            const CGFloat caretX = std::min<CGFloat>(NSMaxX(field) - 10, NSMinX(field) + 10 + [typed sizeWithAttributes:presetFieldAttributes].width);
+            [rgbColor(project::kAccentRgb) setStroke];
+            NSBezierPath* caret = [NSBezierPath bezierPath]; caret.lineWidth = 1.25;
+            [caret moveToPoint:NSMakePoint(caretX, NSMinY(field) + 8)]; [caret lineToPoint:NSMakePoint(caretX, NSMaxY(field) - 8)]; [caret stroke];
+        }
         const NSRect save = NSMakeRect(NSMaxX(field) + 8, top, right - NSMaxX(field) - 8, 35);
         fillRounded(save, 9, accent);
         [@"▣  Simpan preset" drawInRect:NSMakeRect(NSMinX(save) + 6, NSMinY(save) + 10, NSWidth(save) - 12, 15)
@@ -1082,7 +1095,7 @@ namespace project = tripleside::project;
         }
     } else if (equals(panel.panelType, "preset_browser")) {
         const CGFloat fieldWidth = std::max<CGFloat>(80, right - left - 156);
-        if (point.y >= top && point.y <= top + 35) { if (point.x <= left + fieldWidth) { _presetNameFocused = YES; [self.window makeFirstResponder:self]; } else if (point.x >= left + fieldWidth + 8) [self saveUserPreset]; [self setNeedsDisplay:YES]; return YES; }
+        if (point.y >= top && point.y <= top + 35) { if (point.x <= left + fieldWidth) { _presetNameFocused = YES; _textCaretResetAt = [NSDate timeIntervalSinceReferenceDate]; [self.window makeFirstResponder:self]; } else if (point.x >= left + fieldWidth + 8) [self saveUserPreset]; [self setNeedsDisplay:YES]; return YES; }
         _presetNameFocused = NO;
         const CGFloat rowStart = top + 47;
         const NSInteger total = static_cast<NSInteger>(project::kPresets.size() + _userPresets.size());
@@ -1642,12 +1655,24 @@ namespace project = tripleside::project;
                 NSForegroundColorAttributeName: [NSColor colorWithCalibratedWhite:.68 alpha:1],
                 NSParagraphStyleAttributeName: centered,
             };
-            [@"AKTIVASI PRODUK" drawInRect:NSMakeRect(40, project::kCanvasHeight * .5 - 92, project::kCanvasWidth - 80, 20) withAttributes:eyebrow];
-            [@"Lisensi VST3 diperlukan" drawInRect:NSMakeRect(40, project::kCanvasHeight * .5 - 66, project::kCanvasWidth - 80, 36) withAttributes:title];
-            auto state = LicenseRuntime::statusText();
-            NSString* stateText = [[NSString alloc] initWithBytes:state.data() length:state.size() * sizeof(wchar_t) encoding:NSUTF32LittleEndianStringEncoding];
-            [(stateText ?: @"Aktivasi diperlukan") drawInRect:NSMakeRect(40, project::kCanvasHeight * .5 - 22, project::kCanvasWidth - 80, 22) withAttributes:detail];
-            const NSRect button = NSMakeRect(project::kCanvasWidth * .5 - 145, project::kCanvasHeight * .5 + 20, 290, 48);
+            const CGFloat centerY = project::kCanvasHeight * .5;
+            [@"AKTIVASI PRODUK" drawInRect:NSMakeRect(40, centerY - 142, project::kCanvasWidth - 80, 20) withAttributes:eyebrow];
+            [@"Masukkan serial lisensi" drawInRect:NSMakeRect(40, centerY - 116, project::kCanvasWidth - 80, 36) withAttributes:title];
+            [@"Tempel atau ketik serial dari Dashboard Customer." drawInRect:NSMakeRect(40, centerY - 76, project::kCanvasWidth - 80, 22) withAttributes:detail];
+            const NSRect serialField = NSMakeRect(project::kCanvasWidth * .5 - 210, centerY - 42, 420, 44);
+            fillRounded(serialField, 10, rgbColor(0x07070a));
+            strokeRounded(NSInsetRect(serialField, .5, .5), 10, _licenseInputFocused ? rgbColor(0xf5c76b) : rgbColor(0x3f3f46));
+            NSString* serialText = _licenseInput.empty() ? @"Contoh: TSVST-XXXX-XXXX-XXXX" : ([NSString stringWithUTF8String:_licenseInput.c_str()] ?: @"");
+            NSDictionary* serialAttributes = panelTextAttributes(12, _licenseInput.empty() ? rgbColor(0x71717a) : NSColor.whiteColor, NSTextAlignmentLeft, NSFontWeightRegular);
+            [serialText drawInRect:NSMakeRect(NSMinX(serialField) + 14, NSMinY(serialField) + 14, NSWidth(serialField) - 28, 20) withAttributes:serialAttributes];
+            const NSTimeInterval caretNow = [NSDate timeIntervalSinceReferenceDate];
+            if (_licenseInputFocused && std::fmod(std::max<NSTimeInterval>(0, caretNow - _textCaretResetAt), 1.0) < .53) {
+                NSString* typed = [NSString stringWithUTF8String:_licenseInput.c_str()] ?: @"";
+                const CGFloat caretX = std::min<CGFloat>(NSMaxX(serialField) - 14, NSMinX(serialField) + 14 + [typed sizeWithAttributes:serialAttributes].width);
+                [rgbColor(0xf5c76b) setStroke]; NSBezierPath* caret = [NSBezierPath bezierPath]; caret.lineWidth = 1.5;
+                [caret moveToPoint:NSMakePoint(caretX, NSMinY(serialField) + 10)]; [caret lineToPoint:NSMakePoint(caretX, NSMaxY(serialField) - 10)]; [caret stroke];
+            }
+            const NSRect button = NSMakeRect(project::kCanvasWidth * .5 - 145, centerY + 18, 290, 48);
             NSBezierPath* path = [NSBezierPath bezierPathWithRoundedRect:button xRadius:10 yRadius:10];
             [[NSColor colorWithCalibratedRed:.75 green:.24 blue:.08 alpha:1] setFill];
             [path fill];
@@ -1656,8 +1681,11 @@ namespace project = tripleside::project;
                 NSForegroundColorAttributeName: NSColor.whiteColor,
                 NSParagraphStyleAttributeName: centered,
             };
-            [@"AKTIFKAN DARI CLIPBOARD" drawInRect:NSMakeRect(button.origin.x, button.origin.y + 15, button.size.width, 20) withAttributes:action];
-            [@"Salin serial dari Dashboard, lalu tekan tombol di atas." drawInRect:NSMakeRect(40, button.origin.y + 61, project::kCanvasWidth - 80, 22) withAttributes:detail];
+            [@"AKTIFKAN LISENSI" drawInRect:NSMakeRect(button.origin.x, button.origin.y + 15, button.size.width, 20) withAttributes:action];
+            auto state = LicenseRuntime::statusText();
+            NSString* stateText = [[NSString alloc] initWithBytes:state.data() length:state.size() * sizeof(wchar_t) encoding:NSUTF32LittleEndianStringEncoding];
+            [(stateText ?: @"Aktivasi diperlukan") drawInRect:NSMakeRect(40, button.origin.y + 58, project::kCanvasWidth - 80, 22) withAttributes:detail];
+            [@"Klik kolom lalu tekan Cmd+V untuk menempel serial." drawInRect:NSMakeRect(40, button.origin.y + 80, project::kCanvasWidth - 80, 22) withAttributes:detail];
         }
     }
     [NSGraphicsContext restoreGraphicsState];
@@ -1780,12 +1808,21 @@ namespace project = tripleside::project;
     const NSPoint point = [self designPoint:[self convertPoint:event.locationInWindow fromView:nil]];
     if constexpr (project::kLicenseRequired) {
         if (!LicenseRuntime::isLicensed()) {
-            const NSRect button = NSMakeRect(project::kCanvasWidth * .5 - 145, project::kCanvasHeight * .5 + 20, 290, 48);
+            const CGFloat centerY = project::kCanvasHeight * .5;
+            const NSRect serialField = NSMakeRect(project::kCanvasWidth * .5 - 210, centerY - 42, 420, 44);
+            const NSRect button = NSMakeRect(project::kCanvasWidth * .5 - 145, centerY + 18, 290, 48);
+            if (NSPointInRect(point, serialField)) {
+                _licenseInputFocused = YES; _textCaretResetAt = [NSDate timeIntervalSinceReferenceDate];
+                [self setNeedsDisplay:YES]; return;
+            }
+            _licenseInputFocused = NO;
             if (NSPointInRect(point, button)) {
-                NSString* serial = [NSPasteboard.generalPasteboard stringForType:NSPasteboardTypeString] ?: @"";
-                const char* characters = serial.UTF8String ?: "";
-                std::wstring value;
-                while (*characters) value.push_back(static_cast<unsigned char>(*characters++));
+                if (_licenseInput.empty()) {
+                    NSString* serial = [NSPasteboard.generalPasteboard stringForType:NSPasteboardTypeString] ?: @"";
+                    const char* characters = serial.UTF8String ?: "";
+                    _licenseInput.assign(characters, std::min<std::size_t>(std::strlen(characters), 96));
+                }
+                std::wstring value(_licenseInput.begin(), _licenseInput.end());
                 LicenseRuntime::activateSerial(value);
                 [self setNeedsDisplay:YES];
             }
@@ -1977,12 +2014,33 @@ namespace project = tripleside::project;
 }
 
 - (void)keyDown:(NSEvent*)event {
+    if constexpr (project::kLicenseRequired) {
+        if (!LicenseRuntime::isLicensed() && _licenseInputFocused) {
+            const BOOL command = (event.modifierFlags & NSEventModifierFlagCommand) != 0;
+            NSString* key = event.charactersIgnoringModifiers.lowercaseString ?: @"";
+            if (command && [key isEqualToString:@"v"]) {
+                NSString* serial = [NSPasteboard.generalPasteboard stringForType:NSPasteboardTypeString] ?: @"";
+                const char* characters = serial.UTF8String ?: "";
+                _licenseInput.assign(characters, std::min<std::size_t>(std::strlen(characters), 96));
+            } else if (event.keyCode == 51 || event.keyCode == 117) {
+                if (!_licenseInput.empty()) _licenseInput.pop_back();
+            } else if (event.keyCode == 36 || event.keyCode == 76) {
+                std::wstring value(_licenseInput.begin(), _licenseInput.end()); LicenseRuntime::activateSerial(value);
+            } else if (event.keyCode == 53) {
+                _licenseInputFocused = NO;
+            } else if (!command && _licenseInput.size() < 96) {
+                NSString* characters = event.characters;
+                if (characters.length) { const char* utf8 = characters.UTF8String; if (utf8) _licenseInput.append(utf8, std::min<std::size_t>(std::strlen(utf8), 96 - _licenseInput.size())); }
+            }
+            _textCaretResetAt = [NSDate timeIntervalSinceReferenceDate]; [self setNeedsDisplay:YES]; return;
+        }
+    }
     if (_presetNameFocused) {
         if (event.keyCode == 51 || event.keyCode == 117) { if (!_presetNameInput.empty()) _presetNameInput.pop_back(); }
         else if (event.keyCode == 36 || event.keyCode == 76) [self saveUserPreset];
         else if (event.keyCode == 53) _presetNameFocused = NO;
         else if (_presetNameInput.size() < 48) { NSString* characters = event.characters; if (characters.length) { const char* utf8 = characters.UTF8String; if (utf8) _presetNameInput.append(utf8, std::min<std::size_t>(std::strlen(utf8), 48 - _presetNameInput.size())); } }
-        [self setNeedsDisplay:YES]; return;
+        _textCaretResetAt = [NSDate timeIntervalSinceReferenceDate]; [self setNeedsDisplay:YES]; return;
     }
     if ((event.keyCode == 51 || event.keyCode == 117) && (project::kIsPrismEq || project::kHasPrismModule) && _instrument->prismBandEnabled(static_cast<int>(_selectedPrismBand))) {
         const auto enabled = kPrismEnabledBaseId + static_cast<ParamID>(_selectedPrismBand);
