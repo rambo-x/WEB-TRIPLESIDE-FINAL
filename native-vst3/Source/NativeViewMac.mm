@@ -328,6 +328,7 @@ namespace project = tripleside::project;
 - (BOOL)hitPadFlashActive:(int)pitch;
 - (float)displayedValueForControl:(std::size_t)index;
 - (void)drawOpenPanel;
+- (void)applyModulePresetValue:(std::size_t)moduleIndex parameter:(const char*)parameter value:(float)value;
 - (void)updateMidiPlayback;
 - (NSRect)panelRect:(NSInteger)index;
 - (NSRect)panelChildRect:(NSInteger)index;
@@ -705,6 +706,18 @@ namespace project = tripleside::project;
     _instrument->endEdit(parameter);
 }
 
+- (void)applyModulePresetValue:(std::size_t)moduleIndex parameter:(const char*)parameter value:(float)value {
+    _instrument->applyModulePresetValue(moduleIndex, parameter, value);
+    if (!parameter || !std::isfinite(value) || value < 0.f || value > 1.f || equals(parameter, "gain_db")) return;
+    std::set<ParamID> synced;
+    for (std::size_t controlIndex = 0; controlIndex < project::kControls.size(); ++controlIndex) {
+        const auto& control = project::kControls[controlIndex];
+        if (control.moduleIndex != static_cast<int>(moduleIndex) || !equals(control.parameter, parameter)) continue;
+        const auto controlParameter = _instrument->parameterForControl(controlIndex);
+        if (controlParameter != kNoParamId && synced.insert(controlParameter).second) [self setParameter:controlParameter value:value];
+    }
+}
+
 - (void)openPanel:(NSInteger)index {
     if (index < 0 || static_cast<std::size_t>(index) >= project::kControls.size()) return;
     const auto& info = project::kPanelControls[static_cast<std::size_t>(index)];
@@ -1010,11 +1023,11 @@ namespace project = tripleside::project;
     }
     for (int item = 0; item < preset.moduleCount; ++item) {
         const auto& module = project::kPresetModules[static_cast<std::size_t>(preset.moduleOffset + item)];
-        _instrument->applyModulePresetValue(static_cast<std::size_t>(module.moduleIndex), "bypass", module.bypassed ? 1.f : 0.f);
-        _instrument->applyModulePresetValue(static_cast<std::size_t>(module.moduleIndex), "module_mix", module.mix);
+        [self applyModulePresetValue:static_cast<std::size_t>(module.moduleIndex) parameter:"bypass" value:module.bypassed ? 1.f : 0.f];
+        [self applyModulePresetValue:static_cast<std::size_t>(module.moduleIndex) parameter:"module_mix" value:module.mix];
         for (int parameterIndex = 0; parameterIndex < module.parameterCount; ++parameterIndex) {
             const auto& parameter = project::kPresetModuleParameters[static_cast<std::size_t>(module.parameterOffset + parameterIndex)];
-            _instrument->applyModulePresetValue(static_cast<std::size_t>(parameter.moduleIndex), parameter.key, parameter.value);
+            [self applyModulePresetValue:static_cast<std::size_t>(parameter.moduleIndex) parameter:parameter.key value:parameter.value];
         }
     }
     _selectedMidiSequence = preset.midiSequenceIndex;
@@ -1029,12 +1042,12 @@ namespace project = tripleside::project;
         [self setParameter:groupParameterId(static_cast<int>(item / 4), static_cast<int>(item % 4)) value:preset.groups[item]];
     std::size_t cursor = 0;
     for (std::size_t module = 0; module < project::kDspModules.size() && cursor + 1 < preset.moduleValues.size(); ++module) {
-        _instrument->applyModulePresetValue(module, "bypass", preset.moduleValues[cursor++]);
-        _instrument->applyModulePresetValue(module, "module_mix", preset.moduleValues[cursor++]);
+        [self applyModulePresetValue:module parameter:"bypass" value:preset.moduleValues[cursor++]];
+        [self applyModulePresetValue:module parameter:"module_mix" value:preset.moduleValues[cursor++]];
     }
     for (const auto& parameter : project::kDspParameters) {
         if (cursor >= preset.moduleValues.size()) break;
-        _instrument->applyModulePresetValue(static_cast<std::size_t>(parameter.moduleIndex), parameter.key, preset.moduleValues[cursor++]);
+        [self applyModulePresetValue:static_cast<std::size_t>(parameter.moduleIndex) parameter:parameter.key value:preset.moduleValues[cursor++]];
     }
     _selectedMidiSequence = preset.midiSequenceIndex;
 }
@@ -1643,7 +1656,7 @@ namespace project = tripleside::project;
         const CGFloat leftPadding = std::clamp<CGFloat>(NSWidth(rect) * .05, 5, 12);
         const CGFloat rightPadding = std::clamp<CGFloat>(NSWidth(rect) * .14, 20, 34);
         [outputName drawInRect:NSMakeRect(NSMinX(box)+leftPadding, NSMinY(box), std::max<CGFloat>(1, NSWidth(box)-leftPadding-rightPadding), NSHeight(box)) withAttributes:panelTextAttributes(fontSize, rgbColor(presetBrowserStyle ? 0xfafafa : control.textColorRgb), NSTextAlignmentLeft, NSFontWeightSemibold)];
-        [(selected ? @"›" : @"⌄") drawInRect:NSMakeRect(NSMaxX(box)-rightPadding, NSMidY(box)-10, rightPadding, 20) withAttributes:panelTextAttributes(std::min<CGFloat>(15, fontSize+4), selected ? rgbColor(project::kAccentRgb) : rgbColor(control.textColorRgb, .45), NSTextAlignmentCenter, NSFontWeightBold)];
+        [(equals(control.kind, "dsp_selector") ? @"⌄" : (selected ? @"›" : @"⌄")) drawInRect:NSMakeRect(NSMaxX(box)-rightPadding, NSMidY(box)-10, rightPadding, 20) withAttributes:panelTextAttributes(std::min<CGFloat>(15, fontSize+4), selected ? rgbColor(project::kAccentRgb) : rgbColor(control.textColorRgb, .45), NSTextAlignmentCenter, NSFontWeightBold)];
     }
 
     if constexpr (project::kIsPrismEq || project::kHasPrismModule) {

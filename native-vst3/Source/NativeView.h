@@ -43,7 +43,7 @@ private:
     std::map<std::wstring,Microsoft::WRL::ComPtr<ID2D1Bitmap>> visualBitmaps;
     void mouseDown(float,float); void mouseMove(float,float); void mouseUp();
     void mouseDoubleClick(float,float); void mouseWheel(float,float,int); float neutralControlValue(int) const;
-    void setParameter(Steinberg::uint32,float);
+    void setParameter(Steinberg::uint32,float); void applyModulePresetValue(std::size_t,const char*,float);
     Steinberg::uint32 displayedParameter(size_t) const; float indicatorValue(size_t) const; int prismContextSlot(size_t) const; int hitPrismBand(float,float) const; void updatePrismBandFromPoint(int,float,float);
     struct UserPreset;
     HWND hwnd=nullptr; Microsoft::WRL::ComPtr<ID2D1Factory> factory; Microsoft::WRL::ComPtr<ID2D1RenderTarget> target;

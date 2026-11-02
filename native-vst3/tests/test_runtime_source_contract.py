@@ -640,6 +640,22 @@ def test_native_groove_loop_icon_matches_repeat2_and_preset_combo_style():
     assert "rgb(0x292930)" in windows
     assert 'equals(control.variant, "preset-browser-combo")' in macos
     assert "rgbColor(0x292930)" in macos
+    assert 'selected&&!equals(c.kind,"dsp_selector")' in windows
+    assert 'equals(control.kind, "dsp_selector") ? @"⌄"' in macos
+
+
+def test_native_presets_sync_every_module_snapshot_back_to_bound_choice_controls():
+    header = (SOURCE_DIR / "NativeView.h").read_text(encoding="utf-8")
+    windows = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+    macos = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
+
+    assert "applyModulePresetValue(std::size_t,const char*,float)" in header
+    assert "control.moduleIndex!=static_cast<int>(moduleIndex)" in windows
+    assert "synced.insert(id).second" in windows
+    assert 'applyModulePresetValue(static_cast<size_t>(parameter.moduleIndex),parameter.key' in windows
+    assert "control.moduleIndex != static_cast<int>(moduleIndex)" in macos
+    assert "synced.insert(controlParameter).second" in macos
+    assert "[self applyModulePresetValue:static_cast<std::size_t>(parameter.moduleIndex) parameter:parameter.key" in macos
 
 
 def test_native_text_inputs_draw_blinking_carets_after_focus_and_typing():
@@ -1148,7 +1164,7 @@ def test_sampler_bound_native_controls_use_group_notes_analysis_and_two_output_c
     assert 'std::wstring(L"Out")+std::to_wstring(project::kGroups' in windows
     assert 'selected?rgb(project::kAccentRgb):rgb(c.textColorRgb,.18f)' in windows
     assert 'selected?rgb(project::kAccentRgb):rgb(c.textColorRgb,.45f)' in windows
-    assert 'if(selected){target->DrawLine' in windows
+    assert 'if(selected&&!equals(c.kind,"dsp_selector")){target->DrawLine' in windows
     assert "control.samplerGroupIndex" in mac
     assert "copyGroupAnalysisSamples" in mac
     assert 'outputName = [NSString stringWithUTF8String:samplerGroup.name]' in mac
