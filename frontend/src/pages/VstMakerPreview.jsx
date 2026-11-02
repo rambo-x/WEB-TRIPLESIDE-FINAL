@@ -1529,6 +1529,7 @@ const createDraft = (pluginKind = "instrument") => {
   brandY: 13,
   brandAlign: "left",
   pluginVersion: "1.0.0",
+  uiLanguage: "id",
   pluginKind: effectProject ? "effect" : "instrument",
   instrumentType: effectProject ? "Audio Effect" : "Keys",
   rootNote: "C3",
@@ -1696,7 +1697,7 @@ const formatBytes = (bytes) => {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
-const toProjectPayload = (project, samples) => {
+const toProjectPayload = (project, samples, activeLocale = project.uiLanguage || "id") => {
   const effectProject = project.pluginKind === "effect";
   const wavSampleIds = new Set(effectProject ? [] : samples.filter((sample) => /\.wav$/i.test(String(sample.name || ""))).map((sample) => sample.id));
   return ({
@@ -1709,6 +1710,7 @@ const toProjectPayload = (project, samples) => {
   brand_y: clampPercent(project.brandY, 4, 93),
   brand_align: project.brandAlign,
   plugin_version: project.pluginVersion,
+  ui_language: activeLocale === "en" ? "en" : "id",
   plugin_kind: project.pluginKind || "instrument",
   instrument_type: project.instrumentType,
   root_note: project.rootNote,
@@ -1890,6 +1892,7 @@ const fromSavedProject = (saved) => {
   brandY: migrateLumaOpto ? 11 : migrateAmpStack ? 7 : clampPercent(saved.brand_y ?? 13, 7, 93),
   brandAlign: migrateAmpStack ? "left" : ["left", "center", "right"].includes(saved.brand_align) ? saved.brand_align : "left",
   pluginVersion: saved.plugin_version || "1.0.0",
+  uiLanguage: saved.ui_language === "en" ? "en" : "id",
   pluginKind: saved.plugin_kind || "instrument",
   instrumentType: saved.instrument_type,
   rootNote: saved.root_note,
@@ -2072,6 +2075,7 @@ const normalizePublishedTemplate = (template) => {
 };
 
 export default function VstMakerPreview({ customerMode = false, entitlement = null }) {
+  const locale = typeof document !== "undefined" && document.documentElement.lang.toLowerCase().startsWith("en") ? "en" : "id";
   const apiBase = customerMode ? "/customer/vst-maker" : "/admin/vst-maker";
   const canUseFeature = (feature) => !customerMode || entitlement?.features?.includes(feature);
   const planSampleFileLimit = customerMode
@@ -5826,7 +5830,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
       return null;
     }
     setSavingProject(true);
-    const payload = toProjectPayload(projectToSave, currentSamples);
+    const payload = toProjectPayload(projectToSave, currentSamples, locale);
     try {
       let response;
       const isSavedProject = projectToSave.projectId && !projectToSave.projectId.startsWith("draft-");
@@ -6993,6 +6997,7 @@ export default function VstMakerPreview({ customerMode = false, entitlement = nu
               </div>
               <InterfaceWorkspace
                 previewActions={renderProjectActions()}
+                uiLanguage={locale}
                 accentColor={project.accentColor}
                 uiColor={project.uiColor}
                 pluginName={project.name}
@@ -8257,10 +8262,18 @@ function useMidiGrooveTransport(midiSequences, onNoteOn, onNoteOff) {
   return { selectedSequenceId, setSelectedSequenceId, playingSequenceId, play, stop };
 }
 
-function PanelFeatureContent({ panel, controls, engineModules = [], presets, midiSequences, midiTransport, samplerGroups, livePatternConfig, onLivePatternConfigChange, onUpdateMany, onFeatureChange }) {
+function PanelFeatureContent({ panel, uiLanguage = "id", controls, engineModules = [], presets, midiSequences, midiTransport, samplerGroups, livePatternConfig, onLivePatternConfigChange, onUpdateMany, onFeatureChange }) {
   const [presetName, setPresetName] = useState("");
+  const english = uiLanguage === "en";
   const { selectedSequenceId, setSelectedSequenceId, playingSequenceId, play: playMidi, stop: stopMidi } = midiTransport;
   const featureControls = controls.filter((control) => !["panel_button", "visual", "text", "image", "gain_meter", "vu_meter"].includes(control.kind));
+  const capturePreset = (name, id = makeId()) => ({
+    id, name, category: "user",
+    control_values: Object.fromEntries(featureControls.map((control) => [control.id, Number(control.value) || 0])),
+    group_values: Object.fromEntries(samplerGroups.map((group) => [group.id, { volume: group.volume, pan: group.pan, mute: group.mute, solo: group.solo }])),
+    module_values: Object.fromEntries(engineModules.map((module) => [module.id, { bypassed: module.bypassed === true, mix: Math.max(0, Math.min(1, Number(module.mix ?? 1))), parameters: { ...(module.parameters || {}) } }])),
+    midi_sequence_id: livePatternConfig?.sourceSequenceId || selectedSequenceId || null,
+  });
   const importMidi = async (file) => {
     if (!file) return;
     if (!/\.(mid|midi)$/i.test(file.name) || file.size > 2 * 1024 * 1024) {
@@ -8280,22 +8293,16 @@ function PanelFeatureContent({ panel, controls, engineModules = [], presets, mid
   if (panel.panelType === "preset_browser") return (
     <div className="maker-functional-panel__body">
       <div className="maker-panel-preset-toolbar">
-        <input value={presetName} maxLength={48} onChange={(event) => setPresetName(event.target.value)} placeholder="Nama preset baru" />
+        <input value={presetName} maxLength={48} onChange={(event) => setPresetName(event.target.value)} placeholder={english ? "New preset name" : "Nama preset baru"} />
         <button type="button" onClick={() => {
           const name = normalizePresetName(presetName);
-          if (!name) return toast.error("Masukkan nama preset");
-          if (hasPresetName(presets, name)) return toast.error(`Nama preset “${name}” sudah digunakan`);
-          const preset = {
-            id: makeId(), name, category: "user",
-            control_values: Object.fromEntries(featureControls.map((control) => [control.id, Number(control.value) || 0])),
-            group_values: Object.fromEntries(samplerGroups.map((group) => [group.id, { volume: group.volume, pan: group.pan, mute: group.mute, solo: group.solo }])),
-            module_values: Object.fromEntries(engineModules.map((module) => [module.id, { bypassed: module.bypassed === true, mix: Math.max(0, Math.min(1, Number(module.mix ?? 1))), parameters: { ...(module.parameters || {}) } }])),
-            midi_sequence_id: livePatternConfig?.sourceSequenceId || selectedSequenceId || null,
-          };
+          if (!name) return toast.error(english ? "Enter a preset name" : "Masukkan nama preset");
+          if (hasPresetName(presets, name)) return toast.error(english ? `Preset name “${name}” is already in use` : `Nama preset “${name}” sudah digunakan`);
+          const preset = capturePreset(name);
           onFeatureChange({ presets: [...presets, preset].slice(-128) });
           setPresetName("");
-          toast.success(`Preset “${name}” disimpan`);
-        }}><Save size={14} /> Simpan kondisi</button>
+          toast.success(english ? `Preset “${name}” saved` : `Preset “${name}” disimpan`);
+        }}><Save size={14} /> {english ? "Save preset" : "Simpan preset"}</button>
       </div>
       <div className="maker-panel-preset-list">
         {presets.map((preset) => <div key={preset.id} className="maker-panel-preset-row">
@@ -8316,11 +8323,17 @@ function PanelFeatureContent({ panel, controls, engineModules = [], presets, mid
             } else {
               onLivePatternConfigChange?.(null);
             }
-            toast.success(`Preset “${preset.name}” dimuat`);
+            toast.success(english ? `Preset “${preset.name}” loaded` : `Preset “${preset.name}” dimuat`);
           }}><strong>{preset.name}</strong><span>{preset.midi_sequence_id ? "PATTERN · " : ""}{preset.category === "factory" ? "FACTORY" : "USER"}</span></button>
-          {preset.category !== "factory" && <button type="button" aria-label={`Hapus preset ${preset.name}`} onClick={() => onFeatureChange({ presets: presets.filter((item) => item.id !== preset.id) })}><Trash2 size={14} /></button>}
+          {preset.category !== "factory" && <div className="maker-panel-preset-row__actions">
+            <button type="button" className="maker-panel-preset-row__update" aria-label={english ? `Update preset ${preset.name}` : `Perbarui preset ${preset.name}`} title={english ? "Update preset" : "Perbarui preset"} onClick={() => {
+              onFeatureChange({ presets: presets.map((item) => item.id === preset.id ? capturePreset(preset.name, preset.id) : item) });
+              toast.success(english ? `Preset “${preset.name}” updated` : `Preset “${preset.name}” diperbarui`);
+            }}><RotateCcw size={12} /><span>{english ? "Update" : "Perbarui"}</span></button>
+            <button type="button" className="maker-panel-preset-row__delete" aria-label={english ? `Delete preset ${preset.name}` : `Hapus preset ${preset.name}`} title={english ? "Delete preset" : "Hapus preset"} onClick={() => onFeatureChange({ presets: presets.filter((item) => item.id !== preset.id) })}><Trash2 size={14} /></button>
+          </div>}
         </div>)}
-        {!presets.length && <div className="maker-functional-panel__empty">Belum ada preset. Atur suara lalu simpan kondisi saat ini.</div>}
+        {!presets.length && <div className="maker-functional-panel__empty">{english ? "No presets yet. Shape your sound, then save a preset." : "Belum ada preset. Atur suara lalu simpan preset."}</div>}
       </div>
     </div>
   );
@@ -8370,7 +8383,7 @@ function PanelFeatureContent({ panel, controls, engineModules = [], presets, mid
   );
 }
 
-function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentColor, uiColor = "#09090b", pluginName, manufacturerName, pluginVersion, pluginKind = "instrument", instrumentType, brandTagline, brandFont, brandSize = 24, brandX = 18, brandY = 13, brandAlign = "left", uiTemplate, projectTemplate, keyboardKeys, onKeyboardKeysChange, canvasWidth, canvasHeight, backgroundImageUrl, backgroundImageName, backgroundFit, backgroundOpacity, backgroundImageX = 50, backgroundImageY = 50, backgroundImageWidth = 100, backgroundImageHeight = 100, componentStyle = "css", gridSnapEnabled = true, gridSize = 8, resizeAspectLocked = true, backgroundUploadEndpoint, customBackgroundEnabled = true, imageUploadEndpoint = "", imageUploadEnabled = false, onCanvasChange, canUndo = false, canRedo = false, onUndo, onRedo, midiPressedPitches, activeHitPitches = new Set(), activeHitTriggers = new Map(), velocity, sustainEnabled, pitchBendEnabled = true, modulationEnabled = true, pitchBendValue, modulationValue, onPitchBendChange, onModulationChange, meterAnalyserRef, samplerAnalyserRefs, controls, engineModules, presets = [], midiSequences = [], samplerGroups = [], livePatternConfig = null, onLivePatternConfigChange, onFeatureChange, selectedControlId, selectedControlIds = [], onNoteOn, onNoteOff, onAdd, onSelect, onUpdate, onUpdateMany, onMoveLayer, onRemove, onRemoveSelected, onDrop }) {
+function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, uiLanguage = "id", accentColor, uiColor = "#09090b", pluginName, manufacturerName, pluginVersion, pluginKind = "instrument", instrumentType, brandTagline, brandFont, brandSize = 24, brandX = 18, brandY = 13, brandAlign = "left", uiTemplate, projectTemplate, keyboardKeys, onKeyboardKeysChange, canvasWidth, canvasHeight, backgroundImageUrl, backgroundImageName, backgroundFit, backgroundOpacity, backgroundImageX = 50, backgroundImageY = 50, backgroundImageWidth = 100, backgroundImageHeight = 100, componentStyle = "css", gridSnapEnabled = true, gridSize = 8, resizeAspectLocked = true, backgroundUploadEndpoint, customBackgroundEnabled = true, imageUploadEndpoint = "", imageUploadEnabled = false, onCanvasChange, canUndo = false, canRedo = false, onUndo, onRedo, midiPressedPitches, activeHitPitches = new Set(), activeHitTriggers = new Map(), velocity, sustainEnabled, pitchBendEnabled = true, modulationEnabled = true, pitchBendValue, modulationValue, onPitchBendChange, onModulationChange, meterAnalyserRef, samplerAnalyserRefs, controls, engineModules, presets = [], midiSequences = [], samplerGroups = [], livePatternConfig = null, onLivePatternConfigChange, onFeatureChange, selectedControlId, selectedControlIds = [], onNoteOn, onNoteOff, onAdd, onSelect, onUpdate, onUpdateMany, onMoveLayer, onRemove, onRemoveSelected, onDrop }) {
   const selectedControl = controls.find((control) => control.id === selectedControlId);
   const selectedControlSampler = selectedControl?.sampler_group_id
     ? samplerGroups.find((group) => group.id === selectedControl.sampler_group_id) || null
@@ -9165,6 +9178,7 @@ function InterfaceWorkspace({ previewActions = null, visualOpenPanelId, accentCo
                 </header>
                 <PanelFeatureContent
                   panel={openPanel}
+                  uiLanguage={uiLanguage}
                   controls={controls}
                   engineModules={engineModules}
                   presets={presets}

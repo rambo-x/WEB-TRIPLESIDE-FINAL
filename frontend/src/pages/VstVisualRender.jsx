@@ -71,6 +71,7 @@ export default function VstVisualRender() {
     : null;
   return <InterfaceWorkspace
     visualOpenPanelId={frame.panelId ?? null}
+    uiLanguage={spec.ui_language === "en" ? "en" : "id"}
     accentColor={ui.accent_color} uiColor={ui.ui_color} pluginName={spec.name} manufacturerName={brand.manufacturer_name}
     pluginVersion={spec.build?.version} pluginKind={spec.plugin_kind} instrumentType="sampler"
     brandTagline={brand.tagline} brandFont={brand.font} brandSize={brand.font_size}

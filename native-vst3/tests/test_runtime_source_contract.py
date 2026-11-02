@@ -589,6 +589,7 @@ def test_native_user_presets_are_persistent_overwritable_and_deletable():
     assert 'L"\\u25A3  Simpan preset"' in source
     assert "presetNameInput" in header
     assert "deleteUserPreset(userRow)" in source
+    assert "overwriteUserPreset(userRow)" in source
     assert "void overwriteUserPreset(int)" in header
     assert "void deleteUserPreset(int)" in header
     assert "presetScrollOffset" in header
@@ -598,6 +599,20 @@ def test_native_user_presets_are_persistent_overwritable_and_deletable():
     assert "absolute==selectedPresetRow" in source
     assert "absolute==hoveredPresetRow" in source
     assert 'L"OVR"' not in source
+    assert 'L"\\u21BB Perbarui"' in source
+    assert 'L"\\u21BB Update"' in source
+    assert "factoryName||userName" in source
+    assert "presetCursorKind" in source
+    assert "IDC_HAND" in source
+    assert "IDC_IBEAM" in source
+
+    macos = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
+    assert "- (void)overwriteUserPreset:(NSInteger)index" in macos
+    assert "[self overwriteUserPreset:user]" in macos
+    assert '@"↻ Perbarui"' in macos
+    assert '@"↻ Update"' in macos
+    assert "NSCursor.pointingHandCursor" in macos
+    assert "NSCursor.IBeamCursor" in macos
 
 
 def test_native_text_inputs_draw_blinking_carets_after_focus_and_typing():
@@ -614,6 +629,27 @@ def test_native_text_inputs_draw_blinking_carets_after_focus_and_typing():
     assert 'NSEventModifierFlagCommand' in macos
     assert '@"Masukkan serial lisensi"' in macos
     assert '@"AKTIFKAN LISENSI"' in macos
+
+
+def test_native_ui_language_localizes_preset_and_license_surfaces():
+    windows = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+    macos = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
+    runtime = (SOURCE_DIR / "LicenseRuntime.cpp").read_text(encoding="utf-8")
+
+    assert "project::kUiLanguageEnglish" in windows
+    assert 'L"New preset name"' in windows
+    assert 'L"\\u25A3  Save preset"' in windows
+    assert 'L"ACTIVATE LICENSE"' in windows
+    assert 'L"Enter your license key"' in windows
+    assert "project::kUiLanguageEnglish" in macos
+    assert '@"New preset name"' in macos
+    assert '@"▣  Save preset"' in macos
+    assert '@"ACTIVATE LICENSE"' in macos
+    assert '@"Enter your license key"' in macos
+    assert "localized(const wchar_t* indonesian, const wchar_t* english)" in runtime
+    assert 'L"License active"' in runtime
+    assert 'L"Device activation limit reached"' in runtime
+    assert 'L"License key rejected or revoked"' in runtime
 
 
 def test_windows_mixer_matches_preview_channel_cards():
@@ -811,7 +847,7 @@ def test_customer_build_runtime_requires_machine_bound_activation():
     assert "std::fill(outL[bus],outL[bus]+data.numSamples,0)" in instrument
     assert "for(int32 bus=0;bus<availableOutputs;++bus)data.outputs[bus].silenceFlags" in instrument
     assert "Masukkan serial lisensi" in view
-    assert 'auto eyebrow=L"AKTIVASI PRODUK"' in view
+    assert 'auto eyebrow=project::kUiLanguageEnglish?L"PRODUCT ACTIVATION":L"AKTIVASI PRODUK"' in view
     assert "TRIPLESIDE STUDIO · AKTIVASI PRODUK" not in view
     assert "LicenseRuntime::activateSerial(licenseInput)" in view
     assert "Ctrl+V" in view

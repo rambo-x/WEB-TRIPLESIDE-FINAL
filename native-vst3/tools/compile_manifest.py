@@ -721,6 +721,7 @@ inline constexpr int kCanvasWidth = {visual.get('width') or max(320, min(1920, i
 inline constexpr int kCanvasHeight = {visual.get('height') or max(240, min(1080, int(interface.get("canvas_height", 480))))};
 inline constexpr unsigned kAccentRgb = 0x{accent_rgb:06X};
 inline constexpr unsigned kUiRgb = 0x{ui_rgb:06X};
+inline constexpr bool kUiLanguageEnglish = {cpp_bool(spec.get("ui_language") == "en")};
 inline constexpr bool kIsEffect = {cpp_bool(is_effect)};
 inline constexpr bool kIsNeonDrums = {cpp_bool(is_neon_drums)};
 inline constexpr bool kIsPrismEq = {cpp_bool(is_prism_eq)};

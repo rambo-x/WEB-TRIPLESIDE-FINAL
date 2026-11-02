@@ -216,8 +216,8 @@ CORRECTION_REBUILD_MAX_SKIN_CHANGES = 3
 # A ready artifact is reusable only when both its immutable project spec and
 # this builder release match; otherwise Export must enqueue a real rebuild.
 VST_BUILD_PIPELINE_REVISION = (
-    os.environ.get("VST_BUILD_PIPELINE_REVISION", "open-ring-value-wing-stability-v1").strip()
-    or "native-control-parity-v1"
+    os.environ.get("VST_BUILD_PIPELINE_REVISION", "preset-user-update-bilingual-ui-v1").strip()
+    or "preset-user-update-bilingual-ui-v1"
 )
 VST_MACOS_SAMPLER_ROUTING_ENABLED = os.environ.get(
     "VST_MACOS_SAMPLER_ROUTING_ENABLED", "false"
@@ -1052,6 +1052,7 @@ class VstMakerProjectInput(BaseModel):
     brand_y: float = Field(default=13, ge=4, le=93)
     brand_align: Literal["left", "center", "right"] = "left"
     plugin_version: str = Field(default="1.0.0", pattern=r"^\d+\.\d+\.\d+$")
+    ui_language: Literal["id", "en"] = "id"
     plugin_kind: Literal["instrument", "effect"] = "instrument"
     instrument_type: Literal["Audio Effect", "Sampler", "Synth", "Drum Pad", "Keys", "Piano", "Pluck", "Bass", "Strings", "Pads", "Percussion"]
     root_note: Literal["C2", "C3", "C4", "C5", "D3", "E3", "F3", "G3", "A3"]
@@ -3449,6 +3450,7 @@ def vst_maker_build_spec(project: dict, sample_assets: list[dict] | None = None)
 
     return {
         "schema_version": "1.0",
+        "ui_language": "en" if project.get("ui_language") == "en" else "id",
         "plugin_kind": project.get("plugin_kind") or "instrument",
         "project_template": project.get("project_template") or "sampler",
         "dsp_profile": dsp_profile,

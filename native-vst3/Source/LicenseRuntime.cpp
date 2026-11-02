@@ -32,7 +32,8 @@ namespace {
 std::atomic<bool> licensed{!project::kLicenseRequired};
 std::atomic<bool> refreshStarted{false};
 std::mutex stateMutex;
-std::wstring status = project::kLicenseRequired ? L"Belum diaktifkan" : L"Lisensi tidak diperlukan";
+const wchar_t* localized(const wchar_t* indonesian, const wchar_t* english) { return project::kUiLanguageEnglish ? english : indonesian; }
+std::wstring status = project::kLicenseRequired ? localized(L"Belum diaktifkan", L"Not activated") : localized(L"Lisensi tidak diperlukan", L"No license required");
 
 #if defined(_WIN32)
 std::string utf8(const std::wstring& value) {
@@ -186,7 +187,7 @@ DWORD WINAPI refreshOnline(LPVOID raw) {
             licensed = false;
             std::lock_guard lock(stateMutex);
             status = response.find("\"reason\":\"revoked\"") != std::string::npos
-                ? L"Lisensi telah dicabut" : L"Aktivasi perangkat telah di-reset";
+                ? localized(L"Lisensi telah dicabut", L"License has been revoked") : localized(L"Aktivasi perangkat telah di-reset", L"Device activation has been reset");
         }
     }
     const auto module = context->module;
@@ -376,7 +377,7 @@ void startOnlineRefreshMac(const std::string& key, const std::string& hardware) 
                 licensed = false;
                 std::lock_guard lock(stateMutex);
                 status = response.find("\"reason\":\"revoked\"") != std::string::npos
-                    ? L"Lisensi telah dicabut" : L"Aktivasi perangkat telah di-reset";
+                    ? localized(L"Lisensi telah dicabut", L"License has been revoked") : localized(L"Aktivasi perangkat telah di-reset", L"Device activation has been reset");
             }
         }
     });
@@ -391,7 +392,7 @@ void LicenseRuntime::initialize() {
     const auto now = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
     const bool valid = loadCache(key, verifiedAt);
     licensed = valid;
-    std::lock_guard lock(stateMutex); status = valid ? L"Lisensi aktif" : L"Aktivasi diperlukan";
+    std::lock_guard lock(stateMutex); status = valid ? localized(L"Lisensi aktif", L"License active") : localized(L"Aktivasi diperlukan", L"Activation required");
     if (valid && (verifiedAt > now + 300 || now - verifiedAt >= 24 * 60 * 60)) {
         startOnlineRefresh(key, hardwareId());
     }
@@ -400,7 +401,7 @@ void LicenseRuntime::initialize() {
     const auto now = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
     const bool valid = loadCache(key, verifiedAt);
     licensed = valid;
-    std::lock_guard lock(stateMutex); status = valid ? L"Lisensi aktif" : L"Aktivasi diperlukan";
+    std::lock_guard lock(stateMutex); status = valid ? localized(L"Lisensi aktif", L"License active") : localized(L"Aktivasi diperlukan", L"Activation required");
     if (valid && (verifiedAt > now + 300 || now - verifiedAt >= 24 * 60 * 60)) {
         startOnlineRefreshMac(key, hardwareId());
     }
@@ -423,7 +424,7 @@ bool LicenseRuntime::activateFromClipboard(HWND owner) {
 bool LicenseRuntime::activateSerial(const std::wstring& serialWide) {
     if (!project::kLicenseRequired) return true;
     auto normalizedSerial=serialWide;while(!normalizedSerial.empty()&&std::iswspace(normalizedSerial.back()))normalizedSerial.pop_back();while(!normalizedSerial.empty()&&std::iswspace(normalizedSerial.front()))normalizedSerial.erase(normalizedSerial.begin());for(auto&character:normalizedSerial)character=static_cast<wchar_t>(std::towupper(character));
-    if (normalizedSerial.empty()) { std::lock_guard lock(stateMutex); status = L"Masukkan serial lisensi terlebih dahulu"; return false; }
+    if (normalizedSerial.empty()) { std::lock_guard lock(stateMutex); status = localized(L"Masukkan serial lisensi terlebih dahulu", L"Enter your license key first"); return false; }
     const auto serial = utf8(normalizedSerial), hardware = hardwareId(), machine = utf8(machineName());
     const std::string body = "{\"license_key\":\"" + jsonEscape(serial) + "\",\"hardware_id\":\"" + hardware
         + "\",\"machine_name\":\"" + jsonEscape(machine) + "\",\"os_name\":\"Windows\",\"plugin_version\":\""
@@ -433,11 +434,11 @@ bool LicenseRuntime::activateSerial(const std::wstring& serialWide) {
     const bool valid = requested && responseCode == 200 && response.find(project::kLicenseProductId) != std::string::npos && response.find("\"signature\"") != std::string::npos;
     if (valid) {
         const auto now = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-        if (!saveCache(serial, hardware, now)) { std::lock_guard lock(stateMutex); status = L"Aktif, tetapi cache lisensi gagal disimpan"; return false; }
-        licensed = true; std::lock_guard lock(stateMutex); status = L"Lisensi aktif"; return true;
+        if (!saveCache(serial, hardware, now)) { std::lock_guard lock(stateMutex); status = localized(L"Aktif, tetapi cache lisensi gagal disimpan", L"Activated, but the license cache could not be saved"); return false; }
+        licensed = true; std::lock_guard lock(stateMutex); status = localized(L"Lisensi aktif", L"License active"); return true;
     }
     std::lock_guard lock(stateMutex);
-    status = responseCode == 409 ? L"Batas aktivasi perangkat telah tercapai" : responseCode == 403 ? L"Serial ditolak atau dicabut" : responseCode == 404 ? L"Serial tidak ditemukan" : L"Aktivasi gagal; periksa internet dan serial";
+    status = responseCode == 409 ? localized(L"Batas aktivasi perangkat telah tercapai", L"Device activation limit reached") : responseCode == 403 ? localized(L"Serial ditolak atau dicabut", L"License key rejected or revoked") : responseCode == 404 ? localized(L"Serial tidak ditemukan", L"License key not found") : localized(L"Aktivasi gagal; periksa internet dan serial", L"Activation failed; check your internet connection and license key");
     return false;
 }
 #elif defined(__APPLE__)
@@ -447,7 +448,7 @@ bool LicenseRuntime::activateSerial(const std::wstring& serialWide) {
     while (!normalizedSerial.empty() && std::iswspace(normalizedSerial.back())) normalizedSerial.pop_back();
     while (!normalizedSerial.empty() && std::iswspace(normalizedSerial.front())) normalizedSerial.erase(normalizedSerial.begin());
     for (auto& character : normalizedSerial) character = static_cast<wchar_t>(std::towupper(character));
-    if (normalizedSerial.empty()) { std::lock_guard lock(stateMutex); status = L"Salin serial lisensi terlebih dahulu"; return false; }
+    if (normalizedSerial.empty()) { std::lock_guard lock(stateMutex); status = localized(L"Masukkan serial lisensi terlebih dahulu", L"Enter your license key first"); return false; }
     const auto serial = utf8(normalizedSerial), hardware = hardwareId();
     const std::string body = "{\"license_key\":\"" + jsonEscape(serial) + "\",\"hardware_id\":\"" + hardware
         + "\",\"machine_name\":\"" + jsonEscape(machineName()) + "\",\"os_name\":\"macOS\",\"plugin_version\":\""
@@ -458,13 +459,13 @@ bool LicenseRuntime::activateSerial(const std::wstring& serialWide) {
     const bool valid = requested && responseCode == 200 && response.find(project::kLicenseProductId) != std::string::npos && response.find("\"signature\"") != std::string::npos;
     if (valid) {
         const auto now = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-        if (!saveCache(serial, hardware, now)) { std::lock_guard lock(stateMutex); status = L"Aktif, tetapi Keychain gagal menyimpan lisensi"; return false; }
+        if (!saveCache(serial, hardware, now)) { std::lock_guard lock(stateMutex); status = localized(L"Aktif, tetapi Keychain gagal menyimpan lisensi", L"Activated, but Keychain could not save the license"); return false; }
         licensed = true;
-        std::lock_guard lock(stateMutex); status = L"Lisensi aktif";
+        std::lock_guard lock(stateMutex); status = localized(L"Lisensi aktif", L"License active");
         return true;
     }
     std::lock_guard lock(stateMutex);
-    status = responseCode == 409 ? L"Batas aktivasi perangkat telah tercapai" : responseCode == 403 ? L"Serial ditolak atau dicabut" : responseCode == 404 ? L"Serial tidak ditemukan" : L"Aktivasi gagal; periksa internet dan serial";
+    status = responseCode == 409 ? localized(L"Batas aktivasi perangkat telah tercapai", L"Device activation limit reached") : responseCode == 403 ? localized(L"Serial ditolak atau dicabut", L"License key rejected or revoked") : responseCode == 404 ? localized(L"Serial tidak ditemukan", L"License key not found") : localized(L"Aktivasi gagal; periksa internet dan serial", L"Activation failed; check your internet connection and license key");
     return false;
 }
 #endif

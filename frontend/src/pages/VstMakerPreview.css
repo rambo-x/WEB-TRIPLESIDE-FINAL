@@ -6647,11 +6647,17 @@
 .maker-panel-preset-toolbar { display: flex; flex-wrap: wrap; gap: 8px; }
 .maker-panel-preset-toolbar input { min-height: 35px; flex: 1; border: 1px solid rgba(255,255,255,.1); border-radius: 9px; outline: none; background: #09090b; padding: 0 10px; color: #f4f4f5; caret-color: var(--maker-accent); font-size: 10px; transition: border-color 140ms ease, box-shadow 140ms ease; }
 .maker-panel-preset-toolbar input:focus { border-color: color-mix(in srgb, var(--maker-accent) 72%, white); box-shadow: 0 0 0 2px color-mix(in srgb, var(--maker-accent) 18%, transparent), 0 0 16px color-mix(in srgb, var(--maker-accent) 14%, transparent); }
-.maker-panel-preset-toolbar button, .maker-panel-midi button { display: inline-flex; min-height: 35px; align-items: center; justify-content: center; gap: 6px; border-radius: 9px; background: var(--maker-accent); padding: 0 12px; color: white; font-size: 9px; font-weight: 800; }
+.maker-panel-preset-toolbar button, .maker-panel-midi button { display: inline-flex; min-height: 35px; cursor: pointer; align-items: center; justify-content: center; gap: 6px; border-radius: 9px; background: var(--maker-accent); padding: 0 12px; color: white; font-size: 9px; font-weight: 800; }
 .maker-panel-preset-list { margin-top: 12px; display: grid; gap: 6px; }
 .maker-panel-preset-row { display: flex; gap: 6px; border: 1px solid rgba(255,255,255,.08); border-radius: 10px; background: rgba(255,255,255,.025); padding: 6px; }
-.maker-panel-preset-row > button:first-child { display: flex; flex: 1; align-items: center; justify-content: space-between; padding: 5px 8px; text-align: left; }
-.maker-panel-preset-row strong { font-size: 10px; }.maker-panel-preset-row span { color: #71717a; font-size: 7px; letter-spacing: .12em; }.maker-panel-preset-row > button:last-child { color: #fb7185; padding: 5px; }
+.maker-panel-preset-row > button:first-child { display: flex; min-width: 0; flex: 1; cursor: pointer; align-items: center; justify-content: space-between; padding: 5px 8px; text-align: left; }
+.maker-panel-preset-row strong { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }.maker-panel-preset-row span { color: #71717a; font-size: 7px; letter-spacing: .12em; }
+.maker-panel-preset-row__actions { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; }
+.maker-panel-preset-row__actions button { display: inline-flex; min-height: 27px; cursor: pointer; align-items: center; justify-content: center; border-radius: 7px; transition: border-color 140ms ease, background 140ms ease, color 140ms ease; }
+.maker-panel-preset-row__update { gap: 5px; border: 1px solid color-mix(in srgb, var(--maker-accent) 34%, transparent); background: color-mix(in srgb, var(--maker-accent) 10%, transparent); padding: 0 9px; color: color-mix(in srgb, var(--maker-accent) 78%, white); font-size: 8px; font-weight: 800; }
+.maker-panel-preset-row__update:hover, .maker-panel-preset-row__update:focus-visible { border-color: color-mix(in srgb, var(--maker-accent) 62%, white); background: color-mix(in srgb, var(--maker-accent) 20%, transparent); color: white; }
+.maker-panel-preset-row__delete { width: 27px; border: 1px solid rgba(251,113,133,.16); background: rgba(251,113,133,.06); color: #fb7185; }
+.maker-panel-preset-row__delete:hover, .maker-panel-preset-row__delete:focus-visible { border-color: rgba(251,113,133,.48); background: rgba(251,113,133,.16); color: #fecdd3; }
 .maker-functional-panel__empty { display: grid; min-height: 100px; place-items: center; color: #71717a; font-size: 10px; }
 .maker-panel-mixer { display: flex; align-items: stretch; gap: 10px; }
 .maker-panel-channel { width: 112px; flex: 0 0 112px; border: 1px solid rgba(255,255,255,.08); border-radius: 12px; background: rgba(255,255,255,.025); padding: 10px; }

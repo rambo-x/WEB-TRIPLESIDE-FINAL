@@ -46,6 +46,19 @@ def test_compiles_project_to_cpp_manifest(tmp_path):
     assert "kDefaultVolume = 0.75f" in result
     assert "kDefaultPan = 0.5f" in result
     assert "kEmbeddedResourceCount" in result
+    assert "inline constexpr bool kUiLanguageEnglish = false;" in result
+
+
+def test_compiles_english_ui_language_into_native_manifest(tmp_path):
+    spec = project_spec()
+    spec["ui_language"] = "en"
+    source = tmp_path / "project.json"
+    output = tmp_path / "NativeProject.h"
+    source.write_text(json.dumps(spec), encoding="utf-8")
+
+    MODULE.compile_manifest(source, output)
+
+    assert "inline constexpr bool kUiLanguageEnglish = true;" in output.read_text(encoding="utf-8")
 
 
 def test_compiles_master_pan_default_from_designer_control(tmp_path):

@@ -78,6 +78,17 @@ def test_project_resize_mode_defaults_locked_and_accepts_free_mode():
     assert free.resize_aspect_locked is False
 
 
+def test_project_ui_language_defaults_to_indonesian_and_reaches_build_spec():
+    payload = project_document()
+    payload.pop("id")
+
+    assert VstMakerProjectInput(**payload).ui_language == "id"
+    english = VstMakerProjectInput(**{**payload, "ui_language": "en"})
+    assert english.ui_language == "en"
+    assert vst_maker_build_spec({"id": "project-en", **english.model_dump()})["ui_language"] == "en"
+    assert vst_maker_build_spec(project_document())["ui_language"] == "id"
+
+
 def test_build_spec_converts_api_fields_to_native_contract():
     spec = vst_maker_build_spec(project_document(sustain_enabled=True))
 

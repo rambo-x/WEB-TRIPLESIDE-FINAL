@@ -49,7 +49,7 @@ private:
     HWND hwnd=nullptr; Microsoft::WRL::ComPtr<ID2D1Factory> factory; Microsoft::WRL::ComPtr<ID2D1RenderTarget> target;
     void drawVisualCanvas();
     D2D1_RECT_F outputMenuRect(int) const; void drawOutputMenu(); bool handleOutputMenuMouseDown(float,float);
-    D2D1_RECT_F panelRect(int) const; bool controlVisible(size_t) const; void drawOpenPanel(); bool panelMouseDown(float,float);
+    D2D1_RECT_F panelRect(int) const; bool controlVisible(size_t) const; void drawOpenPanel(); bool panelMouseDown(float,float); int presetCursorKind(float,float) const;
     void drawInlineFaderMeter(size_t,const D2D1_RECT_F&,bool=false); void drawSoloMutePair(size_t,const D2D1_RECT_F&); D2D1_RECT_F soloMuteButtonRect(size_t,bool) const;
     void openPanel(int); void closePanel(); void applyFactoryPreset(int); void saveUserPreset(); void applyUserPreset(int); void overwriteUserPreset(int); void deleteUserPreset(int);
     UserPreset captureUserPreset(const std::wstring&) const; std::wstring userPresetPath() const; void loadUserPresets(); void persistUserPresets() const;

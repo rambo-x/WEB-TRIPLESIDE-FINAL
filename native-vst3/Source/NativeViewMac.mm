@@ -850,7 +850,7 @@ namespace project = tripleside::project;
     } else if (equals(panel.panelType, "preset_browser")) {
         const NSRect field = NSMakeRect(left, top, std::max<CGFloat>(80, right - left - 156), 35);
         fillRounded(field, 9, rgbColor(0x09090b)); strokeRounded(NSInsetRect(field, .5, .5), 9, rgbColor(0xffffff, .10));
-        NSString* presetFieldText = _presetNameInput.empty() ? @"Nama preset baru" : [NSString stringWithUTF8String:_presetNameInput.c_str()];
+        NSString* presetFieldText = _presetNameInput.empty() ? (project::kUiLanguageEnglish ? @"New preset name" : @"Nama preset baru") : [NSString stringWithUTF8String:_presetNameInput.c_str()];
         NSDictionary* presetFieldAttributes = panelTextAttributes(10, _presetNameInput.empty() ? rgbColor(0x71717a) : rgbColor(0xf4f4f5), NSTextAlignmentLeft, NSFontWeightRegular);
         [presetFieldText drawInRect:NSInsetRect(field, 10, 10) withAttributes:presetFieldAttributes];
         const NSTimeInterval caretNow = [NSDate timeIntervalSinceReferenceDate];
@@ -863,7 +863,7 @@ namespace project = tripleside::project;
         }
         const NSRect save = NSMakeRect(NSMaxX(field) + 8, top, right - NSMaxX(field) - 8, 35);
         fillRounded(save, 9, accent);
-        [@"▣  Simpan preset" drawInRect:NSMakeRect(NSMinX(save) + 6, NSMinY(save) + 10, NSWidth(save) - 12, 15)
+        [(project::kUiLanguageEnglish ? @"▣  Save preset" : @"▣  Simpan preset") drawInRect:NSMakeRect(NSMinX(save) + 6, NSMinY(save) + 10, NSWidth(save) - 12, 15)
           withAttributes:panelTextAttributes(9, NSColor.whiteColor, NSTextAlignmentCenter, NSFontWeightBold)];
         const NSInteger total = static_cast<NSInteger>(project::kPresets.size() + _userPresets.size());
         const CGFloat rowStart = top + 47;
@@ -883,15 +883,23 @@ namespace project = tripleside::project;
             const NSRect row = NSMakeRect(left, y, contentRight - left, 41);
             fillRounded(row, 10, selected ? rgbColor(project::kAccentRgb, .11) : hovered ? rgbColor(project::kAccentRgb, .065) : rgbColor(0xffffff, .025));
             strokeRounded(NSInsetRect(row, .5, .5), 10, selected ? rgbColor(project::kAccentRgb, .58) : hovered ? rgbColor(project::kAccentRgb, .32) : rgbColor(0xffffff, .08));
-            [name drawInRect:NSMakeRect(left + 14, y + 7, NSWidth(row) - (user ? 104 : 76), 16)
+            [name drawInRect:NSMakeRect(left + 14, y + 7, NSWidth(row) - (user ? 181 : 76), 16)
               withAttributes:panelTextAttributes(10, rgbColor(0xe4e4e7), NSTextAlignmentLeft, NSFontWeightBold)];
-            [(user ? @"USER" : @"FACTORY") drawInRect:NSMakeRect(user ? contentRight - 95 : contentRight - 68, y + 9, 58, 14)
+            [(user ? @"USER" : @"FACTORY") drawInRect:NSMakeRect(user ? contentRight - 172 : contentRight - 68, y + 9, 60, 14)
               withAttributes:panelTextAttributes(7, selected ? accent : rgbColor(0x71717a), NSTextAlignmentCenter, NSFontWeightBold)];
             if (user) {
-                fillRounded(NSMakeRect(contentRight - 27, y + 7, 27, 27), 7, rgbColor(0xffffff, .05));
-                [rgbColor(0xfb7185) setStroke]; NSBezierPath* removeIcon = [NSBezierPath bezierPath]; removeIcon.lineWidth = 1.4;
-                [removeIcon moveToPoint:NSMakePoint(contentRight - 19, y + 15)]; [removeIcon lineToPoint:NSMakePoint(contentRight - 8, y + 26)];
-                [removeIcon moveToPoint:NSMakePoint(contentRight - 8, y + 15)]; [removeIcon lineToPoint:NSMakePoint(contentRight - 19, y + 26)]; [removeIcon stroke];
+                const NSRect update = NSMakeRect(contentRight - 103, y + 7, 70, 27);
+                fillRounded(update, 7, rgbColor(project::kAccentRgb, .10)); strokeRounded(NSInsetRect(update, .5, .5), 7, rgbColor(project::kAccentRgb, .40));
+                [(project::kUiLanguageEnglish ? @"↻ Update" : @"↻ Perbarui") drawInRect:NSMakeRect(NSMinX(update) + 2, NSMinY(update) + 8, NSWidth(update) - 4, 13)
+                  withAttributes:panelTextAttributes(7, accent, NSTextAlignmentCenter, NSFontWeightBold)];
+                const NSRect remove = NSMakeRect(contentRight - 27, y + 7, 27, 27);
+                fillRounded(remove, 7, rgbColor(0xfb7185, .06)); strokeRounded(NSInsetRect(remove, .5, .5), 7, rgbColor(0xfb7185, .20));
+                [rgbColor(0xfb7185) setStroke]; NSBezierPath* removeIcon = [NSBezierPath bezierPath]; removeIcon.lineWidth = 1.35;
+                [removeIcon moveToPoint:NSMakePoint(contentRight - 19, y + 16)]; [removeIcon lineToPoint:NSMakePoint(contentRight - 8, y + 16)];
+                [removeIcon moveToPoint:NSMakePoint(contentRight - 17, y + 14)]; [removeIcon lineToPoint:NSMakePoint(contentRight - 10, y + 14)];
+                [removeIcon appendBezierPathWithRoundedRect:NSMakeRect(contentRight - 18, y + 18, 9, 10) xRadius:1.5 yRadius:1.5];
+                [removeIcon moveToPoint:NSMakePoint(contentRight - 15, y + 20)]; [removeIcon lineToPoint:NSMakePoint(contentRight - 15, y + 26)];
+                [removeIcon moveToPoint:NSMakePoint(contentRight - 12, y + 20)]; [removeIcon lineToPoint:NSMakePoint(contentRight - 12, y + 26)]; [removeIcon stroke];
             }
         }
         if (scrollable) {
@@ -901,7 +909,7 @@ namespace project = tripleside::project;
             fillRounded(NSMakeRect(right - 6, rowStart, 6, trackHeight), 3, rgbColor(0xffffff, .07));
             fillRounded(NSMakeRect(right - 6, thumbTop, 6, thumbHeight), 3, rgbColor(project::kAccentRgb, .65));
         }
-        if (!total) [@"Belum ada preset. Atur suara lalu simpan preset." drawInRect:NSMakeRect(left, top + 50, right - left, 100)
+        if (!total) [(project::kUiLanguageEnglish ? @"No presets yet. Shape your sound, then save a preset." : @"Belum ada preset. Atur suara lalu simpan preset.") drawInRect:NSMakeRect(left, top + 50, right - left, 100)
             withAttributes:panelTextAttributes(10, rgbColor(0x71717a), NSTextAlignmentCenter, NSFontWeightMedium)];
     } else if (equals(panel.panelType, "mixer") && panel.mixerShowDefaultControls) {
         CGFloat x = left;
@@ -1005,10 +1013,26 @@ namespace project = tripleside::project;
     _selectedMidiSequence = preset.midiSequenceIndex;
 }
 
+- (void)overwriteUserPreset:(NSInteger)index {
+    if (index < 0 || index >= static_cast<NSInteger>(_userPresets.size())) return;
+    const auto name = _userPresets[static_cast<std::size_t>(index)].name;
+    _userPresets[static_cast<std::size_t>(index)] = [self captureUserPreset:name];
+    [self persistUserPresets];
+}
+
 - (void)saveUserPreset {
     while (!_presetNameInput.empty() && std::isspace(static_cast<unsigned char>(_presetNameInput.front()))) _presetNameInput.erase(_presetNameInput.begin());
     while (!_presetNameInput.empty() && std::isspace(static_cast<unsigned char>(_presetNameInput.back()))) _presetNameInput.pop_back();
-    if (_presetNameInput.empty() || std::any_of(_userPresets.begin(), _userPresets.end(), [&](const auto& preset) { return preset.name == _presetNameInput; })) return;
+    NSString* candidate = [NSString stringWithUTF8String:_presetNameInput.c_str()] ?: @"";
+    const bool factoryName = std::any_of(project::kPresets.begin(), project::kPresets.end(), [&](const auto& preset) {
+        NSString* name = [NSString stringWithUTF8String:preset.name ?: ""] ?: @"";
+        return [name caseInsensitiveCompare:candidate] == NSOrderedSame;
+    });
+    const bool userName = std::any_of(_userPresets.begin(), _userPresets.end(), [&](const auto& preset) {
+        NSString* name = [NSString stringWithUTF8String:preset.name.c_str()] ?: @"";
+        return [name caseInsensitiveCompare:candidate] == NSOrderedSame;
+    });
+    if (_presetNameInput.empty() || factoryName || userName) return;
     if (_userPresets.size() >= 128) _userPresets.erase(_userPresets.begin());
     _userPresets.push_back([self captureUserPreset:_presetNameInput]);
     _selectedPresetRow = static_cast<NSInteger>(project::kPresets.size() + _userPresets.size() - 1);
@@ -1115,7 +1139,8 @@ namespace project = tripleside::project;
                         _userPresets.erase(_userPresets.begin() + user);
                         _selectedPresetRow = -1;
                         [self persistUserPresets];
-                    } else [self applyUserPreset:user];
+                    } else if (point.x >= contentRight - 103 && point.x <= contentRight - 33) [self overwriteUserPreset:user];
+                    else [self applyUserPreset:user];
                 }
                 [self setNeedsDisplay:YES]; return YES;
             }
@@ -1656,13 +1681,13 @@ namespace project = tripleside::project;
                 NSParagraphStyleAttributeName: centered,
             };
             const CGFloat centerY = project::kCanvasHeight * .5;
-            [@"AKTIVASI PRODUK" drawInRect:NSMakeRect(40, centerY - 142, project::kCanvasWidth - 80, 20) withAttributes:eyebrow];
-            [@"Masukkan serial lisensi" drawInRect:NSMakeRect(40, centerY - 116, project::kCanvasWidth - 80, 36) withAttributes:title];
-            [@"Tempel atau ketik serial dari Dashboard Customer." drawInRect:NSMakeRect(40, centerY - 76, project::kCanvasWidth - 80, 22) withAttributes:detail];
+            [(project::kUiLanguageEnglish ? @"PRODUCT ACTIVATION" : @"AKTIVASI PRODUK") drawInRect:NSMakeRect(40, centerY - 142, project::kCanvasWidth - 80, 20) withAttributes:eyebrow];
+            [(project::kUiLanguageEnglish ? @"Enter your license key" : @"Masukkan serial lisensi") drawInRect:NSMakeRect(40, centerY - 116, project::kCanvasWidth - 80, 36) withAttributes:title];
+            [(project::kUiLanguageEnglish ? @"Paste or type the license key from your Customer Dashboard." : @"Tempel atau ketik serial dari Dashboard Customer.") drawInRect:NSMakeRect(40, centerY - 76, project::kCanvasWidth - 80, 22) withAttributes:detail];
             const NSRect serialField = NSMakeRect(project::kCanvasWidth * .5 - 210, centerY - 42, 420, 44);
             fillRounded(serialField, 10, rgbColor(0x07070a));
             strokeRounded(NSInsetRect(serialField, .5, .5), 10, _licenseInputFocused ? rgbColor(0xf5c76b) : rgbColor(0x3f3f46));
-            NSString* serialText = _licenseInput.empty() ? @"Contoh: TSVST-XXXX-XXXX-XXXX" : ([NSString stringWithUTF8String:_licenseInput.c_str()] ?: @"");
+            NSString* serialText = _licenseInput.empty() ? (project::kUiLanguageEnglish ? @"Example: TSVST-XXXX-XXXX-XXXX" : @"Contoh: TSVST-XXXX-XXXX-XXXX") : ([NSString stringWithUTF8String:_licenseInput.c_str()] ?: @"");
             NSDictionary* serialAttributes = panelTextAttributes(12, _licenseInput.empty() ? rgbColor(0x71717a) : NSColor.whiteColor, NSTextAlignmentLeft, NSFontWeightRegular);
             [serialText drawInRect:NSMakeRect(NSMinX(serialField) + 14, NSMinY(serialField) + 14, NSWidth(serialField) - 28, 20) withAttributes:serialAttributes];
             const NSTimeInterval caretNow = [NSDate timeIntervalSinceReferenceDate];
@@ -1681,11 +1706,11 @@ namespace project = tripleside::project;
                 NSForegroundColorAttributeName: NSColor.whiteColor,
                 NSParagraphStyleAttributeName: centered,
             };
-            [@"AKTIFKAN LISENSI" drawInRect:NSMakeRect(button.origin.x, button.origin.y + 15, button.size.width, 20) withAttributes:action];
+            [(project::kUiLanguageEnglish ? @"ACTIVATE LICENSE" : @"AKTIFKAN LISENSI") drawInRect:NSMakeRect(button.origin.x, button.origin.y + 15, button.size.width, 20) withAttributes:action];
             auto state = LicenseRuntime::statusText();
             NSString* stateText = [[NSString alloc] initWithBytes:state.data() length:state.size() * sizeof(wchar_t) encoding:NSUTF32LittleEndianStringEncoding];
-            [(stateText ?: @"Aktivasi diperlukan") drawInRect:NSMakeRect(40, button.origin.y + 58, project::kCanvasWidth - 80, 22) withAttributes:detail];
-            [@"Klik kolom lalu tekan Cmd+V untuk menempel serial." drawInRect:NSMakeRect(40, button.origin.y + 80, project::kCanvasWidth - 80, 22) withAttributes:detail];
+            [(stateText ?: (project::kUiLanguageEnglish ? @"Activation required" : @"Aktivasi diperlukan")) drawInRect:NSMakeRect(40, button.origin.y + 58, project::kCanvasWidth - 80, 22) withAttributes:detail];
+            [(project::kUiLanguageEnglish ? @"Click the field and press Cmd+V to paste your license key." : @"Klik kolom lalu tekan Cmd+V untuk menempel serial.") drawInRect:NSMakeRect(40, button.origin.y + 80, project::kCanvasWidth - 80, 22) withAttributes:detail];
         }
     }
     [NSGraphicsContext restoreGraphicsState];
@@ -1762,16 +1787,33 @@ namespace project = tripleside::project;
 
 - (void)resetCursorRects {
     [super resetCursorRects];
-    if (_openPanel < 0 || !equals(project::kPanelControls[static_cast<std::size_t>(_openPanel)].panelType, "midi_map")) return;
+    if (_openPanel < 0) return;
     const NSRect panel = [self panelRect:_openPanel];
-    const auto visible = [self visibleMidiSequences];
-    const CGFloat left = NSMinX(panel) + 16, right = NSMaxX(panel) - 16, rowStart = NSMinY(panel) + 83;
-    const NSInteger capacity = std::max<NSInteger>(1, static_cast<NSInteger>((NSMaxY(panel) - 12 - rowStart + 6) / 53));
-    const BOOL scrollable = static_cast<NSInteger>(visible.size()) > capacity;
     CGFloat scale = 1, offsetX = 0, offsetY = 0; [self canvasScale:&scale offsetX:&offsetX offsetY:&offsetY];
-    for (NSInteger row = 0; row < capacity && _grooveScrollOffset + row < static_cast<NSInteger>(visible.size()); ++row) {
-        const NSRect designRect = NSMakeRect(left, rowStart + row * 53, right - left - (scrollable ? 12 : 0), 47);
-        [self addCursorRect:NSMakeRect(offsetX + NSMinX(designRect) * scale, offsetY + NSMinY(designRect) * scale, NSWidth(designRect) * scale, NSHeight(designRect) * scale) cursor:NSCursor.pointingHandCursor];
+    auto addDesignCursor = [&](NSRect designRect, NSCursor* cursor) {
+        [self addCursorRect:NSMakeRect(offsetX + NSMinX(designRect) * scale, offsetY + NSMinY(designRect) * scale, NSWidth(designRect) * scale, NSHeight(designRect) * scale) cursor:cursor];
+    };
+    addDesignCursor(NSMakeRect(NSMaxX(panel) - 44, NSMinY(panel), 44, 44), NSCursor.pointingHandCursor);
+    const auto& panelInfo = project::kPanelControls[static_cast<std::size_t>(_openPanel)];
+    if (equals(panelInfo.panelType, "midi_map")) {
+        const auto visible = [self visibleMidiSequences];
+        const CGFloat left = NSMinX(panel) + 16, right = NSMaxX(panel) - 16, rowStart = NSMinY(panel) + 83;
+        const NSInteger capacity = std::max<NSInteger>(1, static_cast<NSInteger>((NSMaxY(panel) - 12 - rowStart + 6) / 53));
+        const BOOL scrollable = static_cast<NSInteger>(visible.size()) > capacity;
+        for (NSInteger row = 0; row < capacity && _grooveScrollOffset + row < static_cast<NSInteger>(visible.size()); ++row)
+            addDesignCursor(NSMakeRect(left, rowStart + row * 53, right - left - (scrollable ? 12 : 0), 47), NSCursor.pointingHandCursor);
+    } else if (equals(panelInfo.panelType, "preset_browser")) {
+        const CGFloat left = NSMinX(panel) + 16, top = NSMinY(panel) + 60, right = NSMaxX(panel) - 16;
+        const CGFloat fieldWidth = std::max<CGFloat>(80, right - left - 156);
+        addDesignCursor(NSMakeRect(left, top, fieldWidth, 35), NSCursor.IBeamCursor);
+        addDesignCursor(NSMakeRect(left + fieldWidth + 8, top, right - left - fieldWidth - 8, 35), NSCursor.pointingHandCursor);
+        const CGFloat rowStart = top + 47;
+        const NSInteger total = static_cast<NSInteger>(project::kPresets.size() + _userPresets.size());
+        const NSInteger capacity = std::max<NSInteger>(1, static_cast<NSInteger>((NSMaxY(panel) - 12 - rowStart + 6) / 47));
+        const NSInteger maxOffset = std::max<NSInteger>(0, total - capacity);
+        const CGFloat contentRight = right - (maxOffset > 0 ? 12 : 0);
+        for (NSInteger row = 0; row < capacity && _presetScrollOffset + row < total; ++row)
+            addDesignCursor(NSMakeRect(left, rowStart + row * 47, contentRight - left, 41), NSCursor.pointingHandCursor);
     }
 }
 
