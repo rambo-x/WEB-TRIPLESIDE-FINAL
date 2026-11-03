@@ -148,6 +148,8 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
     impulses = spec.get("impulse_responses") or []
     groups = [] if is_effect else (spec.get("sampler_groups") or [{"id": "sampler-1", "name": "Sampler 1"}])
     interface = spec.get("interface") or {}; controls = interface.get("controls") or []
+    accent_match = re.fullmatch(r"#?([0-9a-fA-F]{6})", str(interface.get("accent_color") or "#f43f5e"))
+    accent_rgb = int(accent_match.group(1), 16) if accent_match else 0xF43F5E
     prism_contextual_enabled = any(
         str(control.get("kind") or "") == "spectrum"
         and str(control.get("component_variant") or "realtime-spectrum") == "realtime-spectrum"
@@ -402,9 +404,13 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
             f"    ControlChoiceInfo{{{index}, {cpp_float(value)}, {cpp_string(label)}}},"
             for label, value in control_choices
         )
-        color_value = control.get("visual_color") if control_kind == "spectrum" else control.get("control_color")
+        color_value = (
+            control.get("visual_color") if control_kind == "spectrum"
+            else control.get("pad_active_color") if control_kind == "pad" and control.get("component_variant") == "outline-ring-hit"
+            else control.get("control_color")
+        )
         control_color_match = re.fullmatch(r"#?([0-9a-fA-F]{6})", str(color_value or ""))
-        control_color_rgb = int(control_color_match.group(1), 16) if control_color_match else (0x111216 if control_kind in {"output_selector", "dsp_selector"} else 0)
+        control_color_rgb = int(control_color_match.group(1), 16) if control_color_match else (accent_rgb if control_kind == "pad" and control.get("component_variant") == "outline-ring-hit" else 0x111216 if control_kind in {"output_selector", "dsp_selector"} else 0)
         text_color_match = re.fullmatch(r"#?([0-9a-fA-F]{6})", str(control.get("text_color") or "#F4F4F5"))
         text_color_rgb = int(text_color_match.group(1), 16) if text_color_match else 0xF4F4F5
         ring_value_color_match = re.fullmatch(r"#?([0-9a-fA-F]{6})", str(control.get("ring_value_color") or "#F4F4F5"))
@@ -428,6 +434,13 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
         if button_shape not in {"square", "capsule", "round"}:
             button_shape = "square"
         output_font_size = round(clamp(control.get("output_font_size"), 6, 32, 11))
+        text_font_size = round(clamp(control.get("text_font_size"), 6, 128, 16)) if control.get("text_font_size") is not None else 0
+        try:
+            text_font_weight = int(control.get("text_font_weight")) if control.get("text_font_weight") is not None else 0
+        except (TypeError, ValueError):
+            text_font_weight = 0
+        if text_font_weight not in {300, 400, 500, 600, 700, 800, 900}:
+            text_font_weight = 0
         control_parameter = str(control.get("parameter") or "tone")
         control_value = clamp(control.get("value"), 0, 100, 50) / 100
         sampler_group_index = group_id_indices.get(str(control.get("sampler_group_id") or ""), -1)
@@ -512,6 +525,10 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
             str(ring_value_font_size),
             f"0x{ring_value_color_rgb:06X}",
             str(ring_value_font_weight),
+            str(text_font_size),
+            str(text_font_weight),
+            cpp_float(clamp(control.get("pad_ring_thickness"), 1, 16, 3)),
+            cpp_float(clamp(control.get("pad_glow_intensity"), 0, 100, 65)),
             str(max(0, min(127, int(control.get("knob_state_count") or 0)))) if control_kind == "knob" else "0",
             cpp_float(option_value),
             str(choice_offset),
@@ -628,7 +645,6 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
     }
     brand_font_family, brand_font_file = brand_fonts.get(brand_font_id, brand_fonts["outfit"])
     background_file = next((p.name for p in sorted((spec_path.parent / "assets").glob("ui_background.*"))), "")
-    match = re.fullmatch(r"#?([0-9a-fA-F]{6})", str(interface.get("accent_color") or "#f43f5e")); accent_rgb = int(match.group(1), 16) if match else 0xF43F5E
     ui_match = re.fullmatch(r"#?([0-9a-fA-F]{6})", str(interface.get("ui_color") or "#09090b")); ui_rgb = int(ui_match.group(1), 16) if ui_match else 0x09090B
     instrument = spec.get("instrument") or {}
     license_spec = spec.get("license") or {}
@@ -679,7 +695,7 @@ namespace tripleside::project {{
 struct SampleInfo {{ const char* resourceFile; const char* displayName; }};
 struct GroupInfo {{ const char* id; const char* name; float volume; float pan; bool mute; bool solo; int outputBusIndex; }};
 struct ZoneInfo {{ int sampleIndex, groupIndex, articulationIndex, micIndex, roundRobinSet, rootPitch, lowPitch, highPitch, velocityLow, velocityHigh, roundRobin; float sampleStart, sampleEnd, loopStart, loopEnd, fadeInMs, fadeOutMs, loopCrossfadeMs; int tuneSemitones; float tuneCents, gainDb, pan; bool loopEnabled, tempoSync; float sourceBpm; std::array<int, 16> chokeTargetPitches; int chokeTargetCount; }};
-struct ControlInfo {{ const char* id; const char* kind; const char* label; const char* offLabel; const char* onLabel; const char* parameter; int moduleIndex; int indicatorSourceIndex; int midiSequenceIndex; int samplerGroupIndex; float x, y; int width, height; float value, opacity, rotation; unsigned int colorRgb; bool showBackground; int notePitch, keyCount; const char* labelPosition; int labelGap, stateLabelGap; const char* variant; const char* meterMode; const char* textFont; unsigned int textColorRgb; int outputFontSize; bool showCorrelationMeter; float waveformLineWidth; bool sampleNameVisible; unsigned int playheadColorRgb; float playheadThickness, playheadOpacity, ringThickness, ringGlowIntensity, barWidthRatio; bool spectrumBand; bool useFilmstrip; bool faderMeterEnabled; const char* faderMeterPosition; unsigned int faderMeterColorRgb; int faderMeterGap, faderMeterWidth, faderMeterHeight; int soloMuteGap; unsigned int soloColorRgb, muteColorRgb; const char* buttonShape; int ringValueFontSize; unsigned int ringValueColorRgb; int ringValueFontWeight; int knobStateCount; float optionValue; int choiceOffset, choiceCount; }};
+struct ControlInfo {{ const char* id; const char* kind; const char* label; const char* offLabel; const char* onLabel; const char* parameter; int moduleIndex; int indicatorSourceIndex; int midiSequenceIndex; int samplerGroupIndex; float x, y; int width, height; float value, opacity, rotation; unsigned int colorRgb; bool showBackground; int notePitch, keyCount; const char* labelPosition; int labelGap, stateLabelGap; const char* variant; const char* meterMode; const char* textFont; unsigned int textColorRgb; int outputFontSize; bool showCorrelationMeter; float waveformLineWidth; bool sampleNameVisible; unsigned int playheadColorRgb; float playheadThickness, playheadOpacity, ringThickness, ringGlowIntensity, barWidthRatio; bool spectrumBand; bool useFilmstrip; bool faderMeterEnabled; const char* faderMeterPosition; unsigned int faderMeterColorRgb; int faderMeterGap, faderMeterWidth, faderMeterHeight; int soloMuteGap; unsigned int soloColorRgb, muteColorRgb; const char* buttonShape; int ringValueFontSize; unsigned int ringValueColorRgb; int ringValueFontWeight; int textFontSize, textFontWeight; float padRingThickness, padGlowIntensity; int knobStateCount; float optionValue; int choiceOffset, choiceCount; }};
 struct ControlChoiceInfo {{ int controlIndex; float value; const char* label; }};
 struct KeyColorInfo {{ int control, pitch; unsigned int colorRgb; }};
 struct PanelControlInfo {{ int parentPanelIndex; const char* panelType; const char* presetMenuDirection; float panelX, panelY, panelWidth, panelHeight; bool mixerShowDefaultControls; }};

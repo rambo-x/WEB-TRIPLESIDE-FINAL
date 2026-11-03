@@ -441,7 +441,7 @@ def test_compiles_combined_solo_mute_native_contract(tmp_path):
     assert "unsigned int soloColorRgb, muteColorRgb;" in result
     control = next(line for line in result.splitlines() if 'ControlInfo{"snare-state"' in line)
     assert '"solo_mute", -1, -1, -1, 0,' in control
-    assert '13, 0x12ABEF, 0xEF4444, "capsule", 16, 0xF4F4F5, 700, 0, -1.0f, 0, 0}' in control
+    assert '13, 0x12ABEF, 0xEF4444, "capsule", 16, 0xF4F4F5, 700, 0, 0, 3.0f, 65.0f, 0, -1.0f, 0, 0}' in control
 
 
 def test_native_manifest_rejects_more_than_bounded_dsp_parameter_limit(tmp_path):
@@ -802,6 +802,7 @@ def test_compiles_static_text_component_opacity_and_rotation(tmp_path):
         "parameter": "visual", "value": 0, "opacity": 45, "rotation": -37.5,
         "component_variant": "plain-text", "show_background": False,
         "width": 76, "height": 24, "text_font": "cinzel", "text_color": "#C084FC",
+        "text_font_size": 128, "text_font_weight": 300,
     }]
     source = tmp_path / "project.json"
     output = tmp_path / "NativeProject.h"
@@ -815,6 +816,35 @@ def test_compiles_static_text_component_opacity_and_rotation(tmp_path):
     assert "0.45f, -37.5f, 0x000000, false" in result
     assert '24, 0.0f, 0.45f, -37.5f' in result
     assert '"cinzel", 0xC084FC' in result
+    headline = next(line for line in result.splitlines() if 'ControlInfo{"headline"' in line)
+    assert '700, 128, 300, 3.0f, 65.0f, 0, -1.0f' in headline
+
+
+def test_compiles_outline_ring_hit_pad_and_legacy_text_sentinels(tmp_path):
+    spec = project_spec()
+    spec["interface"]["controls"] = [
+        {
+            "id": "ring", "kind": "pad", "label": "Ring", "parameter": "note",
+            "component_variant": "outline-ring-hit", "pad_active_color": "#12ABEF",
+            "pad_ring_thickness": 16, "pad_glow_intensity": 0,
+        },
+        {"id": "legacy-text", "kind": "text", "label": "Legacy", "parameter": "visual"},
+    ]
+    source = tmp_path / "project.json"
+    output = tmp_path / "NativeProject.h"
+    source.write_text(json.dumps(spec), encoding="utf-8")
+
+    MODULE.compile_manifest(source, output)
+
+    result = output.read_text(encoding="utf-8")
+    assert "float padRingThickness, padGlowIntensity;" in result
+    assert "int textFontSize, textFontWeight;" in result
+    ring = next(line for line in result.splitlines() if 'ControlInfo{"ring"' in line)
+    legacy = next(line for line in result.splitlines() if 'ControlInfo{"legacy-text"' in line)
+    assert "0x12ABEF" in ring
+    assert '"outline-ring-hit"' in ring
+    assert "700, 0, 0, 16.0f, 0.0f, 0, -1.0f" in ring
+    assert "700, 0, 0, 3.0f, 65.0f, 0, -1.0f" in legacy
 
 
 def test_compiles_led_expression_control_color(tmp_path):

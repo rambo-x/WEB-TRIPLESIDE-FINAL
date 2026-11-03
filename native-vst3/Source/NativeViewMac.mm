@@ -165,7 +165,27 @@ void strokeRounded(NSRect rect, CGFloat radius, NSColor* color, CGFloat width = 
 }
 
 bool hitPadVariant(const char* variant) {
-    return equals(variant, "hit-effect") || equals(variant, "diffuse-hit") || equals(variant, "smooth-diffuse-hit");
+    return equals(variant, "hit-effect") || equals(variant, "diffuse-hit") || equals(variant, "smooth-diffuse-hit") || equals(variant, "outline-ring-hit");
+}
+
+void drawOutlineRingHit(NSRect rect, const project::ControlInfo& control, bool active) {
+    if (!active || NSWidth(rect) <= 0 || NSHeight(rect) <= 0) return;
+    const CGFloat baseWidth = std::clamp<CGFloat>(control.padRingThickness, 1, 16);
+    const CGFloat strength = std::clamp<CGFloat>(control.padGlowIntensity, 0, 100) / 100.;
+    const CGFloat opacity = std::clamp<CGFloat>(control.opacity, 0, 1);
+    const CGFloat rx = std::max<CGFloat>(1, NSWidth(rect) * .5225 - baseWidth * .5);
+    const CGFloat ry = std::max<CGFloat>(1, NSHeight(rect) * .5225 - baseWidth * .5);
+    NSBezierPath* ring = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(NSMidX(rect)-rx, NSMidY(rect)-ry, rx*2, ry*2)];
+    constexpr std::array<CGFloat, 4> spreads{38, 22, 16, 7};
+    constexpr std::array<CGFloat, 4> opacities{.035, .055, .09, .16};
+    if (strength > 0) for (std::size_t layer = 0; layer < spreads.size(); ++layer) {
+        [rgbColor(control.colorRgb, opacity * opacities[layer] * strength) setStroke];
+        ring.lineWidth = baseWidth + spreads[layer] * strength;
+        [ring stroke];
+    }
+    [mixedRgbColor(control.colorRgb, 0xffffff, .76, opacity) setStroke];
+    ring.lineWidth = baseWidth;
+    [ring stroke];
 }
 
 int prismContextSlot(std::size_t index) {
@@ -253,6 +273,7 @@ using tripleside::native::controlVisible;
 using tripleside::native::equals;
 using tripleside::native::interactiveKind;
 using tripleside::native::hitPadVariant;
+using tripleside::native::drawOutlineRingHit;
 using tripleside::native::loadResourceImage;
 using tripleside::native::neutralControlValue;
 using tripleside::native::nearestChoiceIndex;
@@ -714,10 +735,11 @@ namespace project = tripleside::project;
     const CGFloat padding = std::clamp<CGFloat>(NSWidth(menu) * .04, 3, 6), rowHeight = (NSHeight(menu) - padding * 3) * .5;
     const auto& info = project::kPanelControls[static_cast<std::size_t>(_presetLauncherMenu)];
     const BOOL menuUp = info.presetMenuDirection && equals(info.presetMenuDirection, "up");
-    const CGFloat arrowSize = std::clamp<CGFloat>(NSWidth(menu) * .06, 6, 9), arrowReach = arrowSize * .70710678, arrowCenterX = NSMidX(menu), arrowCenterY = menuUp ? NSMaxY(menu) : NSMinY(menu);
-    NSBezierPath* menuArrow = [NSBezierPath bezierPath]; [menuArrow moveToPoint:NSMakePoint(arrowCenterX, arrowCenterY - arrowReach)]; [menuArrow lineToPoint:NSMakePoint(arrowCenterX + arrowReach, arrowCenterY)]; [menuArrow lineToPoint:NSMakePoint(arrowCenterX, arrowCenterY + arrowReach)]; [menuArrow lineToPoint:NSMakePoint(arrowCenterX - arrowReach, arrowCenterY)]; [menuArrow closePath]; [rgbColor(0x1a1a20) setFill]; [menuArrow fill]; [rgbColor(project::kAccentRgb, .42) setStroke]; menuArrow.lineWidth = 1; [menuArrow stroke];
+    const NSRect anchor = [self runtimeControlRect:_presetLauncherMenu];
+    const CGFloat arrowSize = std::clamp<CGFloat>(NSWidth(menu) * .06, 6, 9), arrowCenterX = NSMidX(menu), arrowBaseY = menuUp ? NSMaxY(menu) : NSMinY(menu), arrowTipY = menuUp ? NSMinY(anchor) : NSMaxY(anchor);
     fillRounded(menu, std::clamp<CGFloat>(NSWidth(menu) * .07, 6, 11), rgbColor(0x09090b, .995));
     strokeRounded(NSInsetRect(menu, .5, .5), std::clamp<CGFloat>(NSWidth(menu) * .07, 6, 11), rgbColor(project::kAccentRgb, .42));
+    NSBezierPath* menuArrow = [NSBezierPath bezierPath]; [menuArrow moveToPoint:NSMakePoint(arrowCenterX, arrowTipY)]; [menuArrow lineToPoint:NSMakePoint(arrowCenterX + arrowSize, arrowBaseY)]; [menuArrow lineToPoint:NSMakePoint(arrowCenterX - arrowSize, arrowBaseY)]; [menuArrow closePath]; [rgbColor(0x09090b, .995) setFill]; [menuArrow fill]; [rgbColor(project::kAccentRgb, .42) setStroke]; menuArrow.lineWidth = 1; [menuArrow stroke];
     const CGFloat iconSize = std::clamp<CGFloat>(NSWidth(menu) * .065, 8, 13);
     const CGFloat iconInset = std::clamp<CGFloat>(NSWidth(menu) * .08, 4, 11);
     const CGFloat iconGap = std::clamp<CGFloat>(NSWidth(menu) * .035, 3, 6);
@@ -751,7 +773,8 @@ namespace project = tripleside::project;
         _presetPanelMode = std::clamp<NSInteger>(static_cast<NSInteger>((point.y - NSMinY(menu) - padding) / std::max<CGFloat>(1, rowHeight + padding)), 0, 1);
         _presetLauncherMenu = -1; [self openPanel:index]; return YES;
     }
-    if (NSPointInRect(point, [self runtimeControlRect:index])) return NO;
+    const NSRect anchor = [self runtimeControlRect:index]; const auto& info = project::kPanelControls[static_cast<std::size_t>(index)]; const BOOL menuUp = info.presetMenuDirection && equals(info.presetMenuDirection, "up"); const CGFloat arrowSize = std::clamp<CGFloat>(NSWidth(menu) * .06, 6, 9), bridgeStart = menuUp ? NSMinY(anchor) : NSMaxY(anchor), bridgeEnd = menuUp ? NSMaxY(menu) : NSMinY(menu); const NSRect bridge = NSMakeRect(NSMidX(menu)-arrowSize, std::min(bridgeStart, bridgeEnd), arrowSize*2, std::abs(bridgeEnd-bridgeStart)); if (NSPointInRect(point, bridge)) return YES;
+    if (NSPointInRect(point, anchor)) return NO;
     _presetLauncherMenu = -1; [self setNeedsDisplay:YES]; return NO;
 }
 
@@ -1547,6 +1570,13 @@ namespace project = tripleside::project;
         [NSGraphicsContext restoreGraphicsState];
         return;
     }
+    if (equals(control.kind, "pad") && equals(control.variant, "outline-ring-hit")) {
+        float value = control.midiSequenceIndex >= 0
+            ? (_instrument->livePatternSequenceIndex() == control.midiSequenceIndex ? 1.f : 0.f)
+            : ([self hitPadFlashActive:control.notePitch] ? 1.f : 0.f);
+        const NSRect ringRect = [self panelChildRect:index]; [NSGraphicsContext saveGraphicsState]; if (std::abs(control.rotation) >= .001f) { NSAffineTransform* rotation = [NSAffineTransform transform]; [rotation translateXBy:NSMidX(ringRect) yBy:NSMidY(ringRect)]; [rotation rotateByDegrees:control.rotation]; [rotation translateXBy:-NSMidX(ringRect) yBy:-NSMidY(ringRect)]; [rotation concat]; } drawOutlineRingHit(ringRect, control, value > .5f); [NSGraphicsContext restoreGraphicsState];
+        return;
+    }
     NSImage* image = [self imageNamed:visual.file];
     if (!image || visual.w <= 0 || visual.h <= 0 || visual.hw <= 0 || visual.hh <= 0 || visual.frames <= 0) return;
     float value = equals(control.kind, "indicator")
@@ -1674,6 +1704,7 @@ namespace project = tripleside::project;
         if (equals(control.kind, "panel_button")) value = _openPanel == static_cast<NSInteger>(index) ? 1.f : 0.f;
         const bool hitPad = equals(control.kind, "pad") && hitPadVariant(control.variant);
         if (equals(control.kind, "pad") && control.midiSequenceIndex < 0) value = hitPad ? ([self hitPadFlashActive:control.notePitch] ? 1.f : 0.f) : ((_instrument->isNoteActive(control.notePitch) || _activeNote == control.notePitch) ? 1.f : 0.f);
+        if (equals(control.variant, "outline-ring-hit")) { const NSRect ringRect = controlLayoutRect(control, visual); [NSGraphicsContext saveGraphicsState]; if (std::abs(control.rotation) >= .001f) { NSAffineTransform* rotation = [NSAffineTransform transform]; [rotation translateXBy:NSMidX(ringRect) yBy:NSMidY(ringRect)]; [rotation rotateByDegrees:control.rotation]; [rotation translateXBy:-NSMidX(ringRect) yBy:-NSMidY(ringRect)]; [rotation concat]; } drawOutlineRingHit(ringRect, control, value > .5f); [NSGraphicsContext restoreGraphicsState]; continue; }
         const auto frame = static_cast<NSInteger>(std::lround(value * std::max(0, visual.frames - 1)));
         if (hitPad && value > .5f) {
             NSImage* image = [self imageNamed:visual.file];

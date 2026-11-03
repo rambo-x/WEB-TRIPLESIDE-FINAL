@@ -33,7 +33,7 @@ private:
     bool createResources(); bool loadBitmap(const wchar_t*,Microsoft::WRL::ComPtr<ID2D1Bitmap>&); void discardResources(); void paint(); void paintFallback(HDC,const RECT&); void drawBranding(); void drawControl(size_t); void drawLicenseOverlay(); bool licenseButtonHit(float,float) const; bool licenseInputHit(float,float) const;
     void drawKnob(const D2D1_RECT_F&,float,const wchar_t*,bool); void drawControlValue(size_t,const D2D1_RECT_F&,float); void drawMeter(const D2D1_RECT_F&,float,float,bool,bool,const wchar_t*,bool=false); void drawSpectrum(const D2D1_RECT_F&); void drawSampleWaveform(const D2D1_RECT_F&); void drawBarSpectrum(const D2D1_RECT_F&); void drawWaveform(const D2D1_RECT_F&); void drawVectorscope(const D2D1_RECT_F&);
     void drawButton(const D2D1_RECT_F&,bool,const wchar_t*); void drawFilmstrip(ID2D1Bitmap*,const D2D1_RECT_F&,int,int,int,int);
-    void drawKeyboard(const D2D1_RECT_F&,int,size_t); void drawPad(const D2D1_RECT_F&,bool,const wchar_t*);
+    void drawKeyboard(const D2D1_RECT_F&,int,size_t); void drawPad(const D2D1_RECT_F&,bool,const wchar_t*); void drawOutlineRingHit(const D2D1_RECT_F&,bool,unsigned int,float,float,float);
     int hitControl(float,float) const; int hitPanelChild(float,float) const; int keyboardNote(const D2D1_RECT_F&,float,float,int) const; D2D1_RECT_F designRect() const; D2D1_RECT_F controlRect(size_t) const; D2D1_POINT_2F controlPoint(size_t,float,float) const; D2D1_RECT_F labelRect(const D2D1_RECT_F&) const;
     D2D1_MATRIX_3X2_F designTransform() const; D2D1_POINT_2F designPoint(float,float) const;
     void drawVisualControl(size_t); int visualKeyboardNote(int,float,float) const;
@@ -83,7 +83,7 @@ private:
     std::array<unsigned,128> padTriggerGenerations{}; std::array<std::uint64_t,128> padFlashUntil{};
     bool hitPadFlashActive(int pitch);
     bool comInitialized=false;
-    const char* currentControlVariant="classic"; const char* currentControlParameter=""; const char* currentLabelPosition="top-left"; int currentControlModuleIndex=-1,currentControlSamplerGroupIndex=-1,currentLabelGap=12,currentStateLabelGap=5; unsigned int currentControlColor=0,currentPlayheadColor=0xffffff; float currentWaveformLineWidth=1.8f,currentBarWidthRatio=.54f,currentPlayheadThickness=2.f,currentPlayheadOpacity=1.f;
+    const char* currentControlVariant="classic"; const char* currentControlParameter=""; const char* currentLabelPosition="top-left"; int currentControlModuleIndex=-1,currentControlSamplerGroupIndex=-1,currentLabelGap=12,currentStateLabelGap=5; unsigned int currentControlColor=0,currentPlayheadColor=0xffffff; float currentWaveformLineWidth=1.8f,currentBarWidthRatio=.54f,currentPlayheadThickness=2.f,currentPlayheadOpacity=1.f,currentPadRingThickness=3.f,currentPadGlowIntensity=65.f;
 #elif defined(__APPLE__)
     void* cocoaView=nullptr;
 #endif

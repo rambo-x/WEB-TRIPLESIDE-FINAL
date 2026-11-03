@@ -94,6 +94,7 @@ def test_mixer_defaults_can_be_hidden_while_sampler_bound_children_stay_native()
 def test_native_view_uses_real_midi_activity_and_boolean_pad_state():
     header = (SOURCE_DIR / "NativeView.h").read_text(encoding="utf-8")
     source = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+    mac_source = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
 
     assert "drawPad(const D2D1_RECT_F&,bool," in header
     assert "instrument.isNoteActive(c.notePitch)" in source
@@ -101,6 +102,18 @@ def test_native_view_uses_real_midi_activity_and_boolean_pad_state():
     assert 'equals(currentControlVariant,"hit-effect")' in source
     assert 'equals(currentControlVariant,"diffuse-hit")' in source
     assert 'equals(currentControlVariant,"smooth-diffuse-hit")' in source
+    assert 'equals(currentControlVariant,"outline-ring-hit")' in source
+    assert "drawOutlineRingHit(const D2D1_RECT_F&,bool,unsigned int,float,float,float)" in header
+    assert "c.padRingThickness,c.padGlowIntensity,c.opacity" in source
+    assert "if(!active||r.right<=r.left||r.bottom<=r.top)return" in source
+    assert "target->DrawEllipse" in source
+    assert 'equals(variant, "outline-ring-hit")' in mac_source
+    assert "control.padRingThickness" in mac_source
+    assert "control.padGlowIntensity" in mac_source
+    assert "if (!active || NSWidth(rect) <= 0 || NSHeight(rect) <= 0) return" in mac_source
+    assert "drawOutlineRingHit(ringRect, control, value > .5f)" in mac_source
+    assert "D2D1::Matrix3x2F::Rotation(c.rotation,center)" in source
+    assert "rotateByDegrees:control.rotation" in mac_source
     assert "if(hitPad&&!active)return" in source
     assert "CreateRadialGradientBrush" in source
     assert "const auto index=static_cast<size_t>(pitch);" in source
@@ -109,6 +122,8 @@ def test_native_view_uses_real_midi_activity_and_boolean_pad_state():
     assert "index=static_cast<size_t>(pitch),generation=" not in source
     assert "c.opacity<.999f" in source
     assert 'equals(c.kind,"text")' in source
+    assert "c.textFontWeight?static_cast<DWRITE_FONT_WEIGHT>(c.textFontWeight):DWRITE_FONT_WEIGHT_BOLD" in source
+    assert "c.textFontSize?std::clamp(static_cast<float>(c.textFontSize),6.f,128.f)" in source
 
 
 def test_native_view_rotates_procedural_controls_and_hit_testing():
@@ -675,9 +690,13 @@ def test_native_preset_launcher_draws_download_and_save_icons_as_vectors():
     assert "gap=std::clamp(width*.05f,5.f,8.f)" in windows
     assert "arrowSize=std::clamp(width*.06f,6.f,9.f)" in windows
     assert "target->FillGeometry(arrow.Get(),b.Get())" in windows
+    assert "arrowTipY=menuUp?anchor.top:anchor.bottom" in windows
+    assert "bridgeTop=menuUp?anchor.top:anchor.bottom" in windows
     assert "const CGFloat gap = std::clamp<CGFloat>(width * .05, 5, 8)" in macos
     assert "NSBezierPath* menuArrow" in macos
     assert "[menuArrow fill]" in macos
+    assert "arrowTipY = menuUp ? NSMinY(anchor) : NSMaxY(anchor)" in macos
+    assert "const NSRect bridge = NSMakeRect" in macos
 
 
 def test_native_presets_sync_every_module_snapshot_back_to_bound_choice_controls():
