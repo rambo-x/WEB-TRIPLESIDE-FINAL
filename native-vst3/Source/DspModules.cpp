@@ -2106,7 +2106,7 @@ void EffectRack::setModuleBypassed(std::size_t index, bool bypassed) noexcept {
 void EffectRack::setLegacyValue(RackModuleType type, float normalized) noexcept {
     const float value = std::clamp(normalized, 0.0f, 1.0f);
     for (auto& node : nodes_) {
-        if (node.config.type != type) continue;
+        if (node.config.type != type || !node.config.followsLegacyControl) continue;
         node.config.normalized = value;
         switch (type) {
             case RackModuleType::InputTrim: node.inputTrim.setNormalized(value); break;

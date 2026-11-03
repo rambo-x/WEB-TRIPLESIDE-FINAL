@@ -517,7 +517,7 @@ def test_compiles_knob_states_and_universal_dsp_choice_controls(tmp_path):
     assert ", 0, 0.333333333f, 4, 4}," in spring_button
 
 
-def test_compiles_instrument_macro_to_first_matching_rack_module(tmp_path):
+def test_unbound_master_control_does_not_claim_a_matching_rack_module(tmp_path):
     spec = project_spec()
     spec["dsp_graph"] = {
         "version": 2,
@@ -529,7 +529,7 @@ def test_compiles_instrument_macro_to_first_matching_rack_module(tmp_path):
         ],
     }
     spec["interface"]["controls"] = [{
-        "id": "tone-macro", "kind": "knob", "label": "Tone",
+        "id": "tone-master", "kind": "knob", "label": "Tone",
         "parameter": "tone", "module_id": None, "value": 70,
     }]
     source = tmp_path / "project.json"
@@ -540,7 +540,7 @@ def test_compiles_instrument_macro_to_first_matching_rack_module(tmp_path):
 
     result = output.read_text(encoding="utf-8")
     assert 'kDspGraphMode = "instrument_serial_rack"' in result
-    assert 'ControlInfo{"tone-macro", "knob", "Tone", "Tone", "ON", "tone", 0,' in result
+    assert 'ControlInfo{"tone-master", "knob", "Tone", "Tone", "ON", "tone", -1,' in result
 
 
 def test_compiles_mono_and_stereo_meter_modes(tmp_path):

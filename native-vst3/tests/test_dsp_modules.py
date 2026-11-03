@@ -298,8 +298,8 @@ int main() {
         rackRight = 0.0f;
         rack.processFrame(rackLeft, rackRight);
     }
-    assert(rackLeft > 1.0f);
-    assert(rackRight < 0.0f);
+    assert(close(rackLeft, 0.5f));
+    assert(close(rackRight, 0.5f));
 
     EffectRack mixedRack;
     mixedRack.configure(ProcessSpec{48000.0, 64}, {
@@ -575,6 +575,8 @@ def test_native_runtime_routes_gain_stages_through_modules():
     assert "effectRack.processFrame(l,r)" in source
     assert "project::kDspModules" in source
     assert "rackModuleValue(module,type,fallback,follows)" in source
+    dsp_source = (NATIVE_ROOT / "Source" / "DspModules.cpp").read_text(encoding="utf-8")
+    assert "node.config.type != type || !node.config.followsLegacyControl" in dsp_source
     assert "parameterForControl(size_t index)" in source
     assert "applyModuleControl(static_cast<size_t>(id-kModuleControlBaseId),v)" in source
     assert "applyModulePresetValue(static_cast<size_t>(control.moduleIndex),control.parameter,value)" in source

@@ -180,24 +180,6 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
         if not module_id or module_id in dsp_module_ids:
             fail("DSP module ids must be present and unique")
         dsp_module_ids[module_id] = index
-    macro_bindings = {
-        "input": ("input_trim", "input"),
-        "drive": ("soft_clip", "drive"),
-        "compress": ("linked_compressor", "compress"),
-        "gain_reduction": ("linked_compressor", "compress"),
-        "tone": ("tone_shaper", "tone"),
-        "width": ("stereo_width", "width"),
-        "space": ("cross_delay", "space"),
-        "mix": ("dry_wet", "mix"),
-        "output": ("output_trim", "output"),
-    }
-    macro_module_indices = {}
-    for parameter, (module_type, module_parameter) in macro_bindings.items():
-        macro_module_indices[parameter] = next((
-            index for index, module in enumerate(dsp_modules)
-            if str(module.get("type") or "").strip() == module_type
-            and not (module.get("samplerGroupId") or module.get("sampler_group_id"))
-        ), -1)
     dsp_module_lines, dsp_parameter_lines = [], []
     rack_module_counts = {-1: 0}
     for index, module in enumerate(dsp_modules):
@@ -475,9 +457,7 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
             cpp_string(control.get("id") or f"control-{index + 1}"),
             cpp_string(control.get("kind") or "knob"), cpp_string(label),
             cpp_string(off_label), cpp_string(on_label),
-            cpp_string(control_parameter), str(
-                dsp_module_ids.get(str(control.get("module_id") or ""), macro_module_indices.get(str(control.get("parameter") or ""), -1))
-            ),
+            cpp_string(control_parameter), str(dsp_module_ids.get(str(control.get("module_id") or ""), -1)),
             str(control_indices.get(str(control.get("indicator_source_id") or ""), -1)),
             str(midi_sequence_indices.get(str(control.get("midi_sequence_id") or ""), -1)),
             str(sampler_group_index),
