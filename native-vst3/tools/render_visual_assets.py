@@ -275,6 +275,10 @@ def render(spec_path, url, browser=None):
                     ring_bounds = element.locator('.maker-open-ring-knob__svg').bounding_box()
                     if ring_bounds is None:
                         raise ValueError(f'Open ring geometry is missing: {control.get("id")}')
+                elif kind == 'pad' and control.get('component_variant') == 'outline-ring-hit':
+                    ring_bounds = element.locator('.maker-panel-pad.maker-pad--outline-ring-hit').bounding_box()
+                    if ring_bounds is None:
+                        raise ValueError(f'Outline Hit Pad ring geometry is missing: {control.get("id")}')
                 if kind in {'gain_meter', 'vu_meter'} and meter_mode == 'stereo':
                     channel_selector = (
                         '.maker-filmstrip-meter-group.is-stereo .maker-filmstrip-meter'

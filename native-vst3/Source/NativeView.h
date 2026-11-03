@@ -50,7 +50,7 @@ private:
     void drawVisualCanvas();
     D2D1_RECT_F outputMenuRect(int) const; void drawOutputMenu(); bool handleOutputMenuMouseDown(float,float);
     D2D1_RECT_F panelRect(int) const; bool controlVisible(size_t) const; void drawOpenPanel(); bool panelMouseDown(float,float); int presetCursorKind(float,float) const;
-    D2D1_RECT_F presetLauncherMenuRect() const; void drawPanelLauncher(size_t,const D2D1_RECT_F&); void drawPresetLauncherMenu(); bool handlePresetLauncherMenuMouseDown(float,float);
+    bool presetLauncherMenuUp() const; D2D1_RECT_F presetLauncherMenuRect() const; void drawPanelLauncher(size_t,const D2D1_RECT_F&); void drawPresetLauncherMenu(); bool handlePresetLauncherMenuMouseDown(float,float);
     void drawInlineFaderMeter(size_t,const D2D1_RECT_F&,bool=false); void drawSoloMutePair(size_t,const D2D1_RECT_F&); D2D1_RECT_F soloMuteButtonRect(size_t,bool) const;
     void openPanel(int); void closePanel(); void applyFactoryPreset(int); void saveUserPreset(); void confirmPresetOverwrite(); void applyUserPreset(int); void deleteUserPreset(int);
     UserPreset captureUserPreset(const std::wstring&) const; std::wstring userPresetPath() const; void loadUserPresets(); void persistUserPresets() const;

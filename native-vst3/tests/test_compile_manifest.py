@@ -955,12 +955,19 @@ def test_colored_keyboard_smoke_fixture_has_distinct_white_and_black_key_colors(
 
     assert white_pitches and black_pitches
     assert colors[white_pitches[0]] != colors[black_pitches[0]]
+    outline = next(control for control in spec["interface"]["controls"] if control["id"] == "outline-hit")
+    preset = next(control for control in spec["interface"]["controls"] if control["id"] == "preset-edge")
+    assert (outline["width"], outline["height"]) == (245, 270)
+    assert preset["y"] == 95
+    assert preset["preset_menu_direction"] == "down"
 
     output = tmp_path / "NativeProject.h"
     MODULE.compile_manifest(fixture, output)
     result = output.read_text(encoding="utf-8")
     assert "KeyColorInfo{1, 48, 0xFF2D55}" in result
     assert "KeyColorInfo{1, 61, 0x00D4FF}" in result
+    assert 'ControlInfo{"outline-hit", "pad"' in result
+    assert 'ControlInfo{"preset-edge", "panel_button"' in result
 
 
 def test_compiles_static_knob_assets_and_variant(tmp_path):

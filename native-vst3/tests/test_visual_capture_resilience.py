@@ -152,6 +152,15 @@ def test_open_ring_capture_keeps_only_idle_track_and_records_vector_geometry():
     assert ".maker-open-ring-knob__value { visibility: hidden !important; }" in source
 
 
+def test_outline_hit_capture_records_inner_ring_geometry_without_changing_other_pads():
+    source = MODULE_PATH.read_text(encoding="utf-8")
+
+    assert "kind == 'pad' and control.get('component_variant') == 'outline-ring-hit'" in source
+    assert "element.locator('.maker-panel-pad.maker-pad--outline-ring-hit').bounding_box()" in source
+    assert "Outline Hit Pad ring geometry is missing" in source
+    assert "elif kind == 'pad'" in source
+
+
 def test_output_selector_capture_has_exactly_master_and_target_frames():
     spec = {
         "sampler_groups": [
