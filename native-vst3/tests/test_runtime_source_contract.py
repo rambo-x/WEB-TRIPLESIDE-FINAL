@@ -658,6 +658,22 @@ def test_native_groove_loop_icon_matches_repeat2_and_preset_combo_style():
     assert 'equals(control.kind, "dsp_selector") ? @"⌄"' in macos
 
 
+def test_native_preset_launcher_draws_download_and_save_icons_as_vectors():
+    windows = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+    macos = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
+
+    assert "iconSize=std::clamp(width*.065f,8.f,13.f)" in windows
+    assert "if(row==0)" in windows
+    assert "iconTop+iconSize*.62f" in windows
+    assert "target->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(iconLeft,iconTop,iconRight,iconBottom)" in windows
+    assert "const float textLeft=iconRight+iconGap" in windows
+    assert "NSBezierPath* actionIcon" in macos
+    assert "if (row == 0)" in macos
+    assert "iconTop + iconSize * .62" in macos
+    assert "bezierPathWithRoundedRect:NSMakeRect(iconLeft, iconTop, iconSize, iconSize)" in macos
+    assert "const CGFloat textLeft = iconRight + iconGap" in macos
+
+
 def test_native_presets_sync_every_module_snapshot_back_to_bound_choice_controls():
     header = (SOURCE_DIR / "NativeView.h").read_text(encoding="utf-8")
     windows = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")

@@ -713,10 +713,26 @@ namespace project = tripleside::project;
     const CGFloat padding = std::clamp<CGFloat>(NSWidth(menu) * .04, 3, 6), rowHeight = (NSHeight(menu) - padding * 3) * .5;
     fillRounded(menu, std::clamp<CGFloat>(NSWidth(menu) * .07, 6, 11), rgbColor(0x09090b, .995));
     strokeRounded(NSInsetRect(menu, .5, .5), std::clamp<CGFloat>(NSWidth(menu) * .07, 6, 11), rgbColor(project::kAccentRgb, .42));
+    const CGFloat iconSize = std::clamp<CGFloat>(NSWidth(menu) * .065, 8, 13);
+    const CGFloat iconInset = std::clamp<CGFloat>(NSWidth(menu) * .08, 4, 11);
+    const CGFloat iconGap = std::clamp<CGFloat>(NSWidth(menu) * .035, 3, 6);
     for (NSInteger row = 0; row < 2; ++row) {
         const NSRect item = NSMakeRect(NSMinX(menu) + padding, NSMinY(menu) + padding + row * (rowHeight + padding), NSWidth(menu) - padding * 2, rowHeight);
         fillRounded(item, std::clamp<CGFloat>(NSWidth(menu) * .05, 4, 8), rgbColor(0xffffff, .035));
-        [(row ? @"Save Preset" : @"Load Preset") drawInRect:NSInsetRect(item, std::clamp<CGFloat>(NSWidth(menu) * .08, 4, 11), 0)
+        const CGFloat iconLeft = NSMinX(item) + iconInset, iconTop = NSMidY(item) - iconSize * .5, iconRight = iconLeft + iconSize, iconBottom = iconTop + iconSize, iconCenterX = (iconLeft + iconRight) * .5;
+        NSBezierPath* actionIcon = [NSBezierPath bezierPath]; actionIcon.lineWidth = std::clamp<CGFloat>(iconSize * .12, 1, 1.6); actionIcon.lineCapStyle = NSLineCapStyleRound; actionIcon.lineJoinStyle = NSLineJoinStyleRound; [rgbColor(0xe4e4e7) setStroke];
+        if (row == 0) {
+            [actionIcon moveToPoint:NSMakePoint(iconCenterX, iconTop + 1)]; [actionIcon lineToPoint:NSMakePoint(iconCenterX, iconTop + iconSize * .62)];
+            [actionIcon moveToPoint:NSMakePoint(iconCenterX - iconSize * .24, iconTop + iconSize * .43)]; [actionIcon lineToPoint:NSMakePoint(iconCenterX, iconTop + iconSize * .66)]; [actionIcon lineToPoint:NSMakePoint(iconCenterX + iconSize * .24, iconTop + iconSize * .43)];
+            [actionIcon moveToPoint:NSMakePoint(iconLeft + 1, iconBottom - iconSize * .25)]; [actionIcon lineToPoint:NSMakePoint(iconLeft + 1, iconBottom - 1)]; [actionIcon lineToPoint:NSMakePoint(iconRight - 1, iconBottom - 1)]; [actionIcon lineToPoint:NSMakePoint(iconRight - 1, iconBottom - iconSize * .25)];
+        } else {
+            [actionIcon appendBezierPath:[NSBezierPath bezierPathWithRoundedRect:NSMakeRect(iconLeft, iconTop, iconSize, iconSize) xRadius:iconSize * .12 yRadius:iconSize * .12]];
+            [actionIcon appendBezierPathWithRect:NSMakeRect(iconLeft + iconSize * .23, iconTop, iconSize * .57, iconSize * .34)];
+            [actionIcon appendBezierPathWithRect:NSMakeRect(iconLeft + iconSize * .22, iconTop + iconSize * .58, iconSize * .56, iconSize * .42)];
+        }
+        [actionIcon stroke];
+        const CGFloat textLeft = iconRight + iconGap;
+        [(row ? @"Save Preset" : @"Load Preset") drawInRect:NSMakeRect(textLeft, NSMinY(item), NSMaxX(item) - textLeft - 3, NSHeight(item))
             withAttributes:panelTextAttributes(std::clamp<CGFloat>(NSWidth(menu) * .06, 6, 10), rgbColor(0xe4e4e7), NSTextAlignmentLeft, NSFontWeightBold)];
     }
 }
