@@ -616,6 +616,8 @@ def test_native_user_presets_are_persistent_and_confirm_overwrite():
     assert "presetCursorKind" in source
     assert "IDC_HAND" in source
     assert "IDC_IBEAM" in source
+    assert "panelLabelFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER)" in source
+    assert 'DWRITE_FONT_WEIGHT_BOLD' in source
 
     macos = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
     assert "- (void)overwriteUserPreset:(NSInteger)index" not in macos
