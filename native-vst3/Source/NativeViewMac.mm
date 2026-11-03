@@ -1616,6 +1616,26 @@ namespace project = tripleside::project;
             [NSGraphicsContext restoreGraphicsState];
             continue;
         }
+        if (equals(control.kind, "panel_button")) {
+            const NSRect box = controlLayoutRect(control, visual);
+            const auto& info = project::kPanelControls[index];
+            const BOOL active = _openPanel == static_cast<NSInteger>(index) || _presetLauncherMenu == static_cast<NSInteger>(index);
+            const CGFloat radius = std::clamp<CGFloat>(NSWidth(box) * .07, 5, 11);
+            fillRounded(box, radius, active ? rgbColor(project::kAccentRgb, .18) : rgbColor(0x09090b, .94));
+            strokeRounded(NSInsetRect(box, .5, .5), radius, active ? rgbColor(project::kAccentRgb, .62) : rgbColor(0xffffff, .13));
+            NSString* mainLabel = equals(info.panelType, "preset_browser") ? @"PRESETS" : equals(info.panelType, "mixer") ? @"MIXER" : @"MIDI";
+            NSString* status = equals(info.panelType, "preset_browser") && _presetLauncherMenu == static_cast<NSInteger>(index) ? @"CHOOSE" : (_openPanel == static_cast<NSInteger>(index) ? @"CLOSE" : @"OPEN");
+            const BOOL compact = NSWidth(box) < 96;
+            const CGFloat mainSize = std::clamp<CGFloat>(NSWidth(box) * .07, 5, 11), statusSize = std::clamp<CGFloat>(NSWidth(box) * .045, 4, 7), inset = std::clamp<CGFloat>(NSWidth(box) * .08, 4, 12);
+            if (compact) {
+                [mainLabel drawInRect:NSMakeRect(NSMinX(box) + inset, NSMinY(box) + NSHeight(box) * .16, NSWidth(box) - inset * 2, NSHeight(box) * .33) withAttributes:panelTextAttributes(mainSize, rgbColor(0xf4f4f5), NSTextAlignmentCenter, NSFontWeightHeavy)];
+                [status drawInRect:NSMakeRect(NSMinX(box) + inset, NSMinY(box) + NSHeight(box) * .56, NSWidth(box) - inset * 2, NSHeight(box) * .25) withAttributes:panelTextAttributes(statusSize, rgbColor(project::kAccentRgb), NSTextAlignmentCenter, NSFontWeightBold)];
+            } else {
+                [mainLabel drawInRect:NSMakeRect(NSMinX(box) + inset, NSMinY(box), NSWidth(box) * .59 - inset, NSHeight(box)) withAttributes:panelTextAttributes(mainSize, rgbColor(0xf4f4f5), NSTextAlignmentLeft, NSFontWeightHeavy)];
+                [status drawInRect:NSMakeRect(NSMinX(box) + NSWidth(box) * .62, NSMinY(box), NSWidth(box) * .38 - inset, NSHeight(box)) withAttributes:panelTextAttributes(statusSize, rgbColor(project::kAccentRgb), NSTextAlignmentRight, NSFontWeightBold)];
+            }
+            continue;
+        }
         auto value = equals(control.kind, "indicator")
             ? indicatorValue(*_instrument, index, _selectedPrismBand, _openPanel, _activeNote, _playingMidiSequence)
             : [self displayedValueForControl:index];
