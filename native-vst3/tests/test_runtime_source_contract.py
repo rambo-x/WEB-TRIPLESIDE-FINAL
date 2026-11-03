@@ -116,6 +116,7 @@ def test_native_view_uses_real_midi_activity_and_boolean_pad_state():
     assert "drawOutlineRingHit(ringRect, control, value > .5f)" in mac_source
     assert "s.rx-s.hx" in source
     assert "controlRingLayoutRect(control, visual" in mac_source
+    assert "using tripleside::native::controlRingLayoutRect;" in mac_source
     assert "D2D1::Matrix3x2F::Rotation(c.rotation,center)" in source
     assert "rotateByDegrees:control.rotation" in mac_source
     assert "if(hitPad&&!active)return" in source
