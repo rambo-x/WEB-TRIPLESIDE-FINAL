@@ -687,6 +687,7 @@ def test_native_combo_box_geometry_matches_preview_container_layout():
     assert "selectorBoxRect(const project::ControlInfo& control" in macos
     assert 'const bool output=equals(control.kind,"output_selector")' in windows
     assert 'const bool output = equals(control.kind, "output_selector")' in macos
+    assert "using tripleside::native::selectorBoxRect" in macos
     assert "selectorBoxRect(control,controlRect" in windows
     assert "selectorBoxRect(control, [self runtimeControlRect:index])" in macos
     assert ".maker-canvas-control--output_selector" in styles
