@@ -678,6 +678,29 @@ def test_native_groove_loop_icon_matches_repeat2_and_preset_combo_style():
     assert 'equals(control.kind, "dsp_selector") ? @"⌄"' in macos
 
 
+def test_native_combo_box_geometry_matches_preview_container_layout():
+    windows = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+    macos = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
+    styles = (Path(__file__).parents[2] / "frontend" / "src" / "pages" / "VstMakerPreview.css").read_text(encoding="utf-8")
+
+    assert "selectorBoxRect(const project::ControlInfo& control" in windows
+    assert "selectorBoxRect(const project::ControlInfo& control" in macos
+    assert 'const bool output=equals(control.kind,"output_selector")' in windows
+    assert 'const bool output = equals(control.kind, "output_selector")' in macos
+    assert "selectorBoxRect(control,controlRect" in windows
+    assert "selectorBoxRect(control, [self runtimeControlRect:index])" in macos
+    assert ".maker-canvas-control--output_selector" in styles
+    assert "gap: clamp(2px, 7cqh, 6px)" in styles
+    assert "flex: 0 0 clamp(11px, 24cqh, 22px)" in styles
+
+    height, width = 76.0, 190.0
+    output_padding = min(6.0, max(3.0, height * .07))
+    output_handle = min(22.0, max(11.0, height * .24))
+    output_gap = min(6.0, max(2.0, height * .07))
+    assert (round(width - output_padding * 2, 2), round(height - output_padding * 2 - output_handle - output_gap, 2)) == (179.36, 41.8)
+    assert (round(width - 5.6 * 2, 2), round(height - 5.6 * 2 - 22.0 - 5.6, 2)) == (178.8, 37.2)
+
+
 def test_native_preset_launcher_draws_download_and_save_icons_as_vectors():
     windows = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
     macos = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
@@ -722,6 +745,8 @@ def test_native_panel_launchers_have_pointer_hover_and_pressed_feedback():
     assert 'equals(project::kControls[index].kind, "panel_button")' in macos
     assert 'equals(control.kind, "panel_button")' in macos
     assert "_pressedPanelControl = _dragControl" in macos
+    assert "else if(presetLauncherMenuIndex==activeControl)presetLauncherMenuIndex=-1" in windows
+    assert "else if (_presetLauncherMenu == _dragControl) _presetLauncherMenu = -1" in macos
 
 
 def test_native_presets_sync_every_module_snapshot_back_to_bound_choice_controls():

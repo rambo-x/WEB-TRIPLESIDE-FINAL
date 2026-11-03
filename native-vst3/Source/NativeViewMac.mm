@@ -74,6 +74,17 @@ float quantizeControlValue(const project::ControlInfo& control, float value) {
     return std::round(value * static_cast<float>(control.knobStateCount - 1)) / static_cast<float>(control.knobStateCount - 1);
 }
 
+NSRect selectorBoxRect(const project::ControlInfo& control, NSRect outer) {
+    const CGFloat height = std::max<CGFloat>(1, NSHeight(outer));
+    const bool output = equals(control.kind, "output_selector");
+    const CGFloat padding = output ? std::clamp<CGFloat>(height * .07, 3, 6) : 5.6;
+    const CGFloat handle = output ? std::clamp<CGFloat>(height * .24, 11, 22) : 22;
+    const CGFloat gap = output ? std::clamp<CGFloat>(height * .07, 2, 6) : 5.6;
+    return NSMakeRect(NSMinX(outer) + padding, NSMinY(outer) + padding + handle + gap,
+                      std::max<CGFloat>(1, NSWidth(outer) - padding * 2),
+                      std::max<CGFloat>(1, NSHeight(outer) - padding * 2 - handle - gap));
+}
+
 bool interactiveKind(const char* kind) {
     return equals(kind, "knob") || equals(kind, "fader") || equals(kind, "button")
         || equals(kind, "mute") || equals(kind, "solo") || equals(kind, "solo_mute") || equals(kind, "pad")
@@ -650,8 +661,8 @@ namespace project = tripleside::project;
 }
 
 - (NSRect)outputMenuRect:(NSInteger)index {
-    const NSRect anchor = [self runtimeControlRect:index];
     const auto& control = project::kControls[static_cast<std::size_t>(index)];
+    const NSRect anchor = selectorBoxRect(control, [self runtimeControlRect:index]);
     const NSInteger rows = equals(control.kind, "dsp_selector") ? std::max(1, control.choiceCount) : 2;
     const CGFloat width = std::min<CGFloat>(std::max<CGFloat>(96, NSWidth(anchor)), project::kCanvasWidth - 8);
     const CGFloat height = 28 * rows + 8;
@@ -717,7 +728,7 @@ namespace project = tripleside::project;
         [self setNeedsDisplay:YES];
         return YES;
     }
-    if (NSPointInRect(point, [self runtimeControlRect:index])) {
+    if (NSPointInRect(point, selectorBoxRect(control, [self runtimeControlRect:index]))) {
         _outputMenuControl = -1;
         _dragControl = -1;
         [self setNeedsDisplay:YES];
@@ -1784,11 +1795,7 @@ namespace project = tripleside::project;
         const NSInteger selectedChoice = nearestChoiceIndex(control, value);
         const bool selected = equals(control.kind, "dsp_selector") ? selectedChoice >= 0 : value >= .5f;
         const bool presetBrowserStyle = equals(control.variant, "preset-browser-combo");
-        const CGFloat inset = std::clamp<CGFloat>(NSHeight(rect) * .07, 3, 6);
-        const CGFloat header = std::clamp<CGFloat>(NSHeight(rect) * .24, 11, 22);
-        const NSRect box = NSMakeRect(NSMinX(rect) + inset, NSMinY(rect) + header + inset * .35,
-                                      std::max<CGFloat>(1, NSWidth(rect) - inset * 2),
-                                      std::max<CGFloat>(1, NSHeight(rect) - header - inset * 1.35));
+        const NSRect box = selectorBoxRect(control, rect);
         const CGFloat radius = std::clamp<CGFloat>(NSHeight(rect) * .12, 5, 9);
         if (presetBrowserStyle) {
             NSBezierPath* boxPath = [NSBezierPath bezierPathWithRoundedRect:box xRadius:radius yRadius:radius];
@@ -2171,6 +2178,10 @@ namespace project = tripleside::project;
         [self activateSoloMute:_dragControl point:point reset:event.clickCount >= 2];
         _dragControl = -1;
     } else if (equals(control.kind, "output_selector") || equals(control.kind, "dsp_selector")) {
+        if (!NSPointInRect(point, selectorBoxRect(control, [self runtimeControlRect:_dragControl]))) {
+            _dragControl = -1;
+            return;
+        }
         _outputMenuControl = _dragControl;
         [self setNeedsDisplay:YES];
         _dragControl = -1;
@@ -2182,6 +2193,7 @@ namespace project = tripleside::project;
         const auto& info = project::kPanelControls[static_cast<std::size_t>(_dragControl)];
         if (equals(info.panelType, "preset_browser")) {
             if (_openPanel == _dragControl) [self closePanel];
+            else if (_presetLauncherMenu == _dragControl) _presetLauncherMenu = -1;
             else { [self closePanel]; _presetLauncherMenu = _dragControl; [self setNeedsDisplay:YES]; }
         } else if (_openPanel == _dragControl) [self closePanel]; else [self openPanel:_dragControl];
         _dragControl = -1;
