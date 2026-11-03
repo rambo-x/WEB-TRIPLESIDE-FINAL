@@ -970,7 +970,7 @@ namespace project = tripleside::project;
               withAttributes:panelTextAttributes(10, rgbColor(0xe4e4e7), NSTextAlignmentLeft, NSFontWeightBold)];
             [(user ? @"USER" : @"FACTORY") drawInRect:NSMakeRect(user ? contentRight - 95 : contentRight - 68, y + 9, 60, 14)
               withAttributes:panelTextAttributes(7, selected ? accent : rgbColor(0x71717a), NSTextAlignmentCenter, NSFontWeightBold)];
-            if (NO && user) {
+            if (user) {
                 const BOOL deleteHovered = absolute == _hoveredPresetDeleteRow;
                 const NSRect remove = NSMakeRect(contentRight - 27, y + 7, 27, 27);
                 fillRounded(remove, 7, rgbColor(0xfb7185, deleteHovered ? .22 : .06)); strokeRounded(NSInsetRect(remove, .5, .5), 7, rgbColor(0xfb7185, deleteHovered ? .62 : .20));
@@ -1005,7 +1005,7 @@ namespace project = tripleside::project;
             fillRounded(cancel, 7, rgbColor(0xffffff, .07)); strokeRounded(NSInsetRect(cancel, .5, .5), 7, rgbColor(0xffffff, .15));
             fillRounded(confirm, 7, rgbColor(0xfb7185, .20)); strokeRounded(NSInsetRect(confirm, .5, .5), 7, rgbColor(0xfb7185, .52));
             [(project::kUiLanguageEnglish ? @"Cancel" : @"Batalkan") drawInRect:NSInsetRect(cancel, 3, 7) withAttributes:panelTextAttributes(8, rgbColor(0xf4f4f5), NSTextAlignmentCenter, NSFontWeightBold)];
-            [(project::kUiLanguageEnglish ? @"Continue" : @"Lanjutkan") drawInRect:NSInsetRect(confirm, 3, 7) withAttributes:panelTextAttributes(8, rgbColor(0xfecdd3), NSTextAlignmentCenter, NSFontWeightBold)];
+            [(project::kUiLanguageEnglish ? @"Delete" : @"Hapus") drawInRect:NSInsetRect(confirm, 3, 7) withAttributes:panelTextAttributes(8, rgbColor(0xfecdd3), NSTextAlignmentCenter, NSFontWeightBold)];
         }
     } else if (equals(panel.panelType, "mixer") && panel.mixerShowDefaultControls) {
         CGFloat x = left;
@@ -1215,9 +1215,12 @@ namespace project = tripleside::project;
             if (point.y >= dialogBottom - 42 && point.y <= dialogBottom - 13) {
                 if (point.x >= dialogLeft + 14 && point.x <= middle - 4) _pendingDeletePresetRow = -1;
                 else if (point.x >= middle + 4 && point.x <= dialogRight - 14) {
-                    const NSInteger user = _pendingDeletePresetRow - static_cast<NSInteger>(project::kPresets.size());
+                    const NSInteger absolute = _pendingDeletePresetRow;
+                    const NSInteger user = absolute - static_cast<NSInteger>(project::kPresets.size());
                     _userPresets.erase(_userPresets.begin() + user);
-                    _selectedPresetRow = -1; _pendingDeletePresetRow = -1; _presetNameInput.clear();
+                    if (_selectedPresetRow == absolute) { _selectedPresetRow = -1; _presetNameInput.clear(); }
+                    else if (_selectedPresetRow > absolute) --_selectedPresetRow;
+                    _pendingDeletePresetRow = -1;
                     [self persistUserPresets];
                 }
             }
@@ -1235,6 +1238,10 @@ namespace project = tripleside::project;
             const NSInteger slot = static_cast<NSInteger>((point.y - rowStart) / 47), absolute = _presetScrollOffset + slot;
             const CGFloat rowOffset = std::fmod(point.y - rowStart, 47.);
             if (slot >= 0 && slot < capacity && rowOffset <= 41 && absolute >= 0 && absolute < total) {
+                if (absolute >= static_cast<NSInteger>(project::kPresets.size()) && point.x >= contentRight - 27) {
+                    _pendingDeletePresetRow = absolute;
+                    [self setNeedsDisplay:YES]; return YES;
+                }
                 _selectedPresetRow = absolute;
                 _pendingDeletePresetRow = -1;
                 if (absolute < static_cast<NSInteger>(project::kPresets.size())) _presetNameInput = project::kPresets[static_cast<std::size_t>(absolute)].name ?: "Preset";
@@ -1964,6 +1971,7 @@ namespace project = tripleside::project;
             const CGFloat rowOffset = std::fmod(point.y - rowStart, 47.);
             if (slot >= 0 && slot < capacity && rowOffset <= 41 && absolute < total) {
                 nextHovered = absolute;
+                if (absolute >= static_cast<NSInteger>(project::kPresets.size()) && point.x >= contentRight - 27) nextHoveredDelete = absolute;
             }
         }
     }

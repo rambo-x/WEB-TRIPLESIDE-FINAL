@@ -606,8 +606,12 @@ def test_native_user_presets_are_persistent_and_confirm_overwrite():
     assert 'L"OVR"' not in source
     assert 'L"\\u21BB Perbarui"' not in source
     assert 'L"\\u21BB Update"' not in source
-    assert 'L"Continue"' in source  # legacy delete dialog remains unreachable
-    assert 'L"Lanjutkan"' in source
+    assert "if(user){" in source
+    assert "false&&user" not in source
+    assert 'L"Delete"' in source
+    assert 'L"Hapus"' in source
+    assert "deleteUserPreset(pendingDeletePresetRow" in source
+    assert "nextHoveredDelete=absolute" in source
     assert "presetPanelMode==0" in source
     assert "presetNameInput=wide(project::kPresets" in source
     assert "applyFactoryPreset(absolute);else applyUserPreset" in source
@@ -625,6 +629,12 @@ def test_native_user_presets_are_persistent_and_confirm_overwrite():
     assert '@"Overwrite this preset?"' in macos
     assert '@"Batalkan"' in macos
     assert '@"Simpan"' in macos
+    assert "if (user)" in macos
+    assert "if (NO && user)" not in macos
+    assert '@"Delete"' in macos
+    assert '@"Hapus"' in macos
+    assert "_pendingDeletePresetRow = absolute" in macos
+    assert "nextHoveredDelete = absolute" in macos
     assert '@"↻ Perbarui"' not in macos
     assert '@"↻ Update"' not in macos
     assert "NSCursor.pointingHandCursor" in macos
