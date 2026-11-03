@@ -44,7 +44,11 @@ def test_macos_panels_follow_preview_and_are_fully_interactive():
     view = (ROOT / "Source/NativeViewMac.mm").read_text(encoding="utf-8")
 
     assert 'equals(kind, "panel_button")' in view
-    assert '@"PRESET BROWSER"' in view
+    assert '@"LOAD PRESET"' in view
+    assert '@"SAVE PRESET"' in view
+    assert '@"Load Preset"' in view
+    assert '@"Save Preset"' in view
+    assert "presetMenuDirection" in view
     assert '@"GROOVE BROWSER"' in view
     assert '@"GROOVE LIBRARY"' in view
     assert "Simpan preset" in view

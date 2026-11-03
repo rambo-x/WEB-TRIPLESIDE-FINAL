@@ -308,6 +308,10 @@ namespace project = tripleside::project;
     NSInteger _hoveredPresetRow;
     NSInteger _hoveredPresetDeleteRow;
     NSInteger _pendingDeletePresetRow;
+    NSInteger _pendingOverwritePresetRow;
+    NSInteger _presetLauncherMenu;
+    NSInteger _presetPanelMode;
+    BOOL _presetFactoryWarning;
     NSInteger _hoveredControl;
     NSInteger _outputMenuControl;
     NSTrackingArea* _trackingArea;
@@ -336,6 +340,9 @@ namespace project = tripleside::project;
 - (NSRect)outputMenuRect:(NSInteger)index;
 - (void)drawOutputMenu;
 - (BOOL)handleOutputMenuMouseDown:(NSPoint)point;
+- (NSRect)presetLauncherMenuRect;
+- (void)drawPresetLauncherMenu;
+- (BOOL)handlePresetLauncherMenuMouseDown:(NSPoint)point;
 - (NSInteger)panelControlAt:(NSPoint)point;
 - (void)drawPanelControl:(NSInteger)index;
 - (void)drawWaveformInRect:(NSRect)rect color:(unsigned)color lineWidth:(CGFloat)lineWidth samplerGroup:(int)samplerGroup;
@@ -387,6 +394,10 @@ namespace project = tripleside::project;
         _hoveredPresetRow = -1;
         _hoveredPresetDeleteRow = -1;
         _pendingDeletePresetRow = -1;
+        _pendingOverwritePresetRow = -1;
+        _presetLauncherMenu = -1;
+        _presetPanelMode = 0;
+        _presetFactoryWarning = NO;
         _hoveredControl = -1;
         _outputMenuControl = -1;
         _licenseInputFocused = NO;
@@ -682,6 +693,47 @@ namespace project = tripleside::project;
     return NO;
 }
 
+- (NSRect)presetLauncherMenuRect {
+    if (_presetLauncherMenu < 0 || static_cast<std::size_t>(_presetLauncherMenu) >= project::kControls.size()) return NSZeroRect;
+    const NSRect anchor = [self runtimeControlRect:_presetLauncherMenu];
+    const auto& info = project::kPanelControls[static_cast<std::size_t>(_presetLauncherMenu)];
+    const CGFloat width = std::max<CGFloat>(1, NSWidth(anchor));
+    const CGFloat padding = std::clamp<CGFloat>(width * .04, 3, 6);
+    const CGFloat rowHeight = std::clamp<CGFloat>(NSHeight(anchor) * .52, 20, 36);
+    const CGFloat height = rowHeight * 2 + padding * 3;
+    const CGFloat left = std::clamp<CGFloat>(NSMinX(anchor), 4, project::kCanvasWidth - width - 4);
+    const BOOL up = info.presetMenuDirection && equals(info.presetMenuDirection, "up");
+    return NSMakeRect(left, up ? NSMinY(anchor) - height - 4 : NSMaxY(anchor) + 4, width, height);
+}
+
+- (void)drawPresetLauncherMenu {
+    if (_presetLauncherMenu < 0 || _openPanel >= 0) return;
+    const NSRect menu = [self presetLauncherMenuRect];
+    if (NSIsEmptyRect(menu)) return;
+    const CGFloat padding = std::clamp<CGFloat>(NSWidth(menu) * .04, 3, 6), rowHeight = (NSHeight(menu) - padding * 3) * .5;
+    fillRounded(menu, std::clamp<CGFloat>(NSWidth(menu) * .07, 6, 11), rgbColor(0x09090b, .995));
+    strokeRounded(NSInsetRect(menu, .5, .5), std::clamp<CGFloat>(NSWidth(menu) * .07, 6, 11), rgbColor(project::kAccentRgb, .42));
+    for (NSInteger row = 0; row < 2; ++row) {
+        const NSRect item = NSMakeRect(NSMinX(menu) + padding, NSMinY(menu) + padding + row * (rowHeight + padding), NSWidth(menu) - padding * 2, rowHeight);
+        fillRounded(item, std::clamp<CGFloat>(NSWidth(menu) * .05, 4, 8), rgbColor(0xffffff, .035));
+        [(row ? @"Save Preset" : @"Load Preset") drawInRect:NSInsetRect(item, std::clamp<CGFloat>(NSWidth(menu) * .08, 4, 11), 0)
+            withAttributes:panelTextAttributes(std::clamp<CGFloat>(NSWidth(menu) * .06, 6, 10), rgbColor(0xe4e4e7), NSTextAlignmentLeft, NSFontWeightBold)];
+    }
+}
+
+- (BOOL)handlePresetLauncherMenuMouseDown:(NSPoint)point {
+    if (_presetLauncherMenu < 0) return NO;
+    const NSInteger index = _presetLauncherMenu;
+    const NSRect menu = [self presetLauncherMenuRect];
+    if (NSPointInRect(point, menu)) {
+        const CGFloat padding = std::clamp<CGFloat>(NSWidth(menu) * .04, 3, 6), rowHeight = (NSHeight(menu) - padding * 3) * .5;
+        _presetPanelMode = std::clamp<NSInteger>(static_cast<NSInteger>((point.y - NSMinY(menu) - padding) / std::max<CGFloat>(1, rowHeight + padding)), 0, 1);
+        _presetLauncherMenu = -1; [self openPanel:index]; return YES;
+    }
+    if (NSPointInRect(point, [self runtimeControlRect:index])) return NO;
+    _presetLauncherMenu = -1; [self setNeedsDisplay:YES]; return NO;
+}
+
 - (NSInteger)panelControlAt:(NSPoint)point {
     if (_openPanel < 0) return -1;
     for (NSInteger index = static_cast<NSInteger>(project::kControls.size()) - 1; index >= 0; --index) {
@@ -723,6 +775,7 @@ namespace project = tripleside::project;
     const auto& info = project::kPanelControls[static_cast<std::size_t>(index)];
     if (!equals(project::kControls[static_cast<std::size_t>(index)].kind, "panel_button") || !info.panelType || !*info.panelType) return;
     if (_openPanel >= 0) _panelRuntimeBounds[static_cast<int>(_openPanel)] = {_panelX, _panelY, _panelWidth, _panelHeight};
+    _presetLauncherMenu = -1;
     _openPanel = index;
     if (const auto saved = _panelRuntimeBounds.find(static_cast<int>(index)); saved != _panelRuntimeBounds.end()) {
         _panelX = saved->second[0]; _panelY = saved->second[1];
@@ -748,6 +801,8 @@ namespace project = tripleside::project;
     _hoveredPresetRow = -1;
     _hoveredPresetDeleteRow = -1;
     _pendingDeletePresetRow = -1;
+    _pendingOverwritePresetRow = -1;
+    _presetFactoryWarning = NO;
     [self.window invalidateCursorRectsForView:self];
     [self setNeedsDisplay:YES];
 }
@@ -802,7 +857,7 @@ namespace project = tripleside::project;
     [[NSBezierPath bezierPathWithRoundedRect:header xRadius:18 yRadius:18] fill];
     [rgbColor(0xffffff, .08) setFill];
     NSRectFill(NSMakeRect(NSMinX(panelRect), NSMaxY(header) - 1, NSWidth(panelRect), 1));
-    NSString* type = equals(panel.panelType, "preset_browser") ? @"PRESET BROWSER" : equals(panel.panelType, "mixer") ? @"MIXER" : @"GROOVE BROWSER";
+    NSString* type = equals(panel.panelType, "preset_browser") ? (_presetPanelMode ? @"SAVE PRESET" : @"LOAD PRESET") : equals(panel.panelType, "mixer") ? @"MIXER" : @"GROOVE BROWSER";
     [type drawInRect:NSMakeRect(NSMinX(panelRect) + 16, NSMinY(panelRect) + 15, NSWidth(panelRect) - 64, 15)
       withAttributes:panelTextAttributes(8, rgbColor(project::kAccentRgb), NSTextAlignmentLeft, NSFontWeightBold)];
     const NSRect close = NSMakeRect(NSMaxX(panelRect) - 39, NSMinY(panelRect) + 8, 27, 27);
@@ -874,6 +929,7 @@ namespace project = tripleside::project;
         if (visible.empty()) [@"Belum ada groove pada project ini." drawInRect:NSMakeRect(left, rowStart, right - left, 80)
             withAttributes:panelTextAttributes(10, rgbColor(0x71717a), NSTextAlignmentCenter, NSFontWeightMedium)];
     } else if (equals(panel.panelType, "preset_browser")) {
+        if (_presetPanelMode == 1) {
         const NSRect field = NSMakeRect(left, top, std::max<CGFloat>(80, right - left - 156), 35);
         fillRounded(field, 9, rgbColor(0x09090b)); strokeRounded(NSInsetRect(field, .5, .5), 9, rgbColor(0xffffff, .10));
         NSString* presetFieldText = _presetNameInput.empty() ? (project::kUiLanguageEnglish ? @"New preset name" : @"Nama preset baru") : [NSString stringWithUTF8String:_presetNameInput.c_str()];
@@ -891,8 +947,9 @@ namespace project = tripleside::project;
         fillRounded(save, 9, accent);
         [(project::kUiLanguageEnglish ? @"▣  Save preset" : @"▣  Simpan preset") drawInRect:NSMakeRect(NSMinX(save) + 6, NSMinY(save) + 10, NSWidth(save) - 12, 15)
           withAttributes:panelTextAttributes(9, NSColor.whiteColor, NSTextAlignmentCenter, NSFontWeightBold)];
+        }
         const NSInteger total = static_cast<NSInteger>(project::kPresets.size() + _userPresets.size());
-        const CGFloat rowStart = top + 47;
+        const CGFloat rowStart = top + (_presetPanelMode == 1 ? 47 : 0);
         const NSInteger capacity = std::max<NSInteger>(1, static_cast<NSInteger>((NSMaxY(panelRect) - 12 - rowStart + 6) / 47));
         const NSInteger maxOffset = std::max<NSInteger>(0, total - capacity);
         _presetScrollOffset = std::clamp(_presetScrollOffset, static_cast<NSInteger>(0), maxOffset);
@@ -913,7 +970,7 @@ namespace project = tripleside::project;
               withAttributes:panelTextAttributes(10, rgbColor(0xe4e4e7), NSTextAlignmentLeft, NSFontWeightBold)];
             [(user ? @"USER" : @"FACTORY") drawInRect:NSMakeRect(user ? contentRight - 95 : contentRight - 68, y + 9, 60, 14)
               withAttributes:panelTextAttributes(7, selected ? accent : rgbColor(0x71717a), NSTextAlignmentCenter, NSFontWeightBold)];
-            if (user) {
+            if (NO && user) {
                 const BOOL deleteHovered = absolute == _hoveredPresetDeleteRow;
                 const NSRect remove = NSMakeRect(contentRight - 27, y + 7, 27, 27);
                 fillRounded(remove, 7, rgbColor(0xfb7185, deleteHovered ? .22 : .06)); strokeRounded(NSInsetRect(remove, .5, .5), 7, rgbColor(0xfb7185, deleteHovered ? .62 : .20));
@@ -932,7 +989,7 @@ namespace project = tripleside::project;
             fillRounded(NSMakeRect(right - 6, rowStart, 6, trackHeight), 3, rgbColor(0xffffff, .07));
             fillRounded(NSMakeRect(right - 6, thumbTop, 6, thumbHeight), 3, rgbColor(project::kAccentRgb, .65));
         }
-        if (!total) [(project::kUiLanguageEnglish ? @"No presets yet. Shape your sound, then save a preset." : @"Belum ada preset. Atur suara lalu simpan preset.") drawInRect:NSMakeRect(left, top + 50, right - left, 100)
+        if (!total) [(_presetPanelMode ? (project::kUiLanguageEnglish ? @"No presets yet. Shape your sound, then save a preset." : @"Belum ada preset. Atur suara lalu simpan preset.") : (project::kUiLanguageEnglish ? @"No presets are available to load." : @"Belum ada preset yang dapat dimuat.")) drawInRect:NSMakeRect(left, rowStart + 30, right - left, 100)
             withAttributes:panelTextAttributes(10, rgbColor(0x71717a), NSTextAlignmentCenter, NSFontWeightMedium)];
         if (_pendingDeletePresetRow >= static_cast<NSInteger>(project::kPresets.size()) && _pendingDeletePresetRow < total) {
             const NSRect dialog = NSMakeRect(std::max<CGFloat>(left, NSMidX(panelRect) - 145), std::max<CGFloat>(top + 42, NSMidY(panelRect) - 55),
@@ -1060,18 +1117,11 @@ namespace project = tripleside::project;
         NSString* name = [NSString stringWithUTF8String:preset.name ?: ""] ?: @"";
         return [name caseInsensitiveCompare:candidate] == NSOrderedSame;
     });
-    const NSInteger selectedUser = _selectedPresetRow - static_cast<NSInteger>(project::kPresets.size());
-    const bool canOverwrite = selectedUser >= 0 && selectedUser < static_cast<NSInteger>(_userPresets.size());
-    const RuntimeUserPreset* selectedPreset = canOverwrite ? &_userPresets[static_cast<std::size_t>(selectedUser)] : nullptr;
-    const bool userName = std::any_of(_userPresets.begin(), _userPresets.end(), [&](const auto& preset) {
-        NSString* name = [NSString stringWithUTF8String:preset.name.c_str()] ?: @"";
-        return &preset != selectedPreset && [name caseInsensitiveCompare:candidate] == NSOrderedSame;
-    });
-    if (_presetNameInput.empty() || factoryName || userName) return;
-    if (canOverwrite) {
-        _userPresets[static_cast<std::size_t>(selectedUser)] = [self captureUserPreset:_presetNameInput];
-        [self persistUserPresets];
-        return;
+    if (_presetNameInput.empty()) return;
+    if (factoryName) { NSAlert* alert = [[NSAlert alloc] init]; alert.messageText = project::kUiLanguageEnglish ? @"Factory preset name" : @"Nama preset factory"; alert.informativeText = project::kUiLanguageEnglish ? @"Choose a different name. Factory presets cannot be overwritten." : @"Pilih nama lain. Preset factory tidak dapat ditimpa."; [alert addButtonWithTitle:(project::kUiLanguageEnglish ? @"Close" : @"Tutup")]; [alert runModal]; return; }
+    for (std::size_t index = 0; index < _userPresets.size(); ++index) {
+        NSString* name = [NSString stringWithUTF8String:_userPresets[index].name.c_str()] ?: @"";
+        if ([name caseInsensitiveCompare:candidate] == NSOrderedSame) { NSAlert* alert = [[NSAlert alloc] init]; alert.messageText = project::kUiLanguageEnglish ? @"Overwrite this preset?" : @"Timpa preset ini?"; alert.informativeText = project::kUiLanguageEnglish ? [NSString stringWithFormat:@"Preset “%@” already exists. Its previous settings will be replaced with the plugin’s current settings.", candidate] : [NSString stringWithFormat:@"Preset “%@” sudah ada. Pengaturan sebelumnya akan diganti dengan pengaturan plugin saat ini.", candidate]; [alert addButtonWithTitle:(project::kUiLanguageEnglish ? @"Cancel" : @"Batalkan")]; [alert addButtonWithTitle:(project::kUiLanguageEnglish ? @"Save" : @"Simpan")]; if ([alert runModal] == NSAlertSecondButtonReturn) { _userPresets[index] = [self captureUserPreset:_presetNameInput]; _selectedPresetRow = static_cast<NSInteger>(project::kPresets.size() + index); [self persistUserPresets]; } return; }
     }
     if (_userPresets.size() >= 128) _userPresets.erase(_userPresets.begin());
     _userPresets.push_back([self captureUserPreset:_presetNameInput]);
@@ -1174,9 +1224,9 @@ namespace project = tripleside::project;
             [self setNeedsDisplay:YES]; return YES;
         }
         const CGFloat fieldWidth = std::max<CGFloat>(80, right - left - 156);
-        if (point.y >= top && point.y <= top + 35) { if (point.x <= left + fieldWidth) { _presetNameFocused = YES; _textCaretResetAt = [NSDate timeIntervalSinceReferenceDate]; [self.window makeFirstResponder:self]; } else if (point.x >= left + fieldWidth + 8) [self saveUserPreset]; [self setNeedsDisplay:YES]; return YES; }
+        if (_presetPanelMode == 1 && point.y >= top && point.y <= top + 35) { if (point.x <= left + fieldWidth) { _presetNameFocused = YES; _textCaretResetAt = [NSDate timeIntervalSinceReferenceDate]; [self.window makeFirstResponder:self]; } else if (point.x >= left + fieldWidth + 8) [self saveUserPreset]; [self setNeedsDisplay:YES]; return YES; }
         _presetNameFocused = NO;
-        const CGFloat rowStart = top + 47;
+        const CGFloat rowStart = top + (_presetPanelMode == 1 ? 47 : 0);
         const NSInteger capacity = std::max<NSInteger>(1, static_cast<NSInteger>((NSMaxY(rect) - 12 - rowStart + 6) / 47));
         const NSInteger maxOffset = std::max<NSInteger>(0, total - capacity);
         _presetScrollOffset = std::clamp(_presetScrollOffset, static_cast<NSInteger>(0), maxOffset);
@@ -1185,18 +1235,11 @@ namespace project = tripleside::project;
             const NSInteger slot = static_cast<NSInteger>((point.y - rowStart) / 47), absolute = _presetScrollOffset + slot;
             const CGFloat rowOffset = std::fmod(point.y - rowStart, 47.);
             if (slot >= 0 && slot < capacity && rowOffset <= 41 && absolute >= 0 && absolute < total) {
-                const BOOL alreadySelected = _selectedPresetRow == absolute;
                 _selectedPresetRow = absolute;
                 _pendingDeletePresetRow = -1;
                 if (absolute < static_cast<NSInteger>(project::kPresets.size())) _presetNameInput = project::kPresets[static_cast<std::size_t>(absolute)].name ?: "Preset";
                 else _presetNameInput = _userPresets[static_cast<std::size_t>(absolute - static_cast<NSInteger>(project::kPresets.size()))].name;
-                if (absolute >= static_cast<NSInteger>(project::kPresets.size())) {
-                    if (point.x >= contentRight - 27) {
-                        _pendingDeletePresetRow = absolute;
-                        [self setNeedsDisplay:YES]; return YES;
-                    }
-                }
-                if (alreadySelected) {
+                if (_presetPanelMode == 0) {
                     if (absolute < static_cast<NSInteger>(project::kPresets.size())) [self applyFactoryPreset:absolute];
                     else [self applyUserPreset:absolute - static_cast<NSInteger>(project::kPresets.size())];
                     [self closePanel];
@@ -1723,6 +1766,7 @@ namespace project = tripleside::project;
 
     [self drawOpenPanel];
     [self drawOutputMenu];
+    [self drawPresetLauncherMenu];
 
     if constexpr (project::kLicenseRequired) {
         if (!LicenseRuntime::isLicensed()) {
@@ -1870,9 +1914,8 @@ namespace project = tripleside::project;
     } else if (equals(panelInfo.panelType, "preset_browser")) {
         const CGFloat left = NSMinX(panel) + 16, top = NSMinY(panel) + 60, right = NSMaxX(panel) - 16;
         const CGFloat fieldWidth = std::max<CGFloat>(80, right - left - 156);
-        addDesignCursor(NSMakeRect(left, top, fieldWidth, 35), NSCursor.IBeamCursor);
-        addDesignCursor(NSMakeRect(left + fieldWidth + 8, top, right - left - fieldWidth - 8, 35), NSCursor.pointingHandCursor);
-        const CGFloat rowStart = top + 47;
+        if (_presetPanelMode == 1) { addDesignCursor(NSMakeRect(left, top, fieldWidth, 35), NSCursor.IBeamCursor); addDesignCursor(NSMakeRect(left + fieldWidth + 8, top, right - left - fieldWidth - 8, 35), NSCursor.pointingHandCursor); }
+        const CGFloat rowStart = top + (_presetPanelMode == 1 ? 47 : 0);
         const NSInteger total = static_cast<NSInteger>(project::kPresets.size() + _userPresets.size());
         const NSInteger capacity = std::max<NSInteger>(1, static_cast<NSInteger>((NSMaxY(panel) - 12 - rowStart + 6) / 47));
         const NSInteger maxOffset = std::max<NSInteger>(0, total - capacity);
@@ -1891,7 +1934,7 @@ namespace project = tripleside::project;
     NSInteger nextHovered = -1, nextHoveredDelete = -1;
     if (_openPanel >= 0 && equals(project::kPanelControls[static_cast<std::size_t>(_openPanel)].panelType, "preset_browser")) {
         const NSRect panel = [self panelRect:_openPanel];
-        const CGFloat left = NSMinX(panel) + 16, right = NSMaxX(panel) - 16, rowStart = NSMinY(panel) + 107;
+        const CGFloat left = NSMinX(panel) + 16, right = NSMaxX(panel) - 16, rowStart = NSMinY(panel) + 60 + (_presetPanelMode == 1 ? 47 : 0);
         const NSInteger total = static_cast<NSInteger>(project::kPresets.size() + _userPresets.size());
         const NSInteger capacity = std::max<NSInteger>(1, static_cast<NSInteger>((NSMaxY(panel) - 12 - rowStart + 6) / 47));
         const NSInteger maxOffset = std::max<NSInteger>(0, total - capacity);
@@ -1901,7 +1944,6 @@ namespace project = tripleside::project;
             const CGFloat rowOffset = std::fmod(point.y - rowStart, 47.);
             if (slot >= 0 && slot < capacity && rowOffset <= 41 && absolute < total) {
                 nextHovered = absolute;
-                if (absolute >= static_cast<NSInteger>(project::kPresets.size()) && point.x >= contentRight - 27) nextHoveredDelete = absolute;
             }
         }
     }
@@ -1939,7 +1981,7 @@ namespace project = tripleside::project;
             return;
         }
     }
-    if ([self handleOutputMenuMouseDown:point]) return;
+    if ([self handleOutputMenuMouseDown:point] || [self handlePresetLauncherMenuMouseDown:point]) return;
     const NSInteger panelControl = [self panelControlAt:point];
     if (panelControl >= 0) {
         _dragControl = panelControl;
@@ -2023,7 +2065,11 @@ namespace project = tripleside::project;
         [self setControl:_dragControl value:quantizeControlValue(control, neutralControlValue(control))];
         _dragControl = -1;
     } else if (equals(control.kind, "panel_button")) {
-        if (_openPanel == _dragControl) [self closePanel]; else [self openPanel:_dragControl];
+        const auto& info = project::kPanelControls[static_cast<std::size_t>(_dragControl)];
+        if (equals(info.panelType, "preset_browser")) {
+            if (_openPanel == _dragControl) [self closePanel];
+            else { [self closePanel]; _presetLauncherMenu = _dragControl; [self setNeedsDisplay:YES]; }
+        } else if (_openPanel == _dragControl) [self closePanel]; else [self openPanel:_dragControl];
         _dragControl = -1;
     } else if (control.midiSequenceIndex >= 0 && (equals(control.kind, "button") || equals(control.kind, "pad"))) {
         [self stopMidiSequence];
@@ -2200,7 +2246,7 @@ namespace project = tripleside::project;
                 [self.window invalidateCursorRectsForView:self]; [self setNeedsDisplay:YES]; return;
             }
             if (equals(panelInfo.panelType, "preset_browser")) {
-                const CGFloat rowStart = NSMinY(panel) + 107;
+                const CGFloat rowStart = NSMinY(panel) + 60 + (_presetPanelMode == 1 ? 47 : 0);
                 const NSInteger total = static_cast<NSInteger>(project::kPresets.size() + _userPresets.size());
                 const NSInteger capacity = std::max<NSInteger>(1, static_cast<NSInteger>((NSMaxY(panel) - 12 - rowStart + 6) / 47));
                 const NSInteger maxOffset = std::max<NSInteger>(0, total - capacity);

@@ -578,7 +578,7 @@ def test_visual_capture_rasterizes_panel_children_from_the_shared_preview():
     assert "Panel {panel_index} visual composition differs" in verifier
 
 
-def test_native_user_presets_are_persistent_overwritable_and_deletable():
+def test_native_user_presets_are_persistent_and_confirm_overwrite():
     header = (SOURCE_DIR / "NativeView.h").read_text(encoding="utf-8")
     source = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
 
@@ -588,39 +588,41 @@ def test_native_user_presets_are_persistent_overwritable_and_deletable():
     assert "MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH" in source
     assert 'L"\\u25A3  Simpan preset"' in source
     assert "presetNameInput" in header
-    assert "pendingDeletePresetRow" in header
-    assert "deleteUserPreset(pendingDeletePresetRow" in source
-    assert "canOverwrite" in source
+    assert "pendingOverwritePresetRow" in header
+    assert "confirmPresetOverwrite()" in source
+    assert 'L"Overwrite this preset?"' in source
+    assert 'L"Batalkan"' in source
+    assert 'L"Simpan"' in source
     assert "captureUserPreset(presetNameInput)" in source
     assert "void overwriteUserPreset(int)" not in header
-    assert "void deleteUserPreset(int)" in header
+    assert "void confirmPresetOverwrite()" in header
     assert "presetScrollOffset" in header
     assert "selectedPresetRow" in header
     assert "hoveredPresetRow" in header
-    assert "hoveredPresetDeleteRow" in header
+    assert "presetPanelMode" in header
     assert "thumbHeight" in source
     assert "absolute==selectedPresetRow" in source
     assert "absolute==hoveredPresetRow" in source
     assert 'L"OVR"' not in source
     assert 'L"\\u21BB Perbarui"' not in source
     assert 'L"\\u21BB Update"' not in source
-    assert 'L"Continue"' in source
+    assert 'L"Continue"' in source  # legacy delete dialog remains unreachable
     assert 'L"Lanjutkan"' in source
-    assert "const bool alreadySelected=selectedPresetRow==absolute" in source
+    assert "presetPanelMode==0" in source
     assert "presetNameInput=wide(project::kPresets" in source
     assert "applyFactoryPreset(absolute);else applyUserPreset" in source
     assert "closePanel();" in source
-    assert "factoryName||userName" in source
+    assert "if(factoryName){presetFactoryWarning=true" in source
     assert "presetCursorKind" in source
     assert "IDC_HAND" in source
     assert "IDC_IBEAM" in source
 
     macos = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
     assert "- (void)overwriteUserPreset:(NSInteger)index" not in macos
-    assert "const BOOL alreadySelected = _selectedPresetRow == absolute" in macos
-    assert "_pendingDeletePresetRow = absolute" in macos
-    assert '@"Continue"' in macos
-    assert '@"Lanjutkan"' in macos
+    assert "if (_presetPanelMode == 0)" in macos
+    assert '@"Overwrite this preset?"' in macos
+    assert '@"Batalkan"' in macos
+    assert '@"Simpan"' in macos
     assert '@"↻ Perbarui"' not in macos
     assert '@"↻ Update"' not in macos
     assert "NSCursor.pointingHandCursor" in macos
@@ -783,7 +785,10 @@ def test_all_panel_headers_use_only_the_panel_type_at_top_left():
     mac_source = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
 
     assert '<span>{openPanel.label}</span>' not in preview
-    assert 'openPanel.panelType === "preset_browser" ? "PRESET BROWSER"' in preview
+    assert 'openPanel.panelType === "preset_browser"' in preview
+    assert 'presetPanelMode === "save" ? "SAVE PRESET" : "LOAD PRESET"' in preview
+    assert 'L"SAVE PRESET":L"LOAD PRESET"' in source
+    assert '@"SAVE PRESET" : @"LOAD PRESET"' in mac_source
     assert 'auto title=wide(panel.label)' not in source
     assert 'D2D1::RectF(r.left+16,r.top+14,r.right-48,r.top+31)' in source
     assert "NSString* title" not in mac_source

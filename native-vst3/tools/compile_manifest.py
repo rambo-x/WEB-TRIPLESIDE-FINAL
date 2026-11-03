@@ -331,6 +331,7 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
         kind = str(control.get("kind") or "knob")
         parent_panel_id = str(control.get("parent_panel_id") or "")
         panel_type = str(control.get("panel_type") or "")
+        preset_menu_direction = str(control.get("preset_menu_direction") or "down")
         meter_mode = str(control.get("meter_mode") or ("stereo" if kind == "gain_meter" else "mono"))
         if meter_mode not in {"mono", "stereo"}:
             fail("meter mode is invalid")
@@ -340,6 +341,10 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
             fail("panel button type is invalid")
         if kind != "panel_button" and panel_type:
             fail("panel type is only valid for panel buttons")
+        if preset_menu_direction not in {"up", "down"}:
+            fail("preset menu direction is invalid")
+        if preset_menu_direction == "up" and (kind != "panel_button" or panel_type != "preset_browser"):
+            fail("preset menu direction is only valid for preset browser panel buttons")
         if kind == "panel_button" and parent_panel_id:
             fail("panel buttons cannot be nested")
         if parent_panel_id and parent_panel_id not in panel_indices:
@@ -515,6 +520,7 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
         control_lines.append("    ControlInfo{" + ", ".join(fields) + "},")
         panel_lines.append("    PanelControlInfo{" + ", ".join((
             str(panel_indices.get(str(control.get("parent_panel_id") or ""), -1)), cpp_string(control.get("panel_type") or ""),
+            cpp_string(control.get("preset_menu_direction") if control.get("preset_menu_direction") in {"up", "down"} else "down"),
             cpp_float(clamp(control.get("panel_x"), 0, 100, 50)), cpp_float(clamp(control.get("panel_y"), 0, 100, 52)),
             cpp_float(clamp(control.get("panel_width"), 35, 96, 88)), cpp_float(clamp(control.get("panel_height"), 30, 92, 78)),
             cpp_bool(control.get("mixer_show_default_controls", True)),
@@ -676,7 +682,7 @@ struct ZoneInfo {{ int sampleIndex, groupIndex, articulationIndex, micIndex, rou
 struct ControlInfo {{ const char* id; const char* kind; const char* label; const char* offLabel; const char* onLabel; const char* parameter; int moduleIndex; int indicatorSourceIndex; int midiSequenceIndex; int samplerGroupIndex; float x, y; int width, height; float value, opacity, rotation; unsigned int colorRgb; bool showBackground; int notePitch, keyCount; const char* labelPosition; int labelGap, stateLabelGap; const char* variant; const char* meterMode; const char* textFont; unsigned int textColorRgb; int outputFontSize; bool showCorrelationMeter; float waveformLineWidth; bool sampleNameVisible; unsigned int playheadColorRgb; float playheadThickness, playheadOpacity, ringThickness, ringGlowIntensity, barWidthRatio; bool spectrumBand; bool useFilmstrip; bool faderMeterEnabled; const char* faderMeterPosition; unsigned int faderMeterColorRgb; int faderMeterGap, faderMeterWidth, faderMeterHeight; int soloMuteGap; unsigned int soloColorRgb, muteColorRgb; const char* buttonShape; int ringValueFontSize; unsigned int ringValueColorRgb; int ringValueFontWeight; int knobStateCount; float optionValue; int choiceOffset, choiceCount; }};
 struct ControlChoiceInfo {{ int controlIndex; float value; const char* label; }};
 struct KeyColorInfo {{ int control, pitch; unsigned int colorRgb; }};
-struct PanelControlInfo {{ int parentPanelIndex; const char* panelType; float panelX, panelY, panelWidth, panelHeight; bool mixerShowDefaultControls; }};
+struct PanelControlInfo {{ int parentPanelIndex; const char* panelType; const char* presetMenuDirection; float panelX, panelY, panelWidth, panelHeight; bool mixerShowDefaultControls; }};
 struct PresetInfo {{ const char* id; const char* name; bool factory; int valueOffset, valueCount, groupOffset, groupCount, moduleOffset, moduleCount, midiSequenceIndex; }};
 struct PresetValueInfo {{ int controlIndex; float value; }};
 struct PresetGroupInfo {{ int groupIndex; float volume, pan; bool mute, solo; }};

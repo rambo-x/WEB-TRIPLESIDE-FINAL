@@ -634,6 +634,7 @@ def test_compiles_panel_button_children_and_function_data(tmp_path):
         {
             "id": "presets", "kind": "panel_button", "label": "Presets",
             "parameter": "visual", "panel_type": "preset_browser",
+            "preset_menu_direction": "up",
             "panel_x": 48, "panel_y": 50, "panel_width": 76, "panel_height": 64,
         },
         {
@@ -665,8 +666,8 @@ def test_compiles_panel_button_children_and_function_data(tmp_path):
     MODULE.compile_manifest(source, output)
 
     result = output.read_text(encoding="utf-8")
-    assert 'PanelControlInfo{-1, "preset_browser", 48.0f, 50.0f, 76.0f, 64.0f, true}' in result
-    assert 'PanelControlInfo{0, "", 50.0f, 52.0f, 88.0f, 78.0f, true}' in result
+    assert 'PanelControlInfo{-1, "preset_browser", "up", 48.0f, 50.0f, 76.0f, 64.0f, true}' in result
+    assert 'PanelControlInfo{0, "", "down", 50.0f, 52.0f, 88.0f, 78.0f, true}' in result
     assert 'PresetInfo{"bright", "Bright", true, 0, 1, 0, 0, 0, 1, -1}' in result
     assert 'PresetModuleInfo{0, true, 0.75f, 0, 1}' in result
     assert 'PresetModuleParameterInfo{0, "tone", 0.91f}' in result
@@ -693,7 +694,7 @@ def test_compiles_editable_mixer_children_against_their_sampler(tmp_path):
     MODULE.compile_manifest(source, output)
 
     result = output.read_text(encoding="utf-8")
-    assert 'PanelControlInfo{-1, "mixer", 50.0f, 52.0f, 88.0f, 78.0f, false}' in result
+    assert 'PanelControlInfo{-1, "mixer", "down", 50.0f, 52.0f, 88.0f, 78.0f, false}' in result
     assert '"group_1_volume"' in result
     assert '"group_0_pan"' in result
     assert '"group_1_mute"' in result
