@@ -672,6 +672,12 @@ def test_native_preset_launcher_draws_download_and_save_icons_as_vectors():
     assert "iconTop + iconSize * .62" in macos
     assert "bezierPathWithRoundedRect:NSMakeRect(iconLeft, iconTop, iconSize, iconSize)" in macos
     assert "const CGFloat textLeft = iconRight + iconGap" in macos
+    assert "gap=std::clamp(width*.05f,5.f,8.f)" in windows
+    assert "arrowSize=std::clamp(width*.06f,6.f,9.f)" in windows
+    assert "target->FillGeometry(arrow.Get(),b.Get())" in windows
+    assert "const CGFloat gap = std::clamp<CGFloat>(width * .05, 5, 8)" in macos
+    assert "NSBezierPath* menuArrow" in macos
+    assert "[menuArrow fill]" in macos
 
 
 def test_native_presets_sync_every_module_snapshot_back_to_bound_choice_controls():

@@ -702,8 +702,9 @@ namespace project = tripleside::project;
     const CGFloat rowHeight = std::clamp<CGFloat>(NSHeight(anchor) * .52, 20, 36);
     const CGFloat height = rowHeight * 2 + padding * 3;
     const CGFloat left = std::clamp<CGFloat>(NSMinX(anchor), 4, project::kCanvasWidth - width - 4);
+    const CGFloat gap = std::clamp<CGFloat>(width * .05, 5, 8);
     const BOOL up = info.presetMenuDirection && equals(info.presetMenuDirection, "up");
-    return NSMakeRect(left, up ? NSMinY(anchor) - height - 4 : NSMaxY(anchor) + 4, width, height);
+    return NSMakeRect(left, up ? NSMinY(anchor) - height - gap : NSMaxY(anchor) + gap, width, height);
 }
 
 - (void)drawPresetLauncherMenu {
@@ -711,6 +712,10 @@ namespace project = tripleside::project;
     const NSRect menu = [self presetLauncherMenuRect];
     if (NSIsEmptyRect(menu)) return;
     const CGFloat padding = std::clamp<CGFloat>(NSWidth(menu) * .04, 3, 6), rowHeight = (NSHeight(menu) - padding * 3) * .5;
+    const auto& info = project::kPanelControls[static_cast<std::size_t>(_presetLauncherMenu)];
+    const BOOL menuUp = info.presetMenuDirection && equals(info.presetMenuDirection, "up");
+    const CGFloat arrowSize = std::clamp<CGFloat>(NSWidth(menu) * .06, 6, 9), arrowReach = arrowSize * .70710678, arrowCenterX = NSMidX(menu), arrowCenterY = menuUp ? NSMaxY(menu) : NSMinY(menu);
+    NSBezierPath* menuArrow = [NSBezierPath bezierPath]; [menuArrow moveToPoint:NSMakePoint(arrowCenterX, arrowCenterY - arrowReach)]; [menuArrow lineToPoint:NSMakePoint(arrowCenterX + arrowReach, arrowCenterY)]; [menuArrow lineToPoint:NSMakePoint(arrowCenterX, arrowCenterY + arrowReach)]; [menuArrow lineToPoint:NSMakePoint(arrowCenterX - arrowReach, arrowCenterY)]; [menuArrow closePath]; [rgbColor(0x1a1a20) setFill]; [menuArrow fill]; [rgbColor(project::kAccentRgb, .42) setStroke]; menuArrow.lineWidth = 1; [menuArrow stroke];
     fillRounded(menu, std::clamp<CGFloat>(NSWidth(menu) * .07, 6, 11), rgbColor(0x09090b, .995));
     strokeRounded(NSInsetRect(menu, .5, .5), std::clamp<CGFloat>(NSWidth(menu) * .07, 6, 11), rgbColor(project::kAccentRgb, .42));
     const CGFloat iconSize = std::clamp<CGFloat>(NSWidth(menu) * .065, 8, 13);
