@@ -179,9 +179,11 @@ void drawOutlineRingHit(NSRect rect, const project::ControlInfo& control, bool a
     constexpr std::array<CGFloat, 4> spreads{38, 22, 16, 7};
     constexpr std::array<CGFloat, 4> opacities{.035, .055, .09, .16};
     if (strength > 0) for (std::size_t layer = 0; layer < spreads.size(); ++layer) {
+        const CGFloat spread = spreads[layer] * strength;
+        NSBezierPath* glow = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(NSMidX(rect)-rx-spread*.5, NSMidY(rect)-ry-spread*.5, rx*2+spread, ry*2+spread)];
         [rgbColor(control.colorRgb, opacity * opacities[layer] * strength) setStroke];
-        ring.lineWidth = baseWidth + spreads[layer] * strength;
-        [ring stroke];
+        glow.lineWidth = baseWidth + spread;
+        [glow stroke];
     }
     [mixedRgbColor(control.colorRgb, 0xffffff, .76, opacity) setStroke];
     ring.lineWidth = baseWidth;

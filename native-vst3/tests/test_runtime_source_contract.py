@@ -107,9 +107,11 @@ def test_native_view_uses_real_midi_activity_and_boolean_pad_state():
     assert "c.padRingThickness,c.padGlowIntensity,c.opacity" in source
     assert "if(!active||r.right<=r.left||r.bottom<=r.top)return" in source
     assert "target->DrawEllipse" in source
+    assert "rx+spread*.5f,ry+spread*.5f" in source
     assert 'equals(variant, "outline-ring-hit")' in mac_source
     assert "control.padRingThickness" in mac_source
     assert "control.padGlowIntensity" in mac_source
+    assert "NSMidX(rect)-rx-spread*.5" in mac_source
     assert "if (!active || NSWidth(rect) <= 0 || NSHeight(rect) <= 0) return" in mac_source
     assert "drawOutlineRingHit(ringRect, control, value > .5f)" in mac_source
     assert "D2D1::Matrix3x2F::Rotation(c.rotation,center)" in source
