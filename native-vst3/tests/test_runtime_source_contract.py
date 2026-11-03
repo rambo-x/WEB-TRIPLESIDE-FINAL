@@ -692,20 +692,36 @@ def test_native_preset_launcher_draws_download_and_save_icons_as_vectors():
     assert "iconTop + iconSize * .62" in macos
     assert "bezierPathWithRoundedRect:NSMakeRect(iconLeft, iconTop, iconSize, iconSize)" in macos
     assert "const CGFloat textLeft = iconRight + iconGap" in macos
-    assert "gap=std::clamp(width*.0125f,1.f,2.f)" in windows
+    assert "gap=0.f" in windows
     assert "bool NativeView::presetLauncherMenuUp()const" in windows
     assert "!requestedUp&&!fitsDown&&fitsUp" in windows
     assert "arrowSize=std::clamp(width*.06f,6.f,9.f)" in windows
     assert "target->FillGeometry(arrow.Get(),b.Get())" in windows
-    assert "arrowTipY=menuUp?anchor.top:anchor.bottom" in windows
+    assert "arrowTipY=menuUp?anchor.top+arrowSize:anchor.bottom-arrowSize" in windows
     assert "bridgeTop=menuUp?anchor.top:anchor.bottom" in windows
-    assert "const CGFloat gap = std::clamp<CGFloat>(width * .0125, 1, 2)" in macos
+    assert "const CGFloat gap = 0" in macos
     assert "- (BOOL)presetLauncherMenuUp" in macos
     assert "!requestedUp && !fitsDown && fitsUp" in macos
     assert "NSBezierPath* menuArrow" in macos
     assert "[menuArrow fill]" in macos
-    assert "arrowTipY = menuUp ? NSMinY(anchor) : NSMaxY(anchor)" in macos
+    assert "arrowTipY = menuUp ? NSMinY(anchor) + arrowSize : NSMaxY(anchor) - arrowSize" in macos
     assert "const NSRect bridge = NSMakeRect" in macos
+
+
+def test_native_panel_launchers_have_pointer_hover_and_pressed_feedback():
+    header = (SOURCE_DIR / "NativeView.h").read_text(encoding="utf-8")
+    windows = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+    macos = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
+
+    assert "pressedPanelControl" in header
+    assert 'equals(project::kControls[static_cast<size_t>(control)].kind,"panel_button")' in windows
+    assert 'equals(hovered.kind,"panel_button")' in windows
+    assert "pressedPanelControl=activeControl" in windows
+    assert "pressedPanelControl=-1" in windows
+    assert "_pressedPanelControl" in macos
+    assert 'equals(project::kControls[index].kind, "panel_button")' in macos
+    assert 'equals(control.kind, "panel_button")' in macos
+    assert "_pressedPanelControl = _dragControl" in macos
 
 
 def test_native_presets_sync_every_module_snapshot_back_to_bound_choice_controls():

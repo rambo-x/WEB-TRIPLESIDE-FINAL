@@ -345,6 +345,7 @@ namespace project = tripleside::project;
     NSInteger _presetPanelMode;
     BOOL _presetFactoryWarning;
     NSInteger _hoveredControl;
+    NSInteger _pressedPanelControl;
     NSInteger _outputMenuControl;
     NSTrackingArea* _trackingArea;
     CGFloat _panelX, _panelY, _panelWidth, _panelHeight;
@@ -432,6 +433,7 @@ namespace project = tripleside::project;
         _presetPanelMode = 0;
         _presetFactoryWarning = NO;
         _hoveredControl = -1;
+        _pressedPanelControl = -1;
         _outputMenuControl = -1;
         _licenseInputFocused = NO;
         _presetNameFocused = NO;
@@ -734,7 +736,7 @@ namespace project = tripleside::project;
     const CGFloat padding = std::clamp<CGFloat>(width * .04, 3, 6);
     const CGFloat rowHeight = std::clamp<CGFloat>(NSHeight(anchor) * .52, 20, 36);
     const CGFloat height = rowHeight * 2 + padding * 3;
-    const CGFloat gap = std::clamp<CGFloat>(width * .0125, 1, 2);
+    const CGFloat gap = 0;
     const BOOL requestedUp = info.presetMenuDirection && equals(info.presetMenuDirection, "up");
     const BOOL fitsUp = NSMinY(anchor) - gap - height >= 0;
     const BOOL fitsDown = NSMaxY(anchor) + gap + height <= project::kCanvasHeight;
@@ -751,7 +753,7 @@ namespace project = tripleside::project;
     const CGFloat rowHeight = std::clamp<CGFloat>(NSHeight(anchor) * .52, 20, 36);
     const CGFloat height = rowHeight * 2 + padding * 3;
     const CGFloat left = std::clamp<CGFloat>(NSMinX(anchor), 4, project::kCanvasWidth - width - 4);
-    const CGFloat gap = std::clamp<CGFloat>(width * .0125, 1, 2);
+    const CGFloat gap = 0;
     const BOOL up = [self presetLauncherMenuUp];
     return NSMakeRect(left, up ? NSMinY(anchor) - height - gap : NSMaxY(anchor) + gap, width, height);
 }
@@ -763,7 +765,7 @@ namespace project = tripleside::project;
     const CGFloat padding = std::clamp<CGFloat>(NSWidth(menu) * .04, 3, 6), rowHeight = (NSHeight(menu) - padding * 3) * .5;
     const BOOL menuUp = [self presetLauncherMenuUp];
     const NSRect anchor = [self runtimeControlRect:_presetLauncherMenu];
-    const CGFloat arrowSize = std::clamp<CGFloat>(NSWidth(menu) * .06, 6, 9), arrowCenterX = NSMidX(menu), arrowBaseY = menuUp ? NSMaxY(menu) : NSMinY(menu), arrowTipY = menuUp ? NSMinY(anchor) : NSMaxY(anchor);
+    const CGFloat arrowSize = std::clamp<CGFloat>(NSWidth(menu) * .06, 6, 9), arrowCenterX = NSMidX(menu), arrowBaseY = menuUp ? NSMaxY(menu) : NSMinY(menu), arrowTipY = menuUp ? NSMinY(anchor) + arrowSize : NSMaxY(anchor) - arrowSize;
     fillRounded(menu, std::clamp<CGFloat>(NSWidth(menu) * .07, 6, 11), rgbColor(0x09090b, .995));
     strokeRounded(NSInsetRect(menu, .5, .5), std::clamp<CGFloat>(NSWidth(menu) * .07, 6, 11), rgbColor(project::kAccentRgb, .42));
     NSBezierPath* menuArrow = [NSBezierPath bezierPath]; [menuArrow moveToPoint:NSMakePoint(arrowCenterX, arrowTipY)]; [menuArrow lineToPoint:NSMakePoint(arrowCenterX + arrowSize, arrowBaseY)]; [menuArrow lineToPoint:NSMakePoint(arrowCenterX - arrowSize, arrowBaseY)]; [menuArrow closePath]; [rgbColor(0x09090b, .995) setFill]; [menuArrow fill]; [rgbColor(project::kAccentRgb, .42) setStroke]; menuArrow.lineWidth = 1; [menuArrow stroke];
@@ -1705,9 +1707,10 @@ namespace project = tripleside::project;
             const NSRect box = controlLayoutRect(control, visual);
             const auto& info = project::kPanelControls[index];
             const BOOL active = _openPanel == static_cast<NSInteger>(index) || _presetLauncherMenu == static_cast<NSInteger>(index);
+            const BOOL hovered = _hoveredControl == static_cast<NSInteger>(index), pressed = _pressedPanelControl == static_cast<NSInteger>(index);
             const CGFloat radius = std::clamp<CGFloat>(NSWidth(box) * .07, 5, 11);
-            fillRounded(box, radius, active ? rgbColor(project::kAccentRgb, .18) : rgbColor(0x09090b, .94));
-            strokeRounded(NSInsetRect(box, .5, .5), radius, active ? rgbColor(project::kAccentRgb, .62) : rgbColor(0xffffff, .13));
+            fillRounded(box, radius, pressed ? rgbColor(project::kAccentRgb, .24) : active ? rgbColor(project::kAccentRgb, .18) : hovered ? rgbColor(project::kAccentRgb, .10) : rgbColor(0x09090b, .94));
+            strokeRounded(NSInsetRect(box, .5, .5), radius, pressed ? rgbColor(project::kAccentRgb, .95) : active ? rgbColor(project::kAccentRgb, .62) : hovered ? rgbColor(project::kAccentRgb, .78) : rgbColor(0xffffff, .13));
             NSString* mainLabel = equals(info.panelType, "preset_browser") ? @"PRESETS" : equals(info.panelType, "mixer") ? @"MIXER" : @"MIDI";
             NSString* status = equals(info.panelType, "preset_browser") && _presetLauncherMenu == static_cast<NSInteger>(index) ? @"CHOOSE" : (_openPanel == static_cast<NSInteger>(index) ? @"CLOSE" : @"OPEN");
             const BOOL compact = NSWidth(box) < 96;
@@ -2002,12 +2005,15 @@ namespace project = tripleside::project;
 
 - (void)resetCursorRects {
     [super resetCursorRects];
-    if (_openPanel < 0) return;
-    const NSRect panel = [self panelRect:_openPanel];
     CGFloat scale = 1, offsetX = 0, offsetY = 0; [self canvasScale:&scale offsetX:&offsetX offsetY:&offsetY];
     auto addDesignCursor = [&](NSRect designRect, NSCursor* cursor) {
         [self addCursorRect:NSMakeRect(offsetX + NSMinX(designRect) * scale, offsetY + NSMinY(designRect) * scale, NSWidth(designRect) * scale, NSHeight(designRect) * scale) cursor:cursor];
     };
+    for (std::size_t index = 0; index < project::kControls.size(); ++index) {
+        if (equals(project::kControls[index].kind, "panel_button")) addDesignCursor([self runtimeControlRect:static_cast<NSInteger>(index)], NSCursor.pointingHandCursor);
+    }
+    if (_openPanel < 0) return;
+    const NSRect panel = [self panelRect:_openPanel];
     addDesignCursor(NSMakeRect(NSMaxX(panel) - 44, NSMinY(panel), 44, 44), NSCursor.pointingHandCursor);
     const auto& panelInfo = project::kPanelControls[static_cast<std::size_t>(_openPanel)];
     if (equals(panelInfo.panelType, "midi_map")) {
@@ -2035,7 +2041,7 @@ namespace project = tripleside::project;
     const NSPoint point = [self designPoint:[self convertPoint:event.locationInWindow fromView:nil]];
     NSInteger nextHoveredControl = [self panelControlAt:point];
     if (nextHoveredControl < 0) { const BOOL insidePanel = _openPanel >= 0 && NSPointInRect(point, [self panelRect:_openPanel]); if (!insidePanel) nextHoveredControl = [self controlAt:point]; }
-    if (nextHoveredControl >= 0) { const auto& control = project::kControls[static_cast<std::size_t>(nextHoveredControl)]; if (!equals(control.kind, "knob") && !equals(control.kind, "fader")) nextHoveredControl = -1; }
+    if (nextHoveredControl >= 0) { const auto& control = project::kControls[static_cast<std::size_t>(nextHoveredControl)]; if (!equals(control.kind, "knob") && !equals(control.kind, "fader") && !equals(control.kind, "panel_button")) nextHoveredControl = -1; }
     if (nextHoveredControl != _hoveredControl) { _hoveredControl = nextHoveredControl; [self setNeedsDisplay:YES]; }
     NSInteger nextHovered = -1, nextHoveredDelete = -1;
     if (_openPanel >= 0 && equals(project::kPanelControls[static_cast<std::size_t>(_openPanel)].panelType, "preset_browser")) {
@@ -2172,12 +2178,14 @@ namespace project = tripleside::project;
         [self setControl:_dragControl value:quantizeControlValue(control, neutralControlValue(control))];
         _dragControl = -1;
     } else if (equals(control.kind, "panel_button")) {
+        _pressedPanelControl = _dragControl;
         const auto& info = project::kPanelControls[static_cast<std::size_t>(_dragControl)];
         if (equals(info.panelType, "preset_browser")) {
             if (_openPanel == _dragControl) [self closePanel];
             else { [self closePanel]; _presetLauncherMenu = _dragControl; [self setNeedsDisplay:YES]; }
         } else if (_openPanel == _dragControl) [self closePanel]; else [self openPanel:_dragControl];
         _dragControl = -1;
+        [self setNeedsDisplay:YES];
     } else if (control.midiSequenceIndex >= 0 && (equals(control.kind, "button") || equals(control.kind, "pad"))) {
         [self stopMidiSequence];
         _instrument->setLivePatternSequence(_instrument->livePatternSequenceIndex() == control.midiSequenceIndex ? -1 : control.midiSequenceIndex);
@@ -2257,11 +2265,13 @@ namespace project = tripleside::project;
         _activeNoteSamplerGroup = -1;
     }
     _dragControl = -1;
+    _pressedPanelControl = -1;
     _dragPrismBand = -1;
     _panelDragMode = 0;
     _mixerDragGroup = -1;
     _mixerDragSlot = -1;
     _midiDragCandidate = -1;
+    [self setNeedsDisplay:YES];
 }
 
 - (NSDragOperation)draggingSession:(NSDraggingSession*)session sourceOperationMaskForDraggingContext:(NSDraggingContext)context {
