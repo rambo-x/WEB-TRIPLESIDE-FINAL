@@ -46,6 +46,7 @@ def test_capture_cleanup_preserves_normalized_background(tmp_path):
         "visual_reference_active.png",
         "visual_backdrop.png",
         "visual_control_0.png",
+        "visual_preset_menu_0.png",
         "visual_keys_2.png",
         "visual_panel_reference_0.png",
         "visual_panel_backdrop_0.png",
@@ -128,6 +129,25 @@ def test_closed_and_open_panel_composition_are_verified_separately(tmp_path):
 
 def test_live_analyzers_keep_the_shared_preview_contract():
     assert "spectrum" in RENDERER.SUPPORTED_CONTROL_KINDS
+
+
+def test_control_atlas_frame_counts_come_from_each_control_contract():
+    assert RENDERER.control_frame_count("dsp_selector", {"choice_count": 4}) == 4
+    assert RENDERER.control_frame_count("panel_button", {}) == 4
+    source = MODULE_PATH.read_text(encoding="utf-8")
+    assert "control_frame_count(kind, control)" in source
+
+
+def test_capture_records_exact_selector_launcher_and_preset_menu_geometry():
+    source = MODULE_PATH.read_text(encoding="utf-8")
+
+    assert "selector_bounds = element.locator('.maker-output-selector').bounding_box()" in source
+    assert "launcher_bounds = element.locator('.maker-panel-launcher').bounding_box()" in source
+    assert "menu_frames = 3" in source
+    assert "presetMenuHoverRow=hover_row" in source
+    assert "launcher_locator.evaluate(\"e => { e.style.visibility='hidden'; }\")" in source
+    assert "chrome_locator.evaluate_all" in source
+    assert "preset_menu=preset_menu" in source
 
 
 def test_fader_capture_records_the_live_inline_meter_track_geometry():

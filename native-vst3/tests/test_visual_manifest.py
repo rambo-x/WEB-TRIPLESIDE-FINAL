@@ -24,7 +24,8 @@ def test_measured_canvas_and_hit_rect_survive_compilation(tmp_path):
     header = (tmp_path/'NativeProject.h').read_text()
     assert 'kCanvasWidth = 1024;' in header
     assert 'kCanvasHeight = 460;' in header
-    assert 'VisualControl{"visual_control_0.png", 12.0f, 34.0f, 112.0f, 122.0f, 36.25f, 58.5f, 64.0f, 74.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 101, 16}' in header
+    assert 'VisualControl{"visual_control_0.png", 12.0f, 34.0f, 112.0f, 122.0f, 36.25f, 58.5f, 64.0f, 74.0f' in header
+    assert ', 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 101, 16}' in header
     assert 'kVisualBackdrop = "visual_backdrop.png"' in header
 
 
@@ -62,6 +63,36 @@ def test_keyboard_key_source_size_survives_atlas_compilation(tmp_path):
     compiler.compile_manifest(source,tmp_path/'NativeProject.h')
     header = (tmp_path/'NativeProject.h').read_text()
     assert 'VisualKey{"visual_keys_0.png", 0, 37, 100.0f, 200.0f, 30.0f, 94.0f, 108.0f, 208.0f, 14.0f, 78.0f, 2, 16, 38, 142, 30, 94}' in header
+
+
+def test_selector_launcher_and_preset_menu_geometry_survive_compilation(tmp_path):
+    project = {'name': 'Measured UI', 'plugin_kind': 'effect', 'interface': {'controls': [
+        {'id': 'presets', 'kind': 'panel_button', 'x': 50, 'y': 50, 'panel_type': 'preset_browser'},
+    ]}}
+    source = tmp_path / 'project.json'
+    source.write_text(json.dumps(project))
+    assets = tmp_path / 'assets'
+    assets.mkdir()
+    rect = dict(x=10, y=20, width=196, height=112)
+    hit = dict(x=34, y=44, width=148, height=64)
+    launcher = dict(x=34, y=44, width=148, height=64)
+    menu_rect = dict(x=-48, y=-48, width=244, height=176)
+    rows = [dict(x=6, y=6, width=136, height=28), dict(x=6, y=40, width=136, height=28)]
+    manifest = {'version': 1, 'width': 1024, 'height': 576, 'controls': [{
+        'file': 'visual_control_0.png', 'rect': rect, 'hit': hit,
+        'launcher_bounds': launcher, 'frames': 4, 'columns': 4,
+        'preset_menu': {'file': 'visual_preset_menu_0.png', 'rect': menu_rect,
+                        'menu_size': {'width': 148, 'height': 74}, 'rows': rows,
+                        'frames': 3, 'columns': 3},
+    }], 'keys': []}
+    (assets / 'visual_manifest.json').write_text(json.dumps(manifest))
+
+    compiler.compile_manifest(source, tmp_path / 'NativeProject.h')
+    header = (tmp_path / 'NativeProject.h').read_text()
+
+    assert '34.0f, 44.0f, 148.0f, 64.0f, 4, 4}' in header
+    assert 'PresetMenuVisual{0, "visual_preset_menu_0.png", -48.0f, -48.0f, 244.0f, 176.0f, 148.0f, 74.0f' in header
+    assert '6.0f, 6.0f, 136.0f, 28.0f, 6.0f, 40.0f, 136.0f, 28.0f, 3, 3}' in header
 
 
 def test_incomplete_capture_cannot_silently_fall_back(tmp_path):

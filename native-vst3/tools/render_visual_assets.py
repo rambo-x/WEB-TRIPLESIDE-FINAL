@@ -56,6 +56,7 @@ def clear_visual_capture_outputs(assets):
         'visual_reference*.png',
         'visual_backdrop.png',
         'visual_control_*.png',
+        'visual_preset_menu_*.png',
         'visual_keys_*.png',
         'visual_panel_reference_*.png',
         'visual_panel_backdrop_*.png',
@@ -108,7 +109,11 @@ def control_frame_count(kind, spec):
         # The paired buttons are drawn from live group solo/mute parameters by
         # NativeView; the capture only supplies their shared idle backdrop.
         return 1
-    if kind in {'button', 'mute', 'solo', 'pad', 'panel_button', 'indicator'}:
+    if kind == 'panel_button':
+        # Idle, hover, pressed, and open/active. These states are baked from
+        # the same DOM/CSS as VST Maker instead of approximated in native code.
+        return 4
+    if kind in {'button', 'mute', 'solo', 'pad', 'indicator'}:
         return 2
     if kind == 'knob' and spec.get('knob_state_count'):
         return max(1, min(127, int(spec['knob_state_count'])))
@@ -263,7 +268,18 @@ def render(spec_path, url, browser=None):
                 })""")
                 meter_channels = []
                 ring_bounds = None
+                selector_bounds = None
+                launcher_bounds = None
+                preset_menu = None
                 meter_mode = control.get('meter_mode') or ('stereo' if kind == 'gain_meter' else 'mono')
+                if kind in {'output_selector', 'dsp_selector'}:
+                    selector_bounds = element.locator('.maker-output-selector').bounding_box()
+                    if selector_bounds is None:
+                        raise ValueError(f'Selector geometry is missing: {control.get("id")}')
+                elif kind == 'panel_button':
+                    launcher_bounds = element.locator('.maker-panel-launcher').bounding_box()
+                    if launcher_bounds is None:
+                        raise ValueError(f'Panel launcher geometry is missing: {control.get("id")}')
                 if kind == 'fader' and control.get('fader_meter_enabled', True):
                     inline_meter = element.locator('.maker-fader-inline-meter .maker-gain-meter__channels > i')
                     if inline_meter.count():
@@ -295,7 +311,7 @@ def render(spec_path, url, browser=None):
                 # Spectrum/vectorscope pixels stay live in NativeView. Capture
                 # one browser frame here to preserve exact measured geometry
                 # and to keep the static composition verifier authoritative.
-                frames = control_frame_count(kind, spec)
+                frames = control_frame_count(kind, control)
                 columns = min(frames, max(1, 4096 // rect['width']))
                 atlas = Image.new('RGBA', (rect['width']*columns, rect['height']*math.ceil(frames/columns)))
                 if max(atlas.size) > 8192:
@@ -311,14 +327,86 @@ def render(spec_path, url, browser=None):
                     state = dict(id=control['id'], value=value, panelId=parent_panel_id or None)
                     if kind == 'pad' and frame:
                         state['pitch'] = control.get('note_pitch', 60)
+                    elif kind == 'panel_button':
+                        state['controlState'] = dict(
+                            id=control['id'],
+                            state=('idle', 'hover', 'pressed', 'active')[frame],
+                        )
                     page.evaluate('(f) => window.__vstVisual.setFrame(f)', state)
                     atlas.paste(capture(rect, uses_backdrop), ((frame%columns)*rect['width'], (frame//columns)*rect['height']))
+                if kind == 'panel_button' and control.get('panel_type') == 'preset_browser':
+                    page.evaluate('(f) => window.__vstVisual.setFrame(f)', dict(
+                        id=control['id'], value=control.get('value', 0),
+                        presetLauncherMenuId=control['id'], presetMenuHoverRow=-1,
+                    ))
+                    menu_locator = element.locator('.maker-preset-launcher-menu')
+                    menu_locator.wait_for(state='visible')
+                    original_style = element.get_attribute('style')
+                    launcher_locator = element.locator('.maker-panel-launcher')
+                    original_launcher_style = launcher_locator.get_attribute('style')
+                    chrome_locator = element.locator(':scope > .maker-canvas-control__frame, :scope > .maker-canvas-control__handle')
+                    original_chrome_styles = chrome_locator.evaluate_all(
+                        "elements => elements.map(element => element.getAttribute('style'))"
+                    )
+                    element.evaluate("e => { e.style.left='50%'; e.style.top='50%'; }")
+                    launcher_locator.evaluate("e => { e.style.visibility='hidden'; }")
+                    chrome_locator.evaluate_all("elements => elements.forEach(element => { element.style.visibility='hidden'; })")
+                    menu_hit = menu_locator.bounding_box()
+                    menu_rows = menu_locator.locator('button')
+                    row_hits = [menu_rows.nth(row).bounding_box() for row in range(menu_rows.count())]
+                    if menu_hit is None or len(row_hits) != 2 or any(row is None for row in row_hits):
+                        raise ValueError(f'Preset launcher menu geometry is missing: {control.get("id")}')
+                    menu_rect = bounds(menu_hit, 48, width, height)
+                    menu_frames = 3
+                    menu_columns = min(menu_frames, max(1, 4096 // menu_rect['width']))
+                    menu_atlas = Image.new('RGBA', (
+                        menu_rect['width'] * menu_columns,
+                        menu_rect['height'] * math.ceil(menu_frames / menu_columns),
+                    ))
+                    for menu_frame, hover_row in enumerate((-1, 0, 1)):
+                        page.evaluate('(f) => window.__vstVisual.setFrame(f)', dict(
+                            id=control['id'], value=control.get('value', 0),
+                            presetLauncherMenuId=control['id'], presetMenuHoverRow=hover_row,
+                        ))
+                        menu_atlas.paste(capture(menu_rect), (
+                            (menu_frame % menu_columns) * menu_rect['width'],
+                            (menu_frame // menu_columns) * menu_rect['height'],
+                        ))
+                    menu_filename = f'visual_preset_menu_{index}.png'
+                    menu_atlas.save(assets/menu_filename)
+                    preset_menu = dict(
+                        file=menu_filename,
+                        rect=dict(
+                            x=menu_rect['x'] - menu_hit['x'],
+                            y=menu_rect['y'] - menu_hit['y'],
+                            width=menu_rect['width'], height=menu_rect['height'],
+                        ),
+                        menu_size=dict(width=menu_hit['width'], height=menu_hit['height']),
+                        rows=[dict(
+                            x=row['x'] - menu_hit['x'], y=row['y'] - menu_hit['y'],
+                            width=row['width'], height=row['height'],
+                        ) for row in row_hits],
+                        frames=menu_frames, columns=menu_columns,
+                    )
+                    if original_style is None:
+                        element.evaluate("e => e.removeAttribute('style')")
+                    else:
+                        element.evaluate("(e, style) => e.setAttribute('style', style)", original_style)
+                    if original_launcher_style is None:
+                        launcher_locator.evaluate("e => e.removeAttribute('style')")
+                    else:
+                        launcher_locator.evaluate("(e, style) => e.setAttribute('style', style)", original_launcher_style)
+                    chrome_locator.evaluate_all("(elements, styles) => elements.forEach((element, index) => { const style=styles[index]; if (style === null) element.removeAttribute('style'); else element.setAttribute('style', style); })", original_chrome_styles)
+                    page.evaluate('window.__vstVisual.setFrame({})')
                 filename = f'visual_control_{index}.png'
                 atlas.save(assets/filename)
                 manifest['controls'].append(dict(
                     file=filename, rect=rect, hit=hit, frames=frames, columns=columns,
                     meter_channels=meter_channels,
                     ring_bounds=ring_bounds,
+                    selector_bounds=selector_bounds,
+                    launcher_bounds=launcher_bounds,
+                    preset_menu=preset_menu,
                 ))
                 if kind == 'keyboard':
                     keys = element.locator('[data-vst-pitch]')

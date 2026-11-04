@@ -1,0 +1,84 @@
+{
+  "schema_version": "1.0",
+  "plugin_kind": "instrument",
+  "name": "Preview Authority Parity",
+  "instrument_type": "Sampler",
+  "instrument": { "type": "Sampler", "polyphony": 32 },
+  "branding": {
+    "manufacturer_name": "TripleSide Studio",
+    "tagline": "DOM MEASURED UI",
+    "font": "space-grotesk",
+    "font_size": 24,
+    "x": 50,
+    "y": 7,
+    "align": "center"
+  },
+  "interface": {
+    "template": "studio",
+    "accent_color": "#22d3ee",
+    "ui_color": "#09090b",
+    "canvas_width": 1024,
+    "canvas_height": 576,
+    "controls": [
+      {
+        "id": "dsp-120x56", "kind": "dsp_selector", "label": "Space", "parameter": "mode",
+        "module_id": "reverb-a", "x": 12, "y": 18, "value": 33.333, "width": 120, "height": 56,
+        "component_style": "css", "component_variant": "preset-browser-combo", "control_color": "#111216",
+        "text_color": "#F4F4F5", "output_font_size": 11, "choice_count": 4
+      },
+      {
+        "id": "output-72x56", "kind": "output_selector", "label": "Output", "parameter": "group_output",
+        "sampler_group_id": "sampler-1", "x": 25, "y": 18, "value": 100, "width": 72, "height": 56,
+        "component_style": "css", "component_variant": "output-dropdown", "control_color": "#111216",
+        "text_color": "#F4F4F5", "output_font_size": 11
+      },
+      {
+        "id": "presets-up-152x64", "kind": "panel_button", "label": "PRESETS", "parameter": "visual",
+        "x": 18, "y": 72, "value": 0, "width": 152, "height": 64, "component_style": "css",
+        "component_variant": "preset-browser", "panel_type": "preset_browser", "preset_menu_direction": "up",
+        "panel_x": 50, "panel_y": 52, "panel_width": 88, "panel_height": 78
+      },
+      {
+        "id": "presets-down-148x64", "kind": "panel_button", "label": "PRESETS", "parameter": "visual",
+        "x": 38, "y": 72, "value": 0, "width": 148, "height": 64, "component_style": "css",
+        "component_variant": "preset-browser", "panel_type": "preset_browser", "preset_menu_direction": "down",
+        "panel_x": 50, "panel_y": 52, "panel_width": 88, "panel_height": 78
+      },
+      {
+        "id": "mixer-148x64", "kind": "panel_button", "label": "MIXER", "parameter": "visual",
+        "x": 58, "y": 72, "value": 0, "width": 148, "height": 64, "component_style": "css",
+        "component_variant": "mixer", "panel_type": "mixer", "panel_x": 50, "panel_y": 52,
+        "panel_width": 88, "panel_height": 78
+      },
+      {
+        "id": "midi-148x64", "kind": "panel_button", "label": "MIDI", "parameter": "visual",
+        "x": 78, "y": 72, "value": 0, "width": 148, "height": 64, "component_style": "css",
+        "component_variant": "midi-map", "panel_type": "midi_map", "panel_x": 50, "panel_y": 52,
+        "panel_width": 88, "panel_height": 78
+      }
+    ]
+  },
+  "visual_contract": { "version": 1, "mode": "shared_preview" },
+  "engine_modules": [
+    { "id": "osc-1", "type": "wave_generator", "name": "Wave Generator", "bypassed": false, "mix": 1, "parameters": { "waveform": 0.5, "level": 0.65 } },
+    { "id": "reverb-a", "type": "reverb", "name": "Reverb A", "bypassed": false, "mix": 1, "parameters": { "mode": 0.333333 } }
+  ],
+  "dsp_graph": {
+    "version": 2,
+    "mode": "instrument_sources",
+    "source": "project",
+    "modules": [
+      { "id": "osc-1", "type": "wave_generator", "name": "Wave Generator", "parentId": null, "order": 0, "bypassed": false, "mix": 1, "parameters": { "waveform": 0.5, "level": 0.65 } },
+      { "id": "reverb-a", "type": "reverb", "name": "Reverb A", "parentId": null, "order": 1, "bypassed": false, "mix": 1, "parameters": { "mode": 0.333333 } }
+    ]
+  },
+  "sampler_groups": [
+    { "id": "sampler-1", "name": "Sampler 1", "volume": 100, "pan": 0, "mute": false, "solo": false, "output_bus": "separate" }
+  ],
+  "samples": [],
+  "sampler_map": [],
+  "presets": [],
+  "midi_sequences": [],
+  "sample_packaging": { "mode": "private_object_storage", "monolith": false },
+  "build": { "company_name": "TripleSide Studio", "version": "1.0.0", "formats": ["VST3"], "platforms": ["windows", "macos"] }
+}

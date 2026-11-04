@@ -306,7 +306,7 @@ def test_shared_preview_meters_keep_browser_visuals_and_independent_stereo_level
     mac = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
 
     assert "drawVisualSpriteRegion" in header
-    assert 'if(equals(c.kind,"spectrum")||equals(c.kind,"dsp_selector"))drawControl(i);else drawVisualControl(i)' in source
+    assert 'if(equals(c.kind,"spectrum"))drawControl(i);else drawVisualControl(i)' in source
     assert 'equals(c.meterMode,"stereo")&&s.mlw>0' in source
     assert "instrument.groupOutputPeak(c.samplerGroupIndex,0)" in source
     assert "instrument.groupOutputPeak(c.samplerGroupIndex,1)" in source
@@ -678,28 +678,22 @@ def test_native_groove_loop_icon_matches_repeat2_and_preset_combo_style():
     assert 'equals(control.kind, "dsp_selector") ? @"⌄"' in macos
 
 
-def test_native_combo_box_geometry_matches_preview_container_layout():
+def test_native_combo_box_geometry_uses_measured_preview_bounds_and_atlas():
     windows = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
     macos = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
-    styles = (Path(__file__).parents[2] / "frontend" / "src" / "pages" / "VstMakerPreview.css").read_text(encoding="utf-8")
+    capture = (SOURCE_DIR.parent / "tools" / "render_visual_assets.py").read_text(encoding="utf-8")
+    compiler = (SOURCE_DIR.parent / "tools" / "compile_manifest.py").read_text(encoding="utf-8")
 
-    assert "selectorBoxRect(const project::ControlInfo& control" in windows
-    assert "selectorBoxRect(const project::ControlInfo& control" in macos
-    assert 'const bool output=equals(control.kind,"output_selector")' in windows
-    assert 'const bool output = equals(control.kind, "output_selector")' in macos
-    assert "using tripleside::native::selectorBoxRect" in macos
-    assert "selectorBoxRect(control,controlRect" in windows
-    assert "selectorBoxRect(control, [self runtimeControlRect:index])" in macos
-    assert ".maker-canvas-control--output_selector" in styles
-    assert "gap: clamp(2px, 7cqh, 6px)" in styles
-    assert "flex: 0 0 clamp(11px, 24cqh, 22px)" in styles
-
-    height, width = 76.0, 190.0
-    output_padding = min(6.0, max(3.0, height * .07))
-    output_handle = min(22.0, max(11.0, height * .24))
-    output_gap = min(6.0, max(2.0, height * .07))
-    assert (round(width - output_padding * 2, 2), round(height - output_padding * 2 - output_handle - output_gap, 2)) == (179.36, 41.8)
-    assert (round(width - 5.6 * 2, 2), round(height - 5.6 * 2 - 22.0 - 5.6, 2)) == (178.8, 37.2)
+    assert "selector_bounds = element.locator('.maker-output-selector').bounding_box()" in capture
+    assert "rect_values(selector_bounds), rect_values(launcher_bounds)" in compiler
+    assert "D2D1_RECT_F NativeView::selectorRect(size_t index)const" in windows
+    assert "if(s.sw>0&&s.sh>0)" in windows
+    assert "const auto anchor=selectorRect" in windows
+    assert "- (NSRect)selectorRect:(NSInteger)index" in macos
+    assert "if (visual.sw > 0 && visual.sh > 0)" in macos
+    assert "const NSRect anchor = [self selectorRect:index]" in macos
+    assert 'if(equals(c.kind,"spectrum"))drawControl(i);else drawVisualControl(i)' in windows
+    assert 'if (visual.file && *visual.file && visual.frames > 0) continue;' in macos
 
 
 def test_native_preset_launcher_draws_download_and_save_icons_as_vectors():
@@ -730,7 +724,25 @@ def test_native_preset_launcher_draws_download_and_save_icons_as_vectors():
     assert "const NSRect bridge = NSMakeRect" not in macos
 
 
-def test_native_panel_launchers_have_visible_hover_and_pressed_feedback():
+def test_native_preset_launcher_prefers_preview_sprite_and_measured_rows():
+    header = (SOURCE_DIR / "NativeView.h").read_text(encoding="utf-8")
+    windows = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+    macos = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
+
+    assert "const project::PresetMenuVisual* presetMenuVisual(int) const" in header
+    assert "D2D1_RECT_F presetLauncherRowRect(int) const" in header
+    assert "panelLauncherRect(static_cast<size_t>(presetLauncherMenuIndex))" in windows
+    assert "drawVisualSprite(visual->file,frame,visual->columns" in windows
+    assert "const auto item=presetLauncherRowRect(row)" in windows
+    assert 'if(equals(kind,"panel_button")){const auto launcher=panelLauncherRect' in windows
+    assert "[self panelLauncherRect:_presetLauncherMenu]" in macos
+    assert "[self presetLauncherRowRect:row]" in macos
+    assert "NSImage* image = [self imageNamed:visual->file]" in macos
+    assert 'if (equals(control.kind, "panel_button")) {' in macos
+    assert "NSPointInRect(point, [self panelLauncherRect:index])" in macos
+
+
+def test_native_panel_launchers_use_preview_atlas_for_hover_pressed_and_active_feedback():
     header = (SOURCE_DIR / "NativeView.h").read_text(encoding="utf-8")
     windows = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
     macos = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
@@ -740,14 +752,14 @@ def test_native_panel_launchers_have_visible_hover_and_pressed_feedback():
     assert 'equals(hovered.kind,"panel_button")' in windows
     assert "pressedPanelControl=activeControl" in windows
     assert "pressedPanelControl=-1" in windows
-    assert 'equals(c.kind,"panel_button")&&(hoveredControl==static_cast<int>(index)||pressedPanelControl==static_cast<int>(index))' in windows
-    assert "pressed?.32f:.16f" in windows
+    assert 'visualFrame=pressedPanelControl==static_cast<int>(index)?2:active?3:hoveredControl==static_cast<int>(index)?1:0' in windows
+    assert 'drawVisualSprite(s.file,visualFrame' in windows
     assert "_pressedPanelControl" in macos
     assert 'equals(project::kControls[index].kind, "panel_button")' in macos
     assert 'equals(control.kind, "panel_button")' in macos
     assert "_pressedPanelControl = _dragControl" in macos
-    assert "pressed ? rgbColor(project::kAccentRgb, .32)" in macos
-    assert "hovered ? rgbColor(project::kAccentRgb, .16)" in macos
+    assert "NSInteger frame = pressed ? 2 : active ? 3 : hovered ? 1 : 0" in macos
+    assert "[self drawAtlas:[self imageNamed:visual.file] file:visual frame:frame]" in macos
     assert "else if(presetLauncherMenuIndex==activeControl)presetLauncherMenuIndex=-1" in windows
     assert "else if (_presetLauncherMenu == _dragControl) _presetLauncherMenu = -1" in macos
 

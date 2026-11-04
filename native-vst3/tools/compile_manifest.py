@@ -661,18 +661,32 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
         fail('visual manifest version/control count mismatch')
     def rect_values(rect):
         return ', '.join(cpp_float(rect[key]) for key in ('x', 'y', 'width', 'height'))
-    visual_controls, visual_keys = [], []
-    for item in visual.get('controls', []):
+    visual_controls, visual_keys, visual_preset_menus = [], [], []
+    for control_index, item in enumerate(visual.get('controls', [])):
         meter_channels = item.get('meter_channels') or []
         empty_rect = {'x': 0, 'y': 0, 'width': 0, 'height': 0}
         left_meter = meter_channels[0] if len(meter_channels) > 0 else empty_rect
         right_meter = meter_channels[1] if len(meter_channels) > 1 else empty_rect
         ring_bounds = item.get('ring_bounds') or empty_rect
+        selector_bounds = item.get('selector_bounds') or empty_rect
+        launcher_bounds = item.get('launcher_bounds') or empty_rect
         visual_controls.append('VisualControl{' + ', '.join((
             cpp_string(item['file']), rect_values(item['rect']), rect_values(item['hit']),
             rect_values(left_meter), rect_values(right_meter), rect_values(ring_bounds),
+            rect_values(selector_bounds), rect_values(launcher_bounds),
             str(item['frames']), str(item['columns']),
         )) + '}')
+        preset_menu = item.get('preset_menu') or {}
+        menu_rows = preset_menu.get('rows') or []
+        if preset_menu.get('file') and len(menu_rows) == 2:
+            menu_size = preset_menu.get('menu_size') or {}
+            visual_preset_menus.append('PresetMenuVisual{' + ', '.join((
+                str(control_index), cpp_string(preset_menu['file']),
+                rect_values(preset_menu['rect']),
+                cpp_float(menu_size.get('width', 0)), cpp_float(menu_size.get('height', 0)),
+                rect_values(menu_rows[0]), rect_values(menu_rows[1]),
+                str(preset_menu.get('frames') or 1), str(preset_menu.get('columns') or 1),
+            )) + '}')
     for item in visual.get('keys', []):
         visual_keys.append('VisualKey{' + ', '.join((
             cpp_string(item['file']), str(item['control']), str(item['pitch']),
@@ -711,11 +725,13 @@ struct MidiTempoInfo {{ int tick; float bpm; }};
 struct DspModuleInfo {{ const char* id; const char* type; const char* name; int parentIndex, order, groupIndex, rackIndex; bool bypassed; float mix; int parameterOffset, parameterCount; }};
 struct DspParameterInfo {{ int moduleIndex; const char* key; float value; }};
 struct ImpulseResponseInfo {{ int moduleIndex; const char* resourceFile; bool normalize, autoTrim; float trimStart, trimEnd; bool polarityInverted; float phaseMs; }};
-struct VisualControl {{ const char* file; float x,y,w,h,hx,hy,hw,hh,mlx,mly,mlw,mlh,mrx,mry,mrw,mrh,rx,ry,rw,rh; int frames,columns; }};
+struct VisualControl {{ const char* file; float x,y,w,h,hx,hy,hw,hh,mlx,mly,mlw,mlh,mrx,mry,mrw,mrh,rx,ry,rw,rh,sx,sy,sw,sh,lx,ly,lw,lh; int frames,columns; }};
 struct VisualKey {{ const char* file; int control,pitch; float x,y,w,h,hx,hy,hw,hh; int frame,columns,cellWidth,cellHeight,sourceWidth,sourceHeight; }};
+struct PresetMenuVisual {{ int control; const char* file; float x,y,w,h,mw,mh,lx,ly,lw,lh,sx,sy,sw,sh; int frames,columns; }};
 inline constexpr const char* kVisualBackdrop = {cpp_string('visual_backdrop.png' if visual else '')};
 inline constexpr std::array<VisualControl, {len(visual_controls)}> kVisualControls {{{{ {', '.join(visual_controls)} }}}};
 inline constexpr std::array<VisualKey, {len(visual_keys)}> kVisualKeys {{{{ {', '.join(visual_keys)} }}}};
+inline constexpr std::array<PresetMenuVisual, {len(visual_preset_menus)}> kPresetMenuVisuals {{{{ {', '.join(visual_preset_menus)} }}}};
 inline constexpr int kPolyphony = {min(128, max(8, int(instrument.get("polyphony", 32))))};
 inline constexpr int kAudioOutputBusCount = {max(1, next_output_bus)};
 inline constexpr std::array<const char*, {len(output_bus_names)}> kAudioOutputBusNames {{{{ {', '.join(cpp_string(name) for name in output_bus_names)} }}}};
