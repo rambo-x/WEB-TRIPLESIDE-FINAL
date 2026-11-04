@@ -16,6 +16,8 @@
 #include <cstdint>
 #include <filesystem>
 
+namespace tripleside::project { struct PresetMenuVisual; }
+
 namespace tripleside::native {
 class NativeInstrument;
 class NativeView final : public Steinberg::CPluginView {

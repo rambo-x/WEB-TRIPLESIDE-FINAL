@@ -729,6 +729,7 @@ def test_native_preset_launcher_prefers_preview_sprite_and_measured_rows():
     windows = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
     macos = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
 
+    assert "namespace tripleside::project { struct PresetMenuVisual; }" in header
     assert "const project::PresetMenuVisual* presetMenuVisual(int) const" in header
     assert "D2D1_RECT_F presetLauncherRowRect(int) const" in header
     assert "panelLauncherRect(static_cast<size_t>(presetLauncherMenuIndex))" in windows
