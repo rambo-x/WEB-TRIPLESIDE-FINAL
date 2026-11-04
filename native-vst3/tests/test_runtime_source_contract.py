@@ -719,20 +719,18 @@ def test_native_preset_launcher_draws_download_and_save_icons_as_vectors():
     assert "gap=0.f" in windows
     assert "bool NativeView::presetLauncherMenuUp()const" in windows
     assert "!requestedUp&&!fitsDown&&fitsUp" in windows
-    assert "arrowSize=std::clamp(width*.06f,6.f,9.f)" in windows
-    assert "target->FillGeometry(arrow.Get(),b.Get())" in windows
-    assert "arrowTipY=menuUp?anchor.top+arrowSize:anchor.bottom-arrowSize" in windows
-    assert "bridgeTop=menuUp?anchor.top:anchor.bottom" in windows
+    assert "const float top=presetLauncherMenuUp()?anchor.top-gap-height:anchor.bottom+gap" in windows
+    assert "FillGeometry(arrow.Get()" not in windows
+    assert "bridgeTop=menuUp?anchor.top:anchor.bottom" not in windows
     assert "const CGFloat gap = 0" in macos
     assert "- (BOOL)presetLauncherMenuUp" in macos
     assert "!requestedUp && !fitsDown && fitsUp" in macos
-    assert "NSBezierPath* menuArrow" in macos
-    assert "[menuArrow fill]" in macos
-    assert "arrowTipY = menuUp ? NSMinY(anchor) + arrowSize : NSMaxY(anchor) - arrowSize" in macos
-    assert "const NSRect bridge = NSMakeRect" in macos
+    assert "return NSMakeRect(left, up ? NSMinY(anchor) - height - gap : NSMaxY(anchor) + gap" in macos
+    assert "NSBezierPath* menuArrow" not in macos
+    assert "const NSRect bridge = NSMakeRect" not in macos
 
 
-def test_native_panel_launchers_have_pointer_hover_and_pressed_feedback():
+def test_native_panel_launchers_have_visible_hover_and_pressed_feedback():
     header = (SOURCE_DIR / "NativeView.h").read_text(encoding="utf-8")
     windows = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
     macos = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
@@ -742,10 +740,14 @@ def test_native_panel_launchers_have_pointer_hover_and_pressed_feedback():
     assert 'equals(hovered.kind,"panel_button")' in windows
     assert "pressedPanelControl=activeControl" in windows
     assert "pressedPanelControl=-1" in windows
+    assert 'equals(c.kind,"panel_button")&&(hoveredControl==static_cast<int>(index)||pressedPanelControl==static_cast<int>(index))' in windows
+    assert "pressed?.32f:.16f" in windows
     assert "_pressedPanelControl" in macos
     assert 'equals(project::kControls[index].kind, "panel_button")' in macos
     assert 'equals(control.kind, "panel_button")' in macos
     assert "_pressedPanelControl = _dragControl" in macos
+    assert "pressed ? rgbColor(project::kAccentRgb, .32)" in macos
+    assert "hovered ? rgbColor(project::kAccentRgb, .16)" in macos
     assert "else if(presetLauncherMenuIndex==activeControl)presetLauncherMenuIndex=-1" in windows
     assert "else if (_presetLauncherMenu == _dragControl) _presetLauncherMenu = -1" in macos
 
