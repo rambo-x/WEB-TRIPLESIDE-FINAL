@@ -360,6 +360,7 @@ namespace project = tripleside::project;
     NSInteger _hoveredControl;
     NSInteger _pressedPanelControl;
     NSInteger _outputMenuControl;
+    NSInteger _hoveredOutputMenuRow;
     NSTrackingArea* _trackingArea;
     CGFloat _panelX, _panelY, _panelWidth, _panelHeight;
     CGFloat _panelDragX, _panelDragY, _midiDragX, _midiDragY;
@@ -388,6 +389,7 @@ namespace project = tripleside::project;
 - (const project::PresetMenuVisual*)presetMenuVisual:(NSInteger)index;
 - (NSRect)presetLauncherRowRect:(NSInteger)row;
 - (NSRect)outputMenuRect:(NSInteger)index;
+- (NSInteger)outputMenuRowAt:(NSPoint)point;
 - (void)drawOutputMenu;
 - (BOOL)handleOutputMenuMouseDown:(NSPoint)point;
 - (NSRect)presetLauncherMenuRect;
@@ -453,6 +455,7 @@ namespace project = tripleside::project;
         _hoveredControl = -1;
         _pressedPanelControl = -1;
         _outputMenuControl = -1;
+        _hoveredOutputMenuRow = -1;
         _licenseInputFocused = NO;
         _presetNameFocused = NO;
         _textCaretResetAt = [NSDate timeIntervalSinceReferenceDate];
@@ -724,6 +727,19 @@ namespace project = tripleside::project;
     return NSMakeRect(left, top, width, height);
 }
 
+- (NSInteger)outputMenuRowAt:(NSPoint)point {
+    if (_outputMenuControl < 0 || static_cast<std::size_t>(_outputMenuControl) >= project::kControls.size()) return -1;
+    const auto& control = project::kControls[static_cast<std::size_t>(_outputMenuControl)];
+    if (!equals(control.kind, "output_selector") && !equals(control.kind, "dsp_selector")) return -1;
+    const NSRect menu = [self outputMenuRect:_outputMenuControl];
+    const NSRect content = NSInsetRect(menu, 4, 4);
+    if (!NSPointInRect(point, content)) return -1;
+    const NSInteger rows = equals(control.kind, "dsp_selector") ? std::max(1, control.choiceCount) : 2;
+    const CGFloat rowHeight = NSHeight(content) / rows;
+    const NSInteger row = static_cast<NSInteger>((point.y - NSMinY(content)) / std::max<CGFloat>(1, rowHeight));
+    return row >= 0 && row < rows ? row : -1;
+}
+
 - (void)drawOutputMenu {
     if (_outputMenuControl < 0 || static_cast<std::size_t>(_outputMenuControl) >= project::kControls.size()
         || !controlVisible(static_cast<std::size_t>(_outputMenuControl))) return;
@@ -739,8 +755,8 @@ namespace project = tripleside::project;
     strokeRounded(NSInsetRect(menu, .5, .5), 8, rgbColor(0xffffff, .14));
     for (NSInteger row = 0; row < rows; ++row) {
         const NSRect item = NSMakeRect(NSMinX(menu) + 4, NSMinY(menu) + 4 + row * rowHeight, NSWidth(menu) - 8, rowHeight);
-        const BOOL active = row == selected;
-        if (active) fillRounded(item, 5, rgbColor(project::kAccentRgb, .16));
+        const BOOL active = row == selected, hovered = row == _hoveredOutputMenuRow;
+        if (active || hovered) fillRounded(item, 5, rgbColor(project::kAccentRgb, hovered ? .18 : .16));
         NSString* label = @"Master";
         if (equals(control.kind, "dsp_selector")) {
             const NSInteger choice = control.choiceOffset + row;
@@ -764,11 +780,10 @@ namespace project = tripleside::project;
     if (_outputMenuControl < 0) return NO;
     const NSInteger index = _outputMenuControl;
     const auto& control = project::kControls[static_cast<std::size_t>(index)];
-    const NSInteger rows = equals(control.kind, "dsp_selector") ? std::max(1, control.choiceCount) : 2;
     const NSRect menu = [self outputMenuRect:index];
     if (NSPointInRect(point, menu)) {
-        const CGFloat rowHeight = (NSHeight(menu) - 8) / rows;
-        const NSInteger row = std::clamp<NSInteger>(static_cast<NSInteger>((point.y - NSMinY(menu) - 4) / std::max<CGFloat>(1, rowHeight)), 0, rows - 1);
+        const NSInteger row = [self outputMenuRowAt:point];
+        if (row < 0) return YES;
         float value = row ? 1.f : 0.f;
         if (equals(control.kind, "dsp_selector")) {
             const NSInteger choice = control.choiceOffset + row;
@@ -776,17 +791,23 @@ namespace project = tripleside::project;
         }
         [self setControl:index value:value];
         _outputMenuControl = -1;
+        _hoveredOutputMenuRow = -1;
         _dragControl = -1;
+        [self.window invalidateCursorRectsForView:self];
         [self setNeedsDisplay:YES];
         return YES;
     }
     if (NSPointInRect(point, [self selectorRect:index])) {
         _outputMenuControl = -1;
+        _hoveredOutputMenuRow = -1;
         _dragControl = -1;
+        [self.window invalidateCursorRectsForView:self];
         [self setNeedsDisplay:YES];
         return YES;
     }
     _outputMenuControl = -1;
+    _hoveredOutputMenuRow = -1;
+    [self.window invalidateCursorRectsForView:self];
     [self setNeedsDisplay:YES];
     return NO;
 }
@@ -2077,6 +2098,14 @@ namespace project = tripleside::project;
     for (std::size_t index = 0; index < project::kControls.size(); ++index) {
         if (equals(project::kControls[index].kind, "panel_button")) addDesignCursor([self panelLauncherRect:static_cast<NSInteger>(index)], NSCursor.pointingHandCursor);
     }
+    if (_outputMenuControl >= 0 && static_cast<std::size_t>(_outputMenuControl) < project::kControls.size()) {
+        const auto& control = project::kControls[static_cast<std::size_t>(_outputMenuControl)];
+        const NSInteger rows = equals(control.kind, "dsp_selector") ? std::max(1, control.choiceCount) : 2;
+        const NSRect menu = [self outputMenuRect:_outputMenuControl];
+        const CGFloat rowHeight = (NSHeight(menu) - 8) / rows;
+        for (NSInteger row = 0; row < rows; ++row)
+            addDesignCursor(NSMakeRect(NSMinX(menu) + 4, NSMinY(menu) + 4 + row * rowHeight, NSWidth(menu) - 8, rowHeight), NSCursor.pointingHandCursor);
+    }
     if (_presetLauncherMenu >= 0) for (NSInteger row = 0; row < 2; ++row) addDesignCursor([self presetLauncherRowRect:row], NSCursor.pointingHandCursor);
     if (_openPanel < 0) return;
     const NSRect panel = [self panelRect:_openPanel];
@@ -2105,6 +2134,8 @@ namespace project = tripleside::project;
 
 - (void)mouseMoved:(NSEvent*)event {
     const NSPoint point = [self designPoint:[self convertPoint:event.locationInWindow fromView:nil]];
+    const NSInteger nextOutputMenuRow = [self outputMenuRowAt:point];
+    if (nextOutputMenuRow != _hoveredOutputMenuRow) { _hoveredOutputMenuRow = nextOutputMenuRow; [self setNeedsDisplay:YES]; }
     NSInteger nextLauncherRow = -1;
     if (_presetLauncherMenu >= 0) for (NSInteger row = 0; row < 2; ++row) if (NSPointInRect(point, [self presetLauncherRowRect:row])) { nextLauncherRow = row; break; }
     if (nextLauncherRow != _hoveredPresetLauncherRow) { _hoveredPresetLauncherRow = nextLauncherRow; [self setNeedsDisplay:YES]; }
@@ -2134,7 +2165,7 @@ namespace project = tripleside::project;
 
 - (void)mouseExited:(NSEvent*)event {
     (void)event;
-    if (_hoveredPresetLauncherRow >= 0 || _hoveredPresetRow >= 0 || _hoveredPresetDeleteRow >= 0 || _hoveredControl >= 0) { _hoveredPresetLauncherRow = -1; _hoveredPresetRow = -1; _hoveredPresetDeleteRow = -1; _hoveredControl = -1; [self setNeedsDisplay:YES]; }
+    if (_hoveredOutputMenuRow >= 0 || _hoveredPresetLauncherRow >= 0 || _hoveredPresetRow >= 0 || _hoveredPresetDeleteRow >= 0 || _hoveredControl >= 0) { _hoveredOutputMenuRow = -1; _hoveredPresetLauncherRow = -1; _hoveredPresetRow = -1; _hoveredPresetDeleteRow = -1; _hoveredControl = -1; [self setNeedsDisplay:YES]; }
 }
 
 - (void)mouseDown:(NSEvent*)event {
@@ -2173,6 +2204,8 @@ namespace project = tripleside::project;
             _dragControl = -1;
         } else if (equals(control.kind, "output_selector") || equals(control.kind, "dsp_selector")) {
             _outputMenuControl = _dragControl;
+            _hoveredOutputMenuRow = -1;
+            [self.window invalidateCursorRectsForView:self];
             [self setNeedsDisplay:YES];
             _dragControl = -1;
         } else if (event.clickCount >= 2 && (equals(control.kind, "knob") || equals(control.kind, "fader"))) {
@@ -2245,6 +2278,8 @@ namespace project = tripleside::project;
             return;
         }
         _outputMenuControl = _dragControl;
+        _hoveredOutputMenuRow = -1;
+        [self.window invalidateCursorRectsForView:self];
         [self setNeedsDisplay:YES];
         _dragControl = -1;
     } else if (event.clickCount >= 2 && (equals(control.kind, "knob") || equals(control.kind, "fader"))) {

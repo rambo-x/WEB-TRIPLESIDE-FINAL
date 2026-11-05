@@ -696,6 +696,24 @@ def test_native_combo_box_geometry_uses_measured_preview_bounds_and_atlas():
     assert 'if (visual.file && *visual.file && visual.frames > 0) continue;' in macos
 
 
+def test_native_combo_box_popup_tracks_and_draws_hovered_rows():
+    windows = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+    windows_header = (SOURCE_DIR / "NativeView.h").read_text(encoding="utf-8")
+    macos = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
+
+    assert "hoveredOutputMenuRow" in windows_header
+    assert "int NativeView::outputMenuRowAt" in windows
+    assert "hovered=row==hoveredOutputMenuRow" in windows
+    assert "hovered?.18f:.16f" in windows
+    assert "outputMenuRowAt(design.x,design.y)>=0" in windows
+
+    assert "_hoveredOutputMenuRow" in macos
+    assert "- (NSInteger)outputMenuRowAt:(NSPoint)point" in macos
+    assert "hovered = row == _hoveredOutputMenuRow" in macos
+    assert "hovered ? .18 : .16" in macos
+    assert "NSCursor.pointingHandCursor" in macos
+
+
 def test_native_preset_launcher_draws_download_and_save_icons_as_vectors():
     windows = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
     macos = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
