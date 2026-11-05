@@ -47,6 +47,30 @@ def test_measured_fader_meter_track_survives_compilation(tmp_path):
     assert '91.0f, 76.0f, 10.0f, 56.0f' in header
 
 
+def test_captured_dsp_value_text_survives_compilation(tmp_path):
+    project = {'name': 'DSP Readout', 'plugin_kind': 'effect', 'interface': {'controls': [{
+        'id': 'pre-delay', 'kind': 'knob', 'x': 50, 'y': 50,
+    }]}}
+    source = tmp_path / 'project.json'
+    source.write_text(json.dumps(project))
+    assets = tmp_path / 'assets'
+    assets.mkdir()
+    rect = dict(x=12, y=34, width=112, height=122)
+    hit = dict(x=36, y=58, width=64, height=74)
+    (assets / 'visual_manifest.json').write_text(json.dumps({
+        'version': 1, 'width': 1024, 'height': 460,
+        'controls': [dict(file='visual_control_0.png', rect=rect, hit=hit,
+                          frames=3, columns=3, value_texts=['0 ms', '60 ms', '120 ms'])],
+        'keys': [],
+    }))
+
+    compiler.compile_manifest(source, tmp_path / 'NativeProject.h')
+    header = (tmp_path / 'NativeProject.h').read_text()
+
+    assert 'ControlValueTextRange{0, 3}' in header
+    assert 'kControlValueTexts {{ "0 ms", "60 ms", "120 ms" }}' in header
+
+
 def test_keyboard_key_source_size_survives_atlas_compilation(tmp_path):
     project = {'name':'Visual Instrument','plugin_kind':'effect','interface':{
         'controls':[{'id':'keys','kind':'keyboard','x':50,'y':50,'width':680,'height':150,'key_count':49}]}}

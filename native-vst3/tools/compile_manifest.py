@@ -662,6 +662,7 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
     def rect_values(rect):
         return ', '.join(cpp_float(rect[key]) for key in ('x', 'y', 'width', 'height'))
     visual_controls, visual_keys, visual_preset_menus = [], [], []
+    visual_value_text_ranges, visual_value_texts = [], []
     for control_index, item in enumerate(visual.get('controls', [])):
         meter_channels = item.get('meter_channels') or []
         empty_rect = {'x': 0, 'y': 0, 'width': 0, 'height': 0}
@@ -676,6 +677,19 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
             rect_values(selector_bounds), rect_values(launcher_bounds),
             str(item['frames']), str(item['columns']),
         )) + '}')
+        value_texts = item.get('value_texts') or []
+        if value_texts:
+            if str(controls[control_index].get('kind') or '') not in {'knob', 'fader'}:
+                fail('visual value text is only valid for knob and fader controls')
+            if len(value_texts) != int(item['frames']):
+                fail('visual value text/frame count mismatch')
+            if any(not isinstance(text, str) or len(text) > 96 for text in value_texts):
+                fail('visual value text is invalid')
+        value_text_offset = len(visual_value_texts)
+        visual_value_texts.extend(value_texts)
+        visual_value_text_ranges.append(
+            f'ControlValueTextRange{{{value_text_offset}, {len(value_texts)}}}'
+        )
         preset_menu = item.get('preset_menu') or {}
         menu_rows = preset_menu.get('rows') or []
         if preset_menu.get('file') and len(menu_rows) == 2:
@@ -726,10 +740,13 @@ struct DspModuleInfo {{ const char* id; const char* type; const char* name; int 
 struct DspParameterInfo {{ int moduleIndex; const char* key; float value; }};
 struct ImpulseResponseInfo {{ int moduleIndex; const char* resourceFile; bool normalize, autoTrim; float trimStart, trimEnd; bool polarityInverted; float phaseMs; }};
 struct VisualControl {{ const char* file; float x,y,w,h,hx,hy,hw,hh,mlx,mly,mlw,mlh,mrx,mry,mrw,mrh,rx,ry,rw,rh,sx,sy,sw,sh,lx,ly,lw,lh; int frames,columns; }};
+struct ControlValueTextRange {{ int offset,count; }};
 struct VisualKey {{ const char* file; int control,pitch; float x,y,w,h,hx,hy,hw,hh; int frame,columns,cellWidth,cellHeight,sourceWidth,sourceHeight; }};
 struct PresetMenuVisual {{ int control; const char* file; float x,y,w,h,mw,mh,lx,ly,lw,lh,sx,sy,sw,sh; int frames,columns; }};
 inline constexpr const char* kVisualBackdrop = {cpp_string('visual_backdrop.png' if visual else '')};
 inline constexpr std::array<VisualControl, {len(visual_controls)}> kVisualControls {{{{ {', '.join(visual_controls)} }}}};
+inline constexpr std::array<ControlValueTextRange, {len(visual_value_text_ranges)}> kControlValueTextRanges {{{{ {', '.join(visual_value_text_ranges)} }}}};
+inline constexpr std::array<const char*, {len(visual_value_texts)}> kControlValueTexts {{{{ {', '.join(cpp_string(text) for text in visual_value_texts)} }}}};
 inline constexpr std::array<VisualKey, {len(visual_keys)}> kVisualKeys {{{{ {', '.join(visual_keys)} }}}};
 inline constexpr std::array<PresetMenuVisual, {len(visual_preset_menus)}> kPresetMenuVisuals {{{{ {', '.join(visual_preset_menus)} }}}};
 inline constexpr int kPolyphony = {min(128, max(8, int(instrument.get("polyphony", 32))))};

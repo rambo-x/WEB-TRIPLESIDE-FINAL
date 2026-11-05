@@ -55,6 +55,15 @@ float neutralControlValue(const project::ControlInfo& control) {
     return .5f;
 }
 
+const char* capturedControlValueText(std::size_t index, float value) {
+    if (index >= project::kControlValueTextRanges.size()) return nullptr;
+    const auto& range = project::kControlValueTextRanges[index];
+    if (range.offset < 0 || range.count <= 0) return nullptr;
+    const NSInteger frame = std::lround(std::clamp(value, 0.f, 1.f) * static_cast<float>(range.count - 1));
+    const auto textIndex = static_cast<std::size_t>(range.offset + frame);
+    return textIndex < project::kControlValueTexts.size() ? project::kControlValueTexts[textIndex] : nullptr;
+}
+
 NSInteger nearestChoiceIndex(const project::ControlInfo& control, float value) {
     NSInteger result = -1;
     float distance = std::numeric_limits<float>::max();
@@ -572,11 +581,14 @@ namespace project = tripleside::project;
 
 - (void)drawControlValue:(std::size_t)index rect:(NSRect)rect value:(float)value {
     if (index >= project::kControls.size()) return; const auto& control = project::kControls[index]; const NSInteger percent = std::lround(std::clamp(value, 0.f, 1.f) * 100); NSString* text = nil;
-    if (control.moduleIndex >= 0 && equals(control.parameter, "tuning")) { const NSInteger amount = std::lround(value * 48) - 24; text = [NSString stringWithFormat:amount >= 0 ? @"+%ld st" : @"%ld st", (long)amount]; }
-    else if (control.moduleIndex >= 0 && equals(control.parameter, "fine_tune")) { const NSInteger amount = std::lround(value * 200) - 100; text = [NSString stringWithFormat:amount >= 0 ? @"+%ld ct" : @"%ld ct", (long)amount]; }
-    else if (equals(control.parameter, "pan") || startsWith(control.variant, "pan-")) text = percent == 50 ? @"C" : percent < 50 ? [NSString stringWithFormat:@"L%ld", (long)(100-percent*2)] : [NSString stringWithFormat:@"R%ld", (long)((percent-50)*2)];
-    else if (equals(control.kind, "fader") && (equals(control.parameter, "input") || equals(control.parameter, "output"))) { const CGFloat db = equals(control.parameter, "input") ? value * 24 - 12 : value * 16 - 12; text = std::abs(db) < .05 ? @"0 dB" : [NSString stringWithFormat:db > 0 ? @"+%.1f dB" : @"%.1f dB", db]; }
-    else text = [NSString stringWithFormat:equals(control.kind, "fader") ? @"%ld%%" : @"%ld", (long)percent];
+    if (const auto* captured = capturedControlValueText(index, value)) text = [NSString stringWithUTF8String:captured];
+    if (!text) {
+        if (control.moduleIndex >= 0 && equals(control.parameter, "tuning")) { const NSInteger amount = std::lround(value * 48) - 24; text = [NSString stringWithFormat:amount >= 0 ? @"+%ld st" : @"%ld st", (long)amount]; }
+        else if (control.moduleIndex >= 0 && equals(control.parameter, "fine_tune")) { const NSInteger amount = std::lround(value * 200) - 100; text = [NSString stringWithFormat:amount >= 0 ? @"+%ld ct" : @"%ld ct", (long)amount]; }
+        else if (equals(control.parameter, "pan") || startsWith(control.variant, "pan-")) text = percent == 50 ? @"C" : percent < 50 ? [NSString stringWithFormat:@"L%ld", (long)(100-percent*2)] : [NSString stringWithFormat:@"R%ld", (long)((percent-50)*2)];
+        else if (equals(control.kind, "fader") && (equals(control.parameter, "input") || equals(control.parameter, "output"))) { const CGFloat db = equals(control.parameter, "input") ? value * 24 - 12 : value * 16 - 12; text = std::abs(db) < .05 ? @"0 dB" : [NSString stringWithFormat:db > 0 ? @"+%.1f dB" : @"%.1f dB", db]; }
+        else text = [NSString stringWithFormat:equals(control.kind, "fader") ? @"%ld%%" : @"%ld", (long)percent];
+    }
     NSFont* font = [NSFont monospacedSystemFontOfSize:8 weight:NSFontWeightHeavy]; NSDictionary* attributes = @{NSFontAttributeName:font, NSForegroundColorAttributeName:equals(control.kind, "fader") ? rgbColor(0xf4f4f5) : rgbColor(0xf3e4be)}; const NSSize size = [text sizeWithAttributes:attributes]; const CGFloat width = std::max<CGFloat>(24, size.width + 10), height = 14; const BOOL fader = equals(control.kind, "fader"); const CGFloat center = fader ? NSMidX(rect) : NSMaxX(rect) - NSWidth(rect) * .08 - width * .5, bottom = fader ? NSMaxY(rect) - 2 : NSMaxY(rect) - NSHeight(rect) * .07; const NSRect pill = NSMakeRect(center - width * .5, bottom - height, width, height); fillRounded(pill, 7, rgbColor(0x050505, fader ? .84 : .78)); [text drawInRect:NSMakeRect(NSMinX(pill)+5, NSMinY(pill)+2, NSWidth(pill)-10, NSHeight(pill)-2) withAttributes:attributes];
 }
 
@@ -1643,8 +1655,8 @@ namespace project = tripleside::project;
         [rgbColor(control.colorRgb, opacity) setStroke]; path.lineWidth = baseWidth; [path stroke];
         if (pan) { const NSPoint marker = NSMakePoint(center.x, center.y - radius); const CGFloat markerRadius = std::max<CGFloat>(1.4, control.ringThickness * .52) * scale; if (strength > 0) for (std::size_t layer = 0; layer < spreads.size(); ++layer) { const CGFloat glowRadius = markerRadius + spreads[layer] * strength * .5 * scale; [rgbColor(control.colorRgb, opacity * opacities[layer] * strength) setFill]; [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(marker.x-glowRadius, marker.y-glowRadius, glowRadius*2, glowRadius*2)] fill]; } [rgbColor(control.colorRgb, opacity) setFill]; [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(marker.x-markerRadius, marker.y-markerRadius, markerRadius*2, markerRadius*2)] fill]; }
     }
-    const NSInteger numeric = pan ? static_cast<NSInteger>(std::lround((value - .5f) * 200.f)) : static_cast<NSInteger>(std::lround(value * 100.f));
-    NSString* label = pan && numeric > 0 ? [NSString stringWithFormat:@"+%ld", static_cast<long>(numeric)] : [NSString stringWithFormat:@"%ld", static_cast<long>(numeric)];
+    NSString* label = nil; if (const auto* captured = capturedControlValueText(index, value)) label = [NSString stringWithUTF8String:captured];
+    if (!label) { const NSInteger numeric = pan ? static_cast<NSInteger>(std::lround((value - .5f) * 200.f)) : static_cast<NSInteger>(std::lround(value * 100.f)); label = pan && numeric > 0 ? [NSString stringWithFormat:@"+%ld", static_cast<long>(numeric)] : [NSString stringWithFormat:@"%ld", static_cast<long>(numeric)]; }
     NSDictionary* attributes = openRingTextAttributes(std::clamp<CGFloat>(control.ringValueFontSize, 8, 32) * scale, rgbColor(control.ringValueColorRgb, opacity), control.ringValueFontWeight);
     const NSSize textSize = [label sizeWithAttributes:attributes];
     [label drawInRect:NSMakeRect(NSMinX(rect), NSMidY(rect) - textSize.height * .5, NSWidth(rect), textSize.height) withAttributes:attributes];

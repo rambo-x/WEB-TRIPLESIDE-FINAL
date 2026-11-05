@@ -441,11 +441,20 @@ def test_native_value_readouts_follow_hover_for_atlas_and_fallback_controls():
     assert "_hoveredControl" in mac
     assert mac.count("drawControlValue:") >= 4
     for source in (windows, mac):
+        assert "capturedControlValueText" in source
+        assert "kControlValueTextRanges" in source
+        assert "kControlValueTexts" in source
         assert '"tuning"' in source
         assert '"fine_tune"' in source
         assert '"pan-"' in source
         assert '"input"' in source
         assert '"output"' in source
+
+    capture = (SOURCE_DIR.parent / "tools" / "render_visual_assets.py").read_text(encoding="utf-8")
+    compiler = (SOURCE_DIR.parent / "tools" / "compile_manifest.py").read_text(encoding="utf-8")
+    assert "get_attribute('aria-valuetext')" in capture
+    assert "value_texts=value_texts" in capture
+    assert "ControlValueTextRange" in compiler
 
 
 def test_native_sampler_mute_and_solo_are_exclusive_while_multi_solo_remains_valid():

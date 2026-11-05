@@ -314,17 +314,19 @@ def render(spec_path, url, browser=None):
                 frames = control_frame_count(kind, control)
                 columns = min(frames, max(1, 4096 // rect['width']))
                 atlas = Image.new('RGBA', (rect['width']*columns, rect['height']*math.ceil(frames/columns)))
+                value_texts = []
                 if max(atlas.size) > 8192:
                     raise ValueError('Visual atlas exceeds 8192 pixels; reduce component size')
                 if kind == 'keyboard':
                     element.locator('[data-vst-pitch]').evaluate_all("es => es.forEach(e => e.style.visibility='hidden')")
                 for frame in range(frames):
                     value = frame * 100 / max(1, frames-1)
+                    sprite_value = value
                     if kind == 'knob' and control.get('component_variant') == 'open-led-ring':
-                        value = 0
+                        sprite_value = 0
                     elif kind == 'knob' and control.get('component_variant') == 'pan-open-led-ring':
-                        value = 50
-                    state = dict(id=control['id'], value=value, panelId=parent_panel_id or None)
+                        sprite_value = 50
+                    state = dict(id=control['id'], value=sprite_value, panelId=parent_panel_id or None)
                     if kind == 'pad' and frame:
                         state['pitch'] = control.get('note_pitch', 60)
                     elif kind == 'panel_button':
@@ -332,7 +334,20 @@ def render(spec_path, url, browser=None):
                             id=control['id'],
                             state=('idle', 'hover', 'pressed', 'active')[frame],
                         )
-                    page.evaluate('(f) => window.__vstVisual.setFrame(f)', state)
+                    if kind in {'knob', 'fader'}:
+                        readout_state = dict(state, value=value)
+                        page.evaluate('(f) => window.__vstVisual.setFrame(f)', readout_state)
+                        slider = element.locator('[role="slider"]')
+                        if slider.count() != 1:
+                            raise ValueError(f'Control value readout is missing or ambiguous: {control.get("id")}')
+                        value_text = slider.get_attribute('aria-valuetext')
+                        if value_text is None or len(value_text) > 96:
+                            raise ValueError(f'Control value readout is invalid: {control.get("id")}')
+                        value_texts.append(value_text)
+                        if sprite_value != value:
+                            page.evaluate('(f) => window.__vstVisual.setFrame(f)', state)
+                    else:
+                        page.evaluate('(f) => window.__vstVisual.setFrame(f)', state)
                     atlas.paste(capture(rect, uses_backdrop), ((frame%columns)*rect['width'], (frame//columns)*rect['height']))
                 if kind == 'panel_button' and control.get('panel_type') == 'preset_browser':
                     page.evaluate('(f) => window.__vstVisual.setFrame(f)', dict(
@@ -407,6 +422,7 @@ def render(spec_path, url, browser=None):
                     selector_bounds=selector_bounds,
                     launcher_bounds=launcher_bounds,
                     preset_menu=preset_menu,
+                    value_texts=value_texts,
                 ))
                 if kind == 'keyboard':
                     keys = element.locator('[data-vst-pitch]')
