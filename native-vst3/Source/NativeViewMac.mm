@@ -581,7 +581,7 @@ namespace project = tripleside::project;
 
 - (void)drawControlValue:(std::size_t)index rect:(NSRect)rect value:(float)value {
     if (index >= project::kControls.size()) return; const auto& control = project::kControls[index]; const NSInteger percent = std::lround(std::clamp(value, 0.f, 1.f) * 100); NSString* text = nil;
-    if (const auto* captured = capturedControlValueText(index, value)) text = [NSString stringWithUTF8String:captured];
+    if (const auto* captured = tripleside::native::capturedControlValueText(index, value)) text = [NSString stringWithUTF8String:captured];
     if (!text) {
         if (control.moduleIndex >= 0 && equals(control.parameter, "tuning")) { const NSInteger amount = std::lround(value * 48) - 24; text = [NSString stringWithFormat:amount >= 0 ? @"+%ld st" : @"%ld st", (long)amount]; }
         else if (control.moduleIndex >= 0 && equals(control.parameter, "fine_tune")) { const NSInteger amount = std::lround(value * 200) - 100; text = [NSString stringWithFormat:amount >= 0 ? @"+%ld ct" : @"%ld ct", (long)amount]; }
@@ -1655,7 +1655,7 @@ namespace project = tripleside::project;
         [rgbColor(control.colorRgb, opacity) setStroke]; path.lineWidth = baseWidth; [path stroke];
         if (pan) { const NSPoint marker = NSMakePoint(center.x, center.y - radius); const CGFloat markerRadius = std::max<CGFloat>(1.4, control.ringThickness * .52) * scale; if (strength > 0) for (std::size_t layer = 0; layer < spreads.size(); ++layer) { const CGFloat glowRadius = markerRadius + spreads[layer] * strength * .5 * scale; [rgbColor(control.colorRgb, opacity * opacities[layer] * strength) setFill]; [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(marker.x-glowRadius, marker.y-glowRadius, glowRadius*2, glowRadius*2)] fill]; } [rgbColor(control.colorRgb, opacity) setFill]; [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(marker.x-markerRadius, marker.y-markerRadius, markerRadius*2, markerRadius*2)] fill]; }
     }
-    NSString* label = nil; if (const auto* captured = capturedControlValueText(index, value)) label = [NSString stringWithUTF8String:captured];
+    NSString* label = nil; if (const auto* captured = tripleside::native::capturedControlValueText(index, value)) label = [NSString stringWithUTF8String:captured];
     if (!label) { const NSInteger numeric = pan ? static_cast<NSInteger>(std::lround((value - .5f) * 200.f)) : static_cast<NSInteger>(std::lround(value * 100.f)); label = pan && numeric > 0 ? [NSString stringWithFormat:@"+%ld", static_cast<long>(numeric)] : [NSString stringWithFormat:@"%ld", static_cast<long>(numeric)]; }
     NSDictionary* attributes = openRingTextAttributes(std::clamp<CGFloat>(control.ringValueFontSize, 8, 32) * scale, rgbColor(control.ringValueColorRgb, opacity), control.ringValueFontWeight);
     const NSSize textSize = [label sizeWithAttributes:attributes];

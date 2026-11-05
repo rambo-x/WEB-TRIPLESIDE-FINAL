@@ -440,6 +440,7 @@ def test_native_value_readouts_follow_hover_for_atlas_and_fallback_controls():
     assert windows.count("drawControlValue(") >= 3
     assert "_hoveredControl" in mac
     assert mac.count("drawControlValue:") >= 4
+    assert mac.count("tripleside::native::capturedControlValueText") >= 2
     for source in (windows, mac):
         assert "capturedControlValueText" in source
         assert "kControlValueTextRanges" in source
