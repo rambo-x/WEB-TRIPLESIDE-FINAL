@@ -68,6 +68,13 @@ def test_capture_cleanup_preserves_normalized_background(tmp_path):
     assert background.read_bytes() == b"keep"
 
 
+def test_preset_menu_raster_hides_small_text_for_crisp_native_overlay():
+    source = MODULE_PATH.read_text(encoding="utf-8")
+    assert "native_content_overlay=True" in source
+    assert "setProperty('color', 'transparent', 'important')" in source
+    assert "removeProperty('color')" in source
+
+
 def test_context_delta_recomposes_backdrop_dependent_pixels_exactly():
     backdrop = Image.new("RGBA", (4, 3), (10, 20, 30, 255))
     context = backdrop.copy()

@@ -860,7 +860,8 @@ namespace project = tripleside::project;
     if (_presetLauncherMenu < 0 || _openPanel >= 0) return;
     const NSRect menu = [self presetLauncherMenuRect];
     if (NSIsEmptyRect(menu)) return;
-    if (const auto* visual = [self presetMenuVisual:_presetLauncherMenu]) {
+    const auto* visual = [self presetMenuVisual:_presetLauncherMenu];
+    if (visual) {
         NSImage* image = [self imageNamed:visual->file];
         if (!image || visual->w <= 0 || visual->h <= 0) return;
         const NSInteger frame = std::clamp<NSInteger>(_hoveredPresetLauncherRow + 1, 0, std::max(0, visual->frames - 1));
@@ -870,17 +871,19 @@ namespace project = tripleside::project;
                  fromRect:NSMakeRect(column * visual->w, sourceY, visual->w, visual->h)
                 operation:NSCompositingOperationSourceOver fraction:1 respectFlipped:YES
                     hints:@{NSImageHintInterpolation: @(NSImageInterpolationHigh)}];
-        return;
+        if (!visual->nativeContent) return;
     }
     const CGFloat padding = std::clamp<CGFloat>(NSWidth(menu) * .04, 3, 6), rowHeight = (NSHeight(menu) - padding * 3) * .5;
-    fillRounded(menu, std::clamp<CGFloat>(NSWidth(menu) * .07, 6, 11), rgbColor(0x09090b, .995));
-    strokeRounded(NSInsetRect(menu, .5, .5), std::clamp<CGFloat>(NSWidth(menu) * .07, 6, 11), rgbColor(project::kAccentRgb, .42));
+    if (!visual) {
+        fillRounded(menu, std::clamp<CGFloat>(NSWidth(menu) * .07, 6, 11), rgbColor(0x09090b, .995));
+        strokeRounded(NSInsetRect(menu, .5, .5), std::clamp<CGFloat>(NSWidth(menu) * .07, 6, 11), rgbColor(project::kAccentRgb, .42));
+    }
     const CGFloat iconSize = std::clamp<CGFloat>(NSWidth(menu) * .065, 8, 13);
     const CGFloat iconInset = std::clamp<CGFloat>(NSWidth(menu) * .08, 4, 11);
     const CGFloat iconGap = std::clamp<CGFloat>(NSWidth(menu) * .035, 3, 6);
     for (NSInteger row = 0; row < 2; ++row) {
-        const NSRect item = NSMakeRect(NSMinX(menu) + padding, NSMinY(menu) + padding + row * (rowHeight + padding), NSWidth(menu) - padding * 2, rowHeight);
-        fillRounded(item, std::clamp<CGFloat>(NSWidth(menu) * .05, 4, 8), rgbColor(0xffffff, .035));
+        const NSRect item = visual ? [self presetLauncherRowRect:row] : NSMakeRect(NSMinX(menu) + padding, NSMinY(menu) + padding + row * (rowHeight + padding), NSWidth(menu) - padding * 2, rowHeight);
+        if (!visual) fillRounded(item, std::clamp<CGFloat>(NSWidth(menu) * .05, 4, 8), rgbColor(0xffffff, .035));
         const CGFloat iconLeft = NSMinX(item) + iconInset, iconTop = NSMidY(item) - iconSize * .5, iconRight = iconLeft + iconSize, iconBottom = iconTop + iconSize, iconCenterX = (iconLeft + iconRight) * .5;
         NSBezierPath* actionIcon = [NSBezierPath bezierPath]; actionIcon.lineWidth = std::clamp<CGFloat>(iconSize * .12, 1, 1.6); actionIcon.lineCapStyle = NSLineCapStyleRound; actionIcon.lineJoinStyle = NSLineJoinStyleRound; [rgbColor(0xe4e4e7) setStroke];
         if (row == 0) {
@@ -1087,12 +1090,14 @@ namespace project = tripleside::project;
             const NSRect loop = NSMakeRect(contentRight - 64, rowTop + 9, 30, 28);
             fillRounded(loop, 9, [self midiSequenceLoopEnabled:sourceIndex] ? rgbColor(project::kAccentRgb, .26) : rgbColor(0xffffff, .05));
             [([self midiSequenceLoopEnabled:sourceIndex] ? accent : rgbColor(0xa1a1aa)) setStroke];
-            NSBezierPath* repeatIcon = [NSBezierPath bezierPath]; repeatIcon.lineWidth = 1.35; repeatIcon.lineCapStyle = NSLineCapStyleRound; repeatIcon.lineJoinStyle = NSLineJoinStyleRound;
-            const CGFloat ix = NSMinX(loop) + 8, iy = NSMinY(loop) + 7;
-            [repeatIcon moveToPoint:NSMakePoint(ix, iy + 3)]; [repeatIcon lineToPoint:NSMakePoint(ix, iy + 1)]; [repeatIcon lineToPoint:NSMakePoint(ix + 12, iy + 1)];
-            [repeatIcon moveToPoint:NSMakePoint(ix + 9, iy - 2)]; [repeatIcon lineToPoint:NSMakePoint(ix + 12, iy + 1)]; [repeatIcon lineToPoint:NSMakePoint(ix + 9, iy + 4)];
-            [repeatIcon moveToPoint:NSMakePoint(ix + 12, iy + 7)]; [repeatIcon lineToPoint:NSMakePoint(ix + 12, iy + 9)]; [repeatIcon lineToPoint:NSMakePoint(ix, iy + 9)];
-            [repeatIcon moveToPoint:NSMakePoint(ix + 3, iy + 6)]; [repeatIcon lineToPoint:NSMakePoint(ix, iy + 9)]; [repeatIcon lineToPoint:NSMakePoint(ix + 3, iy + 12)]; [repeatIcon stroke];
+            constexpr CGFloat repeatSize = 13, repeatScale = repeatSize / 24;
+            const CGFloat repeatX = NSMidX(loop) - repeatSize * .5, repeatY = NSMidY(loop) - repeatSize * .5;
+            const auto repeatPoint = [&](CGFloat x, CGFloat y) { return NSMakePoint(repeatX + x * repeatScale, repeatY + y * repeatScale); };
+            NSBezierPath* repeatIcon = [NSBezierPath bezierPath]; repeatIcon.lineWidth = 2 * repeatScale; repeatIcon.lineCapStyle = NSLineCapStyleRound; repeatIcon.lineJoinStyle = NSLineJoinStyleRound;
+            [repeatIcon moveToPoint:repeatPoint(2, 9)]; [repeatIcon lineToPoint:repeatPoint(5, 6)]; [repeatIcon lineToPoint:repeatPoint(8, 9)];
+            [repeatIcon moveToPoint:repeatPoint(13, 18)]; [repeatIcon lineToPoint:repeatPoint(7, 18)]; [repeatIcon curveToPoint:repeatPoint(5, 16) controlPoint1:repeatPoint(5.895, 18) controlPoint2:repeatPoint(5, 17.105)]; [repeatIcon lineToPoint:repeatPoint(5, 6)];
+            [repeatIcon moveToPoint:repeatPoint(22, 15)]; [repeatIcon lineToPoint:repeatPoint(19, 18)]; [repeatIcon lineToPoint:repeatPoint(16, 15)];
+            [repeatIcon moveToPoint:repeatPoint(11, 6)]; [repeatIcon lineToPoint:repeatPoint(17, 6)]; [repeatIcon curveToPoint:repeatPoint(19, 8) controlPoint1:repeatPoint(18.105, 6) controlPoint2:repeatPoint(19, 6.895)]; [repeatIcon lineToPoint:repeatPoint(19, 18)]; [repeatIcon stroke];
             const NSRect play = NSMakeRect(contentRight - 30, rowTop + 9, 30, 28);
             fillRounded(play, 9, accent);
             [(playing ? @"■" : @"▶") drawInRect:NSMakeRect(NSMinX(play), NSMinY(play) + 7, 30, 14)

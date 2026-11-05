@@ -107,7 +107,7 @@ def test_selector_launcher_and_preset_menu_geometry_survive_compilation(tmp_path
         'launcher_bounds': launcher, 'frames': 4, 'columns': 4,
         'preset_menu': {'file': 'visual_preset_menu_0.png', 'rect': menu_rect,
                         'menu_size': {'width': 148, 'height': 74}, 'rows': rows,
-                        'frames': 3, 'columns': 3},
+                        'frames': 3, 'columns': 3, 'native_content_overlay': True},
     }], 'keys': []}
     (assets / 'visual_manifest.json').write_text(json.dumps(manifest))
 
@@ -116,7 +116,7 @@ def test_selector_launcher_and_preset_menu_geometry_survive_compilation(tmp_path
 
     assert '34.0f, 44.0f, 148.0f, 64.0f, 4, 4}' in header
     assert 'PresetMenuVisual{0, "visual_preset_menu_0.png", -48.0f, -48.0f, 244.0f, 176.0f, 148.0f, 74.0f' in header
-    assert '6.0f, 6.0f, 136.0f, 28.0f, 6.0f, 40.0f, 136.0f, 28.0f, 3, 3}' in header
+    assert '6.0f, 6.0f, 136.0f, 28.0f, 6.0f, 40.0f, 136.0f, 28.0f, 3, 3, true}' in header
 
 
 def test_incomplete_capture_cannot_silently_fall_back(tmp_path):

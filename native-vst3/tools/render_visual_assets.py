@@ -371,6 +371,12 @@ def render(spec_path, url, browser=None):
                     row_hits = [menu_rows.nth(row).bounding_box() for row in range(menu_rows.count())]
                     if menu_hit is None or len(row_hits) != 2 or any(row is None for row in row_hits):
                         raise ValueError(f'Preset launcher menu geometry is missing: {control.get("id")}')
+                    # Keep the exact DOM background/border/hover pixels, but draw
+                    # text and icons live in native. Rasterizing 6-10 px glyphs at
+                    # CSS scale 1 made them blurry when a DAW applied HiDPI scale.
+                    menu_rows.evaluate_all(
+                        "buttons => buttons.forEach(button => button.style.setProperty('color', 'transparent', 'important'))"
+                    )
                     menu_rect = bounds(menu_hit, 48, width, height)
                     menu_frames = 3
                     menu_columns = min(menu_frames, max(1, 4096 // menu_rect['width']))
@@ -402,6 +408,10 @@ def render(spec_path, url, browser=None):
                             width=row['width'], height=row['height'],
                         ) for row in row_hits],
                         frames=menu_frames, columns=menu_columns,
+                        native_content_overlay=True,
+                    )
+                    menu_rows.evaluate_all(
+                        "buttons => buttons.forEach(button => button.style.removeProperty('color'))"
                     )
                     if original_style is None:
                         element.evaluate("e => e.removeAttribute('style')")

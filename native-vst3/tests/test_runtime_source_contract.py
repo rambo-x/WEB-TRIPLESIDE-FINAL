@@ -677,9 +677,15 @@ def test_native_groove_loop_icon_matches_repeat2_and_preset_combo_style():
 
     assert 'button(contentRight-64,midiSequenceLoopEnabled(source),L"\\u21BB")' not in windows
     assert "const float loopX=contentRight-64" in windows
-    assert "target->DrawLine(D2D1::Point2F(ix+9,iy-2)" in windows
+    assert "loopIconScale=loopIconSize/24.f" in windows
+    assert "repeatSink->BeginFigure(point(2,9)" in windows
+    assert "repeatSink->AddBezier" in windows
+    assert "repeatStrokeProperties.lineJoin=D2D1_LINE_JOIN_ROUND" in windows
     assert '@"↻"' not in macos
     assert "NSBezierPath* repeatIcon" in macos
+    assert "repeatSize = 13, repeatScale = repeatSize / 24" in macos
+    assert "repeatPoint(2, 9)" in macos
+    assert "curveToPoint:repeatPoint(5, 16)" in macos
     assert 'equals(c.variant,"preset-browser-combo")' in windows
     assert "rgb(0x292930)" in windows
     assert 'equals(control.variant, "preset-browser-combo")' in macos
@@ -769,6 +775,19 @@ def test_native_preset_launcher_prefers_preview_sprite_and_measured_rows():
     assert "NSImage* image = [self imageNamed:visual->file]" in macos
     assert 'if (equals(control.kind, "panel_button")) {' in macos
     assert "NSPointInRect(point, [self panelLauncherRect:index])" in macos
+
+
+def test_native_preset_menu_overlays_crisp_live_text_on_preview_background():
+    windows = (SOURCE_DIR / "NativeView.cpp").read_text(encoding="utf-8")
+    macos = (SOURCE_DIR / "NativeViewMac.mm").read_text(encoding="utf-8")
+    compiler = (SOURCE_DIR.parent / "tools" / "compile_manifest.py").read_text(encoding="utf-8")
+
+    assert "bool nativeContent" in compiler
+    assert "if(!visual->nativeContent)return" in windows
+    assert 'CreateTextFormat(L"Manrope",brandFontCollection.Get()' in windows
+    assert "const auto item=visual?presetLauncherRowRect(row)" in windows
+    assert "if (!visual->nativeContent) return" in macos
+    assert "const NSRect item = visual ? [self presetLauncherRowRect:row]" in macos
 
 
 def test_native_panel_launchers_use_preview_atlas_for_hover_pressed_and_active_feedback():

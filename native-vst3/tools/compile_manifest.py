@@ -700,6 +700,7 @@ def compile_manifest(spec_path: Path, output_path: Path) -> None:
                 cpp_float(menu_size.get('width', 0)), cpp_float(menu_size.get('height', 0)),
                 rect_values(menu_rows[0]), rect_values(menu_rows[1]),
                 str(preset_menu.get('frames') or 1), str(preset_menu.get('columns') or 1),
+                'true' if preset_menu.get('native_content_overlay') else 'false',
             )) + '}')
     for item in visual.get('keys', []):
         visual_keys.append('VisualKey{' + ', '.join((
@@ -742,7 +743,7 @@ struct ImpulseResponseInfo {{ int moduleIndex; const char* resourceFile; bool no
 struct VisualControl {{ const char* file; float x,y,w,h,hx,hy,hw,hh,mlx,mly,mlw,mlh,mrx,mry,mrw,mrh,rx,ry,rw,rh,sx,sy,sw,sh,lx,ly,lw,lh; int frames,columns; }};
 struct ControlValueTextRange {{ int offset,count; }};
 struct VisualKey {{ const char* file; int control,pitch; float x,y,w,h,hx,hy,hw,hh; int frame,columns,cellWidth,cellHeight,sourceWidth,sourceHeight; }};
-struct PresetMenuVisual {{ int control; const char* file; float x,y,w,h,mw,mh,lx,ly,lw,lh,sx,sy,sw,sh; int frames,columns; }};
+struct PresetMenuVisual {{ int control; const char* file; float x,y,w,h,mw,mh,lx,ly,lw,lh,sx,sy,sw,sh; int frames,columns; bool nativeContent; }};
 inline constexpr const char* kVisualBackdrop = {cpp_string('visual_backdrop.png' if visual else '')};
 inline constexpr std::array<VisualControl, {len(visual_controls)}> kVisualControls {{{{ {', '.join(visual_controls)} }}}};
 inline constexpr std::array<ControlValueTextRange, {len(visual_value_text_ranges)}> kControlValueTextRanges {{{{ {', '.join(visual_value_text_ranges)} }}}};
